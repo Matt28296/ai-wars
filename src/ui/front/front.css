@@ -350,3 +350,97 @@ a.awf-choice--primary:focus-visible { --edge: var(--ink); --fill: var(--signal);
   .awf-progress-bar { animation: none; width: 100%; opacity: 0.45; }
   .awf-choice-go, .awf-cut::before { transition: none; }
 }
+
+/* ================================================================ the mission's story over its battle (G13) */
+/* the dialogue that slides up over the bottom of the board when the battle reaches a moment of the script */
+.awf-story {
+  padding: 56px clamp(10px, 2vw, 24px) clamp(10px, 2vw, 20px);
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--void) 68%, transparent) 46%, color-mix(in srgb, var(--void) 88%, transparent) 100%);
+  animation: awf-rise 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.awf-run { cursor: pointer; user-select: none; -webkit-user-select: none; filter: drop-shadow(var(--shadow-panel)); }
+@keyframes awf-rise { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: none; } }
+
+.awf-dlg--compact { width: min(100%, 900px); margin: 0 auto; gap: var(--space-4); }
+.awf-dlg--compact .awf-dlg-panel { min-height: 0; padding: 12px 22px 10px 22px; }
+.awf-dlg--compact .awf-dlg-text { min-height: 3.2em; margin-top: var(--space-2); font-size: 16px; line-height: 24px; }
+.awf-dlg--compact .awf-dlg-foot { padding-top: var(--space-1); }
+.awf-dlg-foot .awf-dlg-skip { margin-left: auto; margin-right: var(--space-4); height: 24px; padding: 0 var(--space-2); }
+.awf-dlg--compact .awf-dlg-hint { margin-right: 20px; }
+.awf-dlg--compact.awf-dlg--narrator .awf-dlg-panel { flex: 0 1 720px; }
+
+/* the debrief: a screen over the dimmed board. It waits a beat so the last blow lands before it speaks. */
+.awf-debrief {
+  position: fixed; inset: 0; z-index: 40; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: clamp(96px, 15vh, 140px) clamp(12px, 3vw, 40px) 24px; /* clear of the watch view's own toolbar row */
+  background:
+    radial-gradient(120% 90% at 50% 45%, color-mix(in srgb, var(--void) 80%, transparent) 0%, color-mix(in srgb, var(--void) 93%, transparent) 100%);
+  animation: awf-fade 420ms ease-out 700ms both;
+}
+.awf-debrief-body { width: min(100%, 920px); margin: auto; display: flex; flex-direction: column; align-items: stretch; gap: var(--space-4); }
+.awf-debrief-head { text-align: center; }
+.awf-verdict {
+  margin: 4px 0 0; font-family: var(--font-display); font-weight: 700; font-size: clamp(48px, 9vw, 96px); line-height: 0.95; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--signal); text-shadow: 0 6px 40px #000000b3;
+}
+.awf-verdict[data-outcome='defeat'] { color: var(--danger); }
+.awf-verdict[data-outcome='undecided'] { color: var(--warn); }
+.awf-debrief-talk .awf-dlg--compact { width: 100%; }
+.awf-debrief-card { outline: none; }
+
+.awf-result {
+  --cut: var(--chamfer); --fill: color-mix(in srgb, var(--panel) 96%, transparent);
+  display: grid; grid-template-columns: 188px minmax(0, 1fr); grid-template-areas: "rank stats" "rule rule" "actions actions"; outline: none;
+}
+.awf-result-rank { grid-area: rank; padding: 22px 18px 18px 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-right: 1px solid var(--line); text-align: center; }
+.awf-result-rank-label { color: var(--ink-muted); text-transform: uppercase; }
+.awf-rank-letter { font-family: var(--font-display); font-weight: 700; font-size: 104px; line-height: 1; color: var(--signal); text-shadow: 0 0 28px color-mix(in srgb, var(--signal) 40%, transparent); }
+.awf-result-rank[data-rank='none'] .awf-rank-letter { color: var(--ink-muted); text-shadow: none; font-size: 72px; }
+.awf-result-rank-note { color: var(--ink-muted); }
+.awf-stats { grid-area: stats; margin: 0; padding: 14px 24px 8px; display: flex; flex-direction: column; min-width: 0; }
+.awf-stat { display: grid; grid-template-columns: minmax(120px, 1.1fr) minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: var(--space-3); min-height: 46px; border-bottom: 1px solid var(--line); }
+.awf-stat:last-child { border-bottom: 0; }
+.awf-stat > dd { margin: 0; }
+.awf-stat-name { margin: 0; color: var(--ink-muted); text-transform: uppercase; }
+.awf-stat-val { display: flex; align-items: baseline; gap: var(--space-2); }
+.awf-par { color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.awf-stat-score { display: grid; grid-template-columns: auto auto minmax(40px, 1fr); align-items: center; gap: var(--space-2); }
+.awf-score-name { color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.awf-score-num { color: var(--ink); min-width: 3ch; text-align: right; }
+.awf-bar { display: block; height: 6px; background: var(--line); }
+.awf-bar-fill { display: block; height: 100%; background: var(--signal); }
+.awf-result-rule { grid-area: rule; margin: 0; padding: 10px 24px 12px 22px; color: var(--ink-muted); border-top: 1px solid var(--line); }
+.awf-result-actions { grid-area: actions; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); padding: 12px 22px 18px; background: color-mix(in srgb, var(--panel-raised) 55%, transparent); border-top: 1px solid var(--line); }
+.awf-result-actions .aw-btn { text-decoration: none; }
+
+/* a phone: the dialogue sits at the bottom of the screen (the board is small up there), and the card stacks */
+@media (max-width: 640px) {
+  .awf-story { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; padding: 40px 8px 8px; }
+  .awf-dlg--compact { padding-top: 34px; }
+  .awf-dlg--compact.awf-dlg--narrator { padding-top: 0; }
+  .awf-dlg--compact.awf-dlg--narrator .awf-dlg-panel { flex: 0 0 auto; } /* the desktop rule's 720px is a WIDTH basis; in a column it would be a height */
+  .awf-dlg--compact .awf-dlg-panel { padding: 10px 14px 8px; }
+  .awf-dlg--compact .awf-dlg-who { padding-left: 84px; min-height: 30px; }
+  .awf-dlg--compact[data-side='right'] .awf-dlg-who { padding-left: 0; padding-right: 84px; }
+  .awf-dlg--compact.awf-dlg--narrator .awf-dlg-who { padding: 0; }
+  .awf-dlg--compact .awf-dlg-text { min-height: 4.8em; font-size: 14px; line-height: 21px; }
+  .awf-debrief { justify-content: flex-start; padding: 16px 10px 24px; background: color-mix(in srgb, var(--void) 95%, transparent); }
+  .awf-verdict { font-size: clamp(40px, 15vw, 64px); }
+  .awf-result { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rank" "stats" "rule" "actions"; }
+  .awf-result-rank { flex-direction: row; justify-content: flex-start; gap: var(--space-4); padding: 14px 16px 10px; border-right: 0; border-bottom: 1px solid var(--line); text-align: left; flex-wrap: wrap; }
+  .awf-rank-letter { font-size: 64px; }
+  .awf-result-rank[data-rank='none'] .awf-rank-letter { font-size: 48px; }
+  .awf-stats { padding: 6px 16px 4px; }
+  .awf-stat { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name val" "score score"; row-gap: 2px; padding: 6px 0; }
+  .awf-stat-name { grid-area: name; }
+  .awf-stat-val { grid-area: val; justify-content: flex-end; }
+  .awf-stat-score { grid-area: score; }
+  .awf-result-rule { padding: 8px 16px; }
+  .awf-result-actions { justify-content: stretch; padding: 12px 16px 16px; }
+  .awf-result-actions .aw-btn { flex: 1 1 100%; justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .awf-story { animation: none; }
+  .awf-debrief { animation: none; }
+}

@@ -6,7 +6,7 @@
 // A player viewer renders ONLY observe(state, viewer) and its log uses ONLY viewEvents(before, after, events, viewer); 'all' is the
 // omniscient post-match view (timeline.ts). The board, HUD, log and animation are all drawn from the timeline's frames and events.
 import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import type { Action, CreateGameOptions } from '../../game/aw';
 import { Controls, ViewerToggle } from './Controls';
 import { EventLog } from './EventLog';
@@ -41,6 +41,18 @@ export interface WatchViewProps {
   autoPlay?: boolean;
   /** Called whenever the step or speed changes, e.g. to keep a URL hash in step. */
   onPositionChange?: (p: { step: number; speed: Speed }) => void;
+  /**
+   * Drawn above the board, over its bottom edge, inside the stage area (the mission's dialogue and debrief use it). Absent by default,
+   * and then nothing at all is added to the page. Decided when the view mounts: give it from the first render or never.
+   */
+  overlay?: ReactNode;
+  /** Called with the step on screen when the view opens, and again each time the step changes (not for a speed or viewer change). */
+  onStep?: (index: number) => void;
+  /**
+   * While true, playback does not move on by itself: the step stays and the pause between actions does not run out. The viewer's own
+   * controls keep working. It is how an overlay holds the battle while it talks. False by default.
+   */
+  hold?: boolean;
 }
 
 function useReducedMotion(): boolean {
@@ -55,7 +67,7 @@ function useReducedMotion(): boolean {
   return reduced;
 }
 
-export function WatchView({ setup, actions, viewer, onViewerChange, initialStep, initialSpeed, autoPlay, onPositionChange }: WatchViewProps): ReactElement {
+export function WatchView({ setup, actions, viewer, onViewerChange, initialStep, initialSpeed, autoPlay, onPositionChange, overlay, onStep, hold = false }: WatchViewProps): ReactElement {
   const record = useMemo(() => recordMatch(setup, actions), [setup, actions]);
   const timeline = useMemo(() => viewTimeline(record, viewer), [record, viewer]);
   const log = useMemo(() => buildLog(timeline.steps), [timeline]);
@@ -92,15 +104,22 @@ export function WatchView({ setup, actions, viewer, onViewerChange, initialStep,
     [pb.animate, pb.speed, step, prev, reducedMotion],
   );
 
-  // Playback: once a step's animation has run (or there was none), wait the pause between actions, then move on.
+  // The step on screen, told to whoever asked (an overlay that needs to know where the battle is). It is told on mount too.
+  const onStepRef = useRef(onStep);
+  onStepRef.current = onStep;
+  useEffect(() => {
+    onStepRef.current?.(step.index);
+  }, [step.index]);
+
+  // Playback: once a step's animation has run (or there was none), wait the pause between actions, then move on. A held view waits.
   const [donePlan, setDonePlan] = useState<TransitionPlan | null>(null);
   const finished = plan === null || plan.durationMs <= 0 || donePlan === plan;
   const onDone = useCallback((p: TransitionPlan) => setDonePlan(p), []);
   useEffect(() => {
-    if (!pb.playing || !finished) return undefined;
+    if (!pb.playing || !finished || hold) return undefined;
     const id = window.setTimeout(() => dispatch({ type: 'advance' }), dwellMs(pb.speed, plan?.durationMs ?? 0));
     return () => window.clearTimeout(id);
-  }, [pb.playing, pb.step, pb.speed, finished, plan]);
+  }, [pb.playing, pb.step, pb.speed, finished, plan, hold]);
 
   // Keyboard: Space, Left, Right. Playback only. Space plays and pauses wherever focus is, so a button the viewer just clicked must not
   // also press itself on the key's release: that is stopped on keyup.
@@ -141,29 +160,37 @@ export function WatchView({ setup, actions, viewer, onViewerChange, initialStep,
       </div>
     ) : undefined;
 
+  const stage =
+    renderer === '3d' ? (
+      <Suspense
+        fallback={
+          <div className="aww-stage" data-renderer="3d" aria-busy>
+            <div className="aww-board-wrap"><div className="aww-stage3d aww-stage3d--loading label">Loading the 3D board</div></div>
+          </div>
+        }
+      >
+        <Stage3D
+          timeline={timeline}
+          step={step.index}
+          plan={plan}
+          onDone={onDone}
+          reducedMotion={reducedMotion}
+          toolbar={toolbar}
+          onFail={onStage3DFail}
+        />
+      </Suspense>
+    ) : (
+      <Stage timeline={timeline} step={step.index} plan={plan} onDone={onDone} reducedMotion={reducedMotion} toolbar={toolbar} />
+    );
+
   return (
     <div className="aww-root" data-viewer={String(viewer)} data-step={step.index}>
       <div className="aww-main">
-        {renderer === '3d' ? (
-          <Suspense
-            fallback={
-              <div className="aww-stage" data-renderer="3d" aria-busy>
-                <div className="aww-board-wrap"><div className="aww-stage3d aww-stage3d--loading label">Loading the 3D board</div></div>
-              </div>
-            }
-          >
-            <Stage3D
-              timeline={timeline}
-              step={step.index}
-              plan={plan}
-              onDone={onDone}
-              reducedMotion={reducedMotion}
-              toolbar={toolbar}
-              onFail={onStage3DFail}
-            />
-          </Suspense>
-        ) : (
-          <Stage timeline={timeline} step={step.index} plan={plan} onDone={onDone} reducedMotion={reducedMotion} toolbar={toolbar} />
+        {overlay === undefined ? stage : (
+          <div className="aww-stagebox">
+            {stage}
+            <div className="aww-overlay">{overlay}</div>
+          </div>
         )}
         <aside className="aww-side">
           <Hud step={step} />
