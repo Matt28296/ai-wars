@@ -8,11 +8,14 @@
 //   fog of war   unseen tiles read at about 45% brightness and 30% saturation, with a soft 0.3-tile edge: the fog map has one texel
 //                per tile and is filtered bilinearly, then smoothstepped, so the edge is 0.3 tile wide whatever the zoom;
 //   ion storm    a cooler, darker, slightly desaturated tint, eased in and out by `uStorm`.
+// And AFTER the grade, a living multiplier (living.ts, ORDER G11): cloud shadows, a gust over the grass, caustics on the shallows. It is a plain
+// scalar on the graded colour, capped to [LIVE_FLOOR, LIVE_CEIL], so it can darken or lighten a tile a little but never change its fog state.
 import {
   ClampToEdgeWrapping, DataTexture, LinearFilter, LinearMipmapLinearFilter, MeshDepthMaterial, MeshLambertMaterial, MeshStandardMaterial,
   RGBADepthPacking, RGBAFormat, RedFormat, RepeatWrapping, UnsignedByteType, Vector2,
   type IUniform, type MagnificationTextureFilter, type Material, type Texture,
 } from 'three';
+import { CAUSTIC_GLSL, CLOCK_GLSL, CLOUD_GLSL, GUST_GLSL, SWAY_GLSL } from './living';
 import { rngFrom } from './rng';
 
 export type Shader = Parameters<Material['onBeforeCompile']>[0];
@@ -21,6 +24,8 @@ export interface TerrainUniforms {
   uFogMap: IUniform<Texture>;
   uFogSize: IUniform<Vector2>;
   uTime: IUniform<number>;
+  /** The living clock (living.ts LiveClock): the stage's time, held still while motion is off. Drives cloud shadows, gusts, sway and caustics. */
+  uLive: IUniform<number>;
   uStorm: IUniform<number>;
   /** One texel per tile: 0 for a property in full form, 1 for a property in its low form (eased by the kit, nearest-filtered). */
   uOccMap: IUniform<Texture>;
@@ -43,6 +48,7 @@ export function createUniforms(fog: Texture, width: number, height: number, occ:
     uFogMap: { value: fog },
     uFogSize: { value: new Vector2(width, height) },
     uTime: { value: 0 },
+    uLive: { value: 0 },
     uStorm: { value: 0 },
     uOccMap: { value: occ },
   };
@@ -93,15 +99,6 @@ vec3 trnGrade( vec3 c, vec2 xz ) {
 }
 `;
 
-const SWAY_GLSL = /* glsl */ `
-#ifdef USE_INSTANCING
-  float swH = clamp( transformed.y / 0.45, 0.0, 1.4 );
-  float swP = instanceMatrix[3].x * 1.9 + instanceMatrix[3].z * 2.7;
-  transformed.x += sin( uTime * 1.35 + swP ) * 0.022 * swH * swH + sin( uTime * 2.9 + swP * 2.0 ) * 0.006 * swH;
-  transformed.z += cos( uTime * 1.1 + swP * 1.3 ) * 0.014 * swH * swH;
-#endif
-`;
-
 const OBJECT_XZ_GLSL = /* glsl */ `
 vec4 trnP = vec4( transformed, 1.0 );
 #ifdef USE_INSTANCING
@@ -109,6 +106,22 @@ vec4 trnP = vec4( transformed, 1.0 );
 #endif
 vTrnXZ = trnP.xz;
 `;
+
+/**
+ * What the living multiplier reads on a material: `prop` cloud shadow only; `ground` cloud plus the grass gust (the `aGrass` vertex weight, 1 on
+ * flats and canopy); `tree` cloud plus the gust at the tree (from its sway); `water` cloud plus caustics on the shallows; `off` nothing
+ * (emissive parts are lights, so a cloud does not dim them).
+ */
+export type LiveKind = 'off' | 'prop' | 'ground' | 'tree' | 'water';
+
+/** The fragment line that applies the living multiplier to the graded colour, per kind. */
+const LIVE_CALL: Record<LiveKind, string> = {
+  off: '',
+  prop: 'outgoingLight *= trnLive( vTrnXZ, 0.0, 0.0 );\n',
+  ground: 'outgoingLight *= trnLive( vTrnXZ, vTrnGrass > 0.001 ? vTrnGrass * trnGust( vTrnXZ ) : 0.0, 0.0 );\n',
+  tree: 'outgoingLight *= trnLive( vTrnXZ, vTrnGust, 0.0 );\n',
+  water: '{ float trnC = vKind > 0.5 ? 0.0 : trnShallow( vShore ); outgoingLight *= trnLive( vTrnXZ, 0.0, trnC > 0.0 ? trnC * trnCaustic( vTrnXZ ) : 0.0 ); }\n',
+};
 
 export interface PatchOpts {
   /** Program-cache key: patched variants must not share a program with anything else. */
@@ -119,6 +132,8 @@ export interface PatchOpts {
   sway?: boolean;
   /** The vertex colour is HDR emissive light (rails, beacons, cracks): the material's own diffuse is ignored. */
   glow?: boolean;
+  /** What the living multiplier reads here (default `off`). */
+  live?: LiveKind;
   /** Further edits (water). */
   extra?: (shader: Shader) => void;
 }
@@ -140,18 +155,39 @@ export function patchMaterial(mat: Material, u: TerrainUniforms, o: PatchOpts): 
     shader.uniforms.uFogSize = u.uFogSize;
     shader.uniforms.uStorm = u.uStorm;
     shader.uniforms.uTime = u.uTime;
+    shader.uniforms.uLive = u.uLive;
     if (o.sink) {
       shader.uniforms.uOccMap = u.uOccMap;
       shader.uniforms.uOccSize = u.uFogSize;
     }
+    const live = o.live ?? 'off';
     const what = `${mat.type} (${o.key})`;
     let vs = shader.vertexShader;
-    vs = swap(vs, '#include <common>', `#include <common>\nvarying vec2 vTrnXZ;\nuniform float uTime;${o.sink ? SINK_DECL_GLSL : ''}`, what);
-    vs = swap(vs, '#include <begin_vertex>', `#include <begin_vertex>\n${o.sway ? SWAY_GLSL : ''}${o.sink ? SINK_GLSL : ''}`, what);
+    const vsPars = [
+      CLOCK_GLSL,
+      o.sway ? GUST_GLSL : '',
+      live === 'tree' ? 'varying float vTrnGust;' : '',
+      live === 'ground' ? 'attribute float aGrass;\nvarying float vTrnGrass;' : '',
+    ].join('\n');
+    const vsBody = [
+      o.sway ? SWAY_GLSL : '',
+      live === 'tree' ? 'vTrnGust = 0.0;\n#ifdef USE_INSTANCING\nvTrnGust = swG;\n#endif' : '',
+      live === 'ground' ? 'vTrnGrass = aGrass;' : '',
+    ].join('\n');
+    vs = swap(vs, '#include <common>', `#include <common>\nvarying vec2 vTrnXZ;\nuniform float uTime;${o.sink ? SINK_DECL_GLSL : ''}\n${vsPars}`, what);
+    vs = swap(vs, '#include <begin_vertex>', `#include <begin_vertex>\n${vsBody}\n${o.sink ? SINK_GLSL : ''}`, what);
     vs = swap(vs, '#include <project_vertex>', `#include <project_vertex>\n${OBJECT_XZ_GLSL}`, what);
     let fs = shader.fragmentShader;
-    fs = swap(fs, '#include <common>', `#include <common>\nvarying vec2 vTrnXZ;\n${GRADE_GLSL}`, what);
-    fs = swap(fs, '#include <opaque_fragment>', 'outgoingLight = trnGrade( outgoingLight, vTrnXZ );\n#include <opaque_fragment>', what);
+    const fsPars = live === 'off' ? '' : [
+      CLOCK_GLSL,
+      CLOUD_GLSL,
+      live === 'ground' ? `varying float vTrnGrass;\n${GUST_GLSL}` : '',
+      live === 'tree' ? 'varying float vTrnGust;' : '',
+      live === 'water' ? CAUSTIC_GLSL : '',
+    ].join('\n');
+    fs = swap(fs, '#include <common>', `#include <common>\nvarying vec2 vTrnXZ;\n${GRADE_GLSL}\n${fsPars}`, what);
+    // The grade first, the living multiplier second: a cloud is a scalar on the graded colour and can never move a tile across the fog line.
+    fs = swap(fs, '#include <opaque_fragment>', `outgoingLight = trnGrade( outgoingLight, vTrnXZ );\n${LIVE_CALL[live]}#include <opaque_fragment>`, what);
     if (o.glow) fs = swap(fs, 'vec3 totalEmissiveRadiance = emissive;', 'vec3 totalEmissiveRadiance = emissive * vColor.rgb;', what);
     shader.vertexShader = vs;
     shader.fragmentShader = fs;
@@ -164,8 +200,8 @@ export function patchMaterial(mat: Material, u: TerrainUniforms, o: PatchOpts): 
 export function swayDepthMaterial(u: TerrainUniforms): MeshDepthMaterial {
   const m = new MeshDepthMaterial({ depthPacking: RGBADepthPacking });
   m.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = u.uTime;
-    let vs = swap(shader.vertexShader, '#include <common>', '#include <common>\nuniform float uTime;', 'MeshDepthMaterial (sway)');
+    shader.uniforms.uLive = u.uLive;
+    let vs = swap(shader.vertexShader, '#include <common>', `#include <common>\n${CLOCK_GLSL}${GUST_GLSL}`, 'MeshDepthMaterial (sway)');
     vs = swap(vs, '#include <begin_vertex>', `#include <begin_vertex>\n${SWAY_GLSL}`, 'MeshDepthMaterial (sway)');
     shader.vertexShader = vs;
   };
@@ -248,13 +284,13 @@ export function createMaterials(u: TerrainUniforms, windowAlbedo: Texture, windo
   const glow = new MeshStandardMaterial({ vertexColors: true, color: 0x000000, roughness: 1, metalness: 0, emissive: 0xffffff, emissiveIntensity: 1 });
   const decal = new MeshLambertMaterial({ vertexColors: true, map: atlas, alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const tree = new MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
-  patchMaterial(ground, u, { key: 'ground' });
-  patchMaterial(solid, u, { key: 'solid', sink: true });
-  patchMaterial(glossy, u, { key: 'glossy', sink: true });
-  patchMaterial(windows, u, { key: 'windows', sink: true });
+  patchMaterial(ground, u, { key: 'ground', live: 'ground' });
+  patchMaterial(solid, u, { key: 'solid', sink: true, live: 'prop' });
+  patchMaterial(glossy, u, { key: 'glossy', sink: true, live: 'prop' });
+  patchMaterial(windows, u, { key: 'windows', sink: true, live: 'prop' });
   patchMaterial(glow, u, { key: 'glow', glow: true, sink: true });
-  patchMaterial(decal, u, { key: 'decal', sink: true });
-  patchMaterial(tree, u, { key: 'tree', sway: true });
+  patchMaterial(decal, u, { key: 'decal', sink: true, live: 'prop' });
+  patchMaterial(tree, u, { key: 'tree', sway: true, live: 'tree' });
   return { ground, solid, glossy, windows, glow, decal, tree, treeDepth: swayDepthMaterial(u), sinkDepth: sinkDepthMaterial(u) };
 }
 
@@ -268,4 +304,13 @@ export function fogGrade(c: [number, number, number], seen: number): [number, nu
     const hidden = (l + (v - l) * 0.3) * 0.45;
     return hidden + (v - hidden) * k;
   }) as [number, number, number];
+}
+
+/**
+ * What the fragment shader finishes with, for a linear colour: the fog grade FIRST, then the living multiplier `mult` (cloud, gust, caustic: see
+ * living.ts `livingMultiplier`). The tests check the shader text for this order and this function for what it means.
+ */
+export function gradeThenLive(c: [number, number, number], seen: number, mult: number): [number, number, number] {
+  const g = fogGrade(c, seen);
+  return [g[0] * mult, g[1] * mult, g[2] * mult];
 }
