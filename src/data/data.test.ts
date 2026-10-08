@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { MoveType, UnitTypeId } from '../engine/types';
+import type { MoveType, UnitTypeId } from '../game/aw/types';
 import { DAMAGE } from './damage';
 import { ART, FACTION_LIST, TERRAIN_CODES, TERRAIN_LIST, UNIT_LIST, UNIT_TYPES } from './index';
 
@@ -18,6 +18,12 @@ describe('units', () => {
       expect(u.move, u.id).toBeGreaterThan(0);
       expect(MOVE_TYPES, u.id).toContain(u.moveType);
       if (u.range) expect(u.range[0], u.id).toBeLessThanOrEqual(u.range[1]);
+    }
+  });
+  it('burns charge each turn for air and naval units only', () => {
+    for (const u of UNIT_LIST) {
+      if (u.domain === 'ground') expect(u.drain ?? 0, u.id).toBe(0);
+      else expect(u.drain, u.id).toBeGreaterThan(0);
     }
   });
   it('lets only foot and exo units capture', () => {

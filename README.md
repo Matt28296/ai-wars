@@ -12,7 +12,7 @@ All names, commanders, units, maps, art and music are original. "Like Advance Wa
 - `docs/STORY.md` — the story bible (setting, nations, commanders, campaign).
 - `docs/research/` — mechanics reference, quality bar, AI design, balance.
 - `design-system/` — the visual and verbal language (tokens, components, art) and its generators.
-- `src/engine/types.ts`, `src/content/types.ts` — the shared type contract. `src/data/` — units, terrain, damage chart.
+- `src/game/aw/types.ts`, `src/content/types.ts` — the shared type contract. `src/data/` — units, terrain, damage chart.
 
 ## Working on it
 

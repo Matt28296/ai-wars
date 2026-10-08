@@ -221,6 +221,7 @@ export const UNITS = [
     "cost": 9000,
     "vision": 3,
     "charge": 99,
+    "drain": 2,
     "ammo": 6,
     "range": [
       1,
@@ -237,6 +238,7 @@ export const UNITS = [
     "cost": 20000,
     "vision": 2,
     "charge": 99,
+    "drain": 5,
     "ammo": 9,
     "range": [
       1,
@@ -253,6 +255,7 @@ export const UNITS = [
     "cost": 22000,
     "vision": 2,
     "charge": 99,
+    "drain": 5,
     "ammo": 9,
     "range": [
       1,
@@ -269,6 +272,7 @@ export const UNITS = [
     "cost": 18000,
     "vision": 3,
     "charge": 99,
+    "drain": 1,
     "ammo": 9,
     "range": [
       1,
@@ -285,6 +289,7 @@ export const UNITS = [
     "cost": 28000,
     "vision": 2,
     "charge": 99,
+    "drain": 1,
     "ammo": 9,
     "range": [
       2,
@@ -301,6 +306,7 @@ export const UNITS = [
     "cost": 12000,
     "vision": 1,
     "charge": 99,
+    "drain": 1,
     "ammo": null,
     "range": null,
     "carries": 2

@@ -1,4 +1,4 @@
-import type { FactionId, MoveType, TerrainId, TerrainType, UnitType, UnitTypeId } from '../engine/types';
+import type { FactionId, MoveType, TerrainId, TerrainType, UnitType, UnitTypeId } from '../game/aw/types';
 import { ART, COMMANDER_BASE, FACTIONS as RAW_FACTIONS, MOVE_TYPES, TERRAIN as RAW_TERRAIN, UNITS as RAW_UNITS } from './base.generated';
 
 export interface Faction { id: FactionId; name: string; short: string; motto: string; home: string }

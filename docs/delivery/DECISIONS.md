@@ -54,3 +54,14 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
 ### D-011: the parallel writers were stopped; their output is salvage (2026-10-08, DECIDED)
 - **What happened:** before the direction, six writers (engine, content, art, audio, battle UI, shell UI) shared one checkout on the inherited model. They were stopped on the direction (one worktree per writer, Sonnet builders). The research writer finished its docs (`docs/research/*`).
 - **Decided:** their partial files are input for builders, reviewed like any other code, never counted as done. The manual-control battle UI is not reused as a control surface; its renderer may be reused for watching.
+
+### D-012: the rules spec is `docs/research/mechanics.md`; its seven open points ruled (2026-10-08, DECIDED)
+- **Decided:** where `docs/research/mechanics.md` and the older `docs/ARCHITECTURE.md` summary differ, `mechanics.md` wins. Its §16 points:
+  1. Charge drain is per unit type (`drain` in the unit data): Wasp 2, Raptor 5, Anvil 5, Picket/Dreadnought/Barge 1; ground units 0.
+  2. Foot and exo units on a ridge get **+3** vision.
+  3. Units resupplied at the start of a turn skip that turn's drain.
+  4. Rout is event-driven: a player is routed when their last unit is destroyed (or at the end of their turn with no units after they have had units), never just because they started with none.
+  5. Overclock's star cost is the full bar (small + large stars).
+  6. Repair is +2 display HP for 10% of the unit's cost per HP; when funds are short, it repairs 1 HP if that is affordable.
+  7. Treads and walkers keep paying **2** on shoals — an intentional twist (sand is hover terrain). This differs from the GBA games on purpose.
+- **Reversible:** yes; each is one rule in one module.

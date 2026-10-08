@@ -1,4 +1,4 @@
-import type { CommanderId, FactionId, Modifier, Objective, PowerDef, TerrainId, UnitTypeId, Weather } from '../engine/types';
+import type { CommanderId, FactionId, Modifier, Objective, PowerDef, TerrainId, UnitTypeId, Weather } from '../game/aw/types';
 
 export type Mood = 'neutral' | 'happy' | 'angry' | 'grim' | 'surprised' | 'smug';
 
