@@ -597,7 +597,7 @@ describe('production', () => {
     const funds = 6000;
     const s = patchPlayer(game(), 0, { funds });
     const expectFor = (domain: Domain) => UNIT_LIST.filter((u) => u.domain === domain)
-      .map((u) => ({ type: u.id, cost: u.cost, affordable: u.cost <= funds }));
+      .map((u) => (u.cost <= funds ? { type: u.id, cost: u.cost, affordable: true } : { type: u.id, cost: u.cost, affordable: false, reason: 'funds' }));
     expect(buildOptions(s, { x: 0, y: 0 })).toEqual(expectFor('ground'));
     expect(buildOptions(s, { x: 1, y: 0 })).toEqual(expectFor('air'));
     expect(buildOptions(s, { x: 2, y: 0 })).toEqual(expectFor('sea'));

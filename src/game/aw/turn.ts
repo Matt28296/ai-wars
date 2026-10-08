@@ -8,14 +8,16 @@
 //   5. resupply next to own Mules
 //   6. charge drain by the unit's own `drain` (from cycle 2; units resupplied in 4-5 are exempt)
 //   7. crash/sink: air and sea units at 0 charge are destroyed
-//   9. 'turnStarted' is emitted last. (Step 8, the victory check, runs in applyAction's afterAction.)
+//   8. D-015.5: if that left the player with no units (and they have had units), they are routed at once, the victory
+//      check runs, and play passes straight to the next undefeated player -- no 'turnStarted' is emitted for them
+//   9. 'turnStarted' is emitted last. (Later victory checks run in applyAction's afterAction.)
 // End of turn: the player's enemyMove debuffs count down, then play passes to the next undefeated player.
 import { TERRAIN_TYPES } from '../../data';
 import { destroyUnit } from './combat';
 import { activeModifiers, sumField, unitCost, unitModifiers } from './modifiers';
 import { MAX_HP, displayHp, emit, forEachUnit, propertyIndex, unitType, writableTile } from './state';
 import type { Ctx } from './state';
-import { checkCycleEnd } from './victory';
+import { checkCycleEnd, checkGameOver, defeatPlayer, isRouted } from './victory';
 import type { Domain, GameState, PlayerIndex, TerrainId, Unit } from './types';
 
 export const REPAIR_HP = 2;
@@ -143,27 +145,40 @@ export function startTurn(ctx: Ctx, p: PlayerIndex): void {
   for (const u of own) {
     if (unitType(u.type).domain !== 'ground' && u.charge <= 0) destroyUnit(ctx, u, null, 'crashed');
   }
+  // D-015.5: losing the last unit during turn start routes the player now, in any size of game.
+  if (isRouted(s, pl)) {
+    defeatPlayer(ctx, p, 'rout');
+    checkGameOver(ctx);
+    if (s.winnerTeam === null) advanceTurn(ctx); // s.current is still p, so the cycle counter wraps correctly
+    return;
+  }
   emit(ctx, { kind: 'turnStarted', player: p, cycle: s.cycle, income });
+}
+
+/** The next undefeated player after `s.current` in turn order, and whether reaching them wraps into a new cycle. */
+function nextUndefeated(s: GameState): { next: number; wrapped: boolean } {
+  const n = s.players.length;
+  let wrapped = false;
+  for (let k = 1; k <= n; k++) {
+    if (s.current + k >= n) wrapped = true;
+    const i = (s.current + k) % n;
+    if (!s.players[i].defeated) return { next: i, wrapped };
+  }
+  return { next: -1, wrapped };
 }
 
 /** Passes play to the next undefeated player (closing the cycle when it wraps) and starts their turn. */
 export function advanceTurn(ctx: Ctx): void {
   const s = ctx.s;
-  const n = s.players.length;
-  let next = -1;
-  let wrapped = false;
-  for (let k = 1; k <= n; k++) {
-    if (s.current + k >= n) wrapped = true;
-    const i = (s.current + k) % n;
-    if (!s.players[i].defeated) {
-      next = i;
-      break;
-    }
-  }
+  const first = nextUndefeated(s);
+  let next = first.next;
   if (next < 0) return;
-  if (wrapped) {
+  if (first.wrapped) {
     checkCycleEnd(ctx, s.cycle);
     if (s.winnerTeam !== null) return;
+    // The end-of-cycle checks (a campaign deadline) can defeat players, so who is next must be read again.
+    ({ next } = nextUndefeated(s));
+    if (next < 0) return;
     s.cycle += 1;
   }
   s.current = next;

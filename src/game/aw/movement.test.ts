@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CommanderDef } from '../../content/types';
 import { TERRAIN_CODES, TERRAIN_LIST, TERRAIN_TYPES, UNIT_TYPES } from '../../data';
 import { IllegalActionError } from './errors';
-import { createGame, effectiveMove, resetCommanderRegistry, setCommanderRegistry, visibility } from './index';
+import { canSeeUnit, createGame, effectiveMove, resetCommanderRegistry, setCommanderRegistry } from './index';
 import type { PlayerSetup } from './index';
 import { canCarryType, canJoinInto, canLoadInto, canStandOn, checkPath, reachable, terrainMoveCost } from './movement';
 import type { ReachEntry } from './movement';
@@ -712,7 +712,6 @@ function scenario(seed: number): Scenario {
 function bruteForce(state: GameState, mover: Unit): Map<string, number> {
   const moveType = UNIT_TYPES[mover.type].moveType;
   const mp = effectiveMove(state, mover);
-  const seen = visibility(state, mover.owner);
   const at = new Map(state.units.map((u) => [key(u.x, u.y), u]));
   const best = new Map<string, number>();
   const visited = new Set<string>([key(mover.x, mover.y)]);
@@ -727,7 +726,7 @@ function bruteForce(state: GameState, mover: Unit): Map<string, number> {
       const c = expectedCost(state.tiles[ny][nx].terrain, moveType);
       if (c === null || cost + c > mp) continue;
       const occ = at.get(key(nx, ny));
-      if (occ && occ.owner !== mover.owner && seen[ny][nx]) continue; // a visible enemy blocks passing and stopping
+      if (occ && occ.owner !== mover.owner && canSeeUnit(state, mover.owner, occ)) continue; // a visible enemy blocks passing and stopping
       visited.add(key(nx, ny));
       go(nx, ny, cost + c, steps + 1);
       visited.delete(key(nx, ny));
@@ -759,13 +758,12 @@ describe('reachable against a brute-force search', () => {
       expect([...got.keys()].sort(), `seed ${seed}: tiles`).toEqual([...want.keys()].sort());
       for (const [k, cost] of want) expect(got.get(k)!.cost, `seed ${seed}: cost at ${k}`).toBe(cost);
       // coverage: the scenario mix must actually exercise the rules above
-      const vis = visibility(state, mover.owner);
       if (mover.charge < effectiveMove(state, mover)) seen.lowCharge++;
       if (mover.cargo.length) seen.cargoMover++;
       for (const u of state.units) {
         if (u.id === mover.id) continue;
-        if (u.owner !== mover.owner && !vis[u.y][u.x]) seen.fogHidden++;
-        if (u.owner !== mover.owner && vis[u.y][u.x] && !got.has(key(u.x, u.y))) seen.blockedEnemy++;
+        if (u.owner !== mover.owner && !canSeeUnit(state, mover.owner, u)) seen.fogHidden++;
+        if (u.owner !== mover.owner && canSeeUnit(state, mover.owner, u) && !got.has(key(u.x, u.y))) seen.blockedEnemy++;
         if (u.owner === mover.owner && got.has(key(u.x, u.y))) (u.type === mover.type ? seen.join++ : seen.load++);
       }
       seen.tiles += got.size;

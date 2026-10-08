@@ -1,15 +1,25 @@
 // Movement: terrain costs, reachable tiles (Dijkstra over move points with a charge/step budget) and
 // explicit path validation for applyAction. Allies are passable but not stoppable (except to load into a
-// transport or join a damaged unit of the same type); visible enemies block. Unseen enemies (fog) do not
-// block reachable(): applyAction stops the unit before them ("ambushed").
+// transport or join a damaged unit of the same type); visible enemies block. Whether the mover sees an enemy is
+// canSeeUnit's answer (fog.ts), the same rule attackTargets uses: canopy hides ground units from non-adjacent
+// observers, air units over canopy stay visible. Unseen enemies (fog) do not block reachable(): applyAction stops
+// the unit before them ("ambushed").
 import { TERRAIN_TYPES } from '../../data';
 import { illegal } from './errors';
-import { fogActive, visionGrid } from './fog';
+import { canSeeUnit, fogActive, visionGrid } from './fog';
 import { effectiveMove, ignoredMoveCosts } from './modifiers';
 import { areEnemies, displayHp, inBounds, keyOf, unitById, unitType } from './state';
 import type { Coord, GameState, MoveType, TerrainId, Unit, UnitType } from './types';
 
 export interface ReachEntry { x: number; y: number; cost: number; path: Coord[] }
+
+/**
+ * Does the mover see this enemy, so that it blocks the way? With fog off every enemy is seen (the future stealth flag
+ * `hidden` is deliberately not consulted here, M1.6a); with fog on it is canSeeUnit, fed the grid computed once per call.
+ */
+function seesEnemy(state: GameState, owner: number, enemy: Unit, fog: boolean, grid: Uint8Array | null): boolean {
+  return !fog || canSeeUnit(state, owner, enemy, grid);
+}
 
 /** Cost for a move type to enter a terrain (null = impassable); `ignore` terrains cost 1. */
 export function terrainMoveCost(t: TerrainId, moveType: MoveType, ignore?: Set<TerrainId>): number | null {
@@ -80,13 +90,14 @@ export function reachable(state: GameState, unitId: number): Map<string, ReachEn
       cost[y * W + x] = c;
     }
   }
-  const grid = fogActive(state) ? visionGrid(state, unit.owner) : null;
+  const fog = fogActive(state);
+  const grid = fog ? visionGrid(state, unit.owner) : null;
   const occ = new Int32Array(N).fill(-1);
   for (let i = 0; i < state.units.length; i++) {
     const u = state.units[i];
     const idx = u.y * W + u.x;
     occ[idx] = i;
-    if (areEnemies(state, unit.owner, u.owner) && (!grid || grid[idx] === 1)) cost[idx] = -1;
+    if (areEnemies(state, unit.owner, u.owner) && seesEnemy(state, unit.owner, u, fog, grid)) cost[idx] = -1;
   }
 
   const start = unit.y * W + unit.x;
@@ -207,7 +218,8 @@ export function checkPath(state: GameState, unit: Unit, path: Coord[]): PathChec
   if (!path[0] || path[0].x !== unit.x || path[0].y !== unit.y) illegal('path must start at the unit');
   const mt = unitType(unit.type).moveType;
   const ignore = ignoredMoveCosts(state, unit);
-  const grid = fogActive(state) ? visionGrid(state, unit.owner) : null;
+  const fog = fogActive(state);
+  const grid = fog ? visionGrid(state, unit.owner) : null;
   const seen = new Set<number>([unit.y * state.width + unit.x]);
   let cost = 0;
   let ambushIndex = -1;
@@ -226,7 +238,7 @@ export function checkPath(state: GameState, unit: Unit, path: Coord[]): PathChec
     for (const o of state.units) {
       if (o.x !== c.x || o.y !== c.y || o.id === unit.id) continue;
       if (areEnemies(state, unit.owner, o.owner)) {
-        if (!grid || grid[idx] === 1) illegal('path is blocked by an enemy unit');
+        if (seesEnemy(state, unit.owner, o, fog, grid)) illegal('path is blocked by an enemy unit');
         if (ambushIndex < 0) {
           ambushIndex = i;
           ambusher = o;
