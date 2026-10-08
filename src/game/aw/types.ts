@@ -154,6 +154,7 @@ export type Action =
 export type GameEvent =
   | { kind: 'moved'; unitId: number; path: Coord[] }
   | { kind: 'ambushed'; unitId: number; at: Coord; by: number } // movement stopped by a hidden enemy (fog)
+  | { kind: 'dropBlocked'; transportId: number; cargoId: number; at: Coord; by: number } // an unload onto a tile holding a hidden enemy: that cargo stays aboard (D-016)
   | { kind: 'attacked'; attackerId: number; defenderId: number; damage: number; counter: number; attackerHp: number; defenderHp: number; counterFirst?: boolean }
   | { kind: 'destroyed'; unitId: number; at: Coord; type: UnitTypeId; owner: PlayerIndex }
   | { kind: 'captureProgress'; unitId: number; at: Coord; remaining: number }
