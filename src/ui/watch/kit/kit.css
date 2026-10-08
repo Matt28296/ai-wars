@@ -1,0 +1,111 @@
+/* Ascendant Wars kit, as used by the watch-only battle viewer (M5.0).
+   Ported verbatim from design-system/project/components/bundle.css (frame, button, status chip, unit token, map tile, commanders,
+   power meter, player HUD, turn banner). Loaded after src/styles/tokens.css; every value is a token or derived from one.
+   Menus, cards, the battle forecast and dialogue are not part of a viewer and are not ported. */
+
+/* ---- frame: the chamfered panel (top-left + bottom-right cut, 1px line-strong edge) ---- */
+.aw-frame {
+  --aw-cut: var(--chamfer);
+  display: inline-block;
+  box-sizing: border-box;
+  padding: 1px;
+  background: var(--line-strong);
+  clip-path: polygon(var(--aw-cut) 0, 100% 0, 100% calc(100% - var(--aw-cut)), calc(100% - var(--aw-cut)) 100%, 0 100%, 0 var(--aw-cut));
+}
+.aw-frame--sm { --aw-cut: var(--chamfer-sm); }
+.aw-frame-in {
+  box-sizing: border-box;
+  height: 100%;
+  background: var(--panel);
+  color: var(--ink);
+  clip-path: polygon(var(--aw-cut) 0, 100% 0, 100% calc(100% - var(--aw-cut)), calc(100% - var(--aw-cut)) 100%, 0 100%, 0 var(--aw-cut));
+}
+.aw-frame--raised > .aw-frame-in { background: var(--panel-raised); }
+.aw-float { filter: drop-shadow(var(--shadow-panel)); }
+.aw-muted { color: var(--ink-muted); }
+.aw-grow { flex: 1; }
+
+/* ---- type helpers on top of the token classes ---- */
+.aw-kicker, .aw-btn, .aw-row-label, .aw-power-state, .aw-banner .label, .aw-portrait-band { text-transform: uppercase; }
+
+/* ---- button ---- */
+.aw-btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: 36px; padding: 0 var(--space-4);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+  background: var(--panel-raised); color: var(--ink);
+  cursor: pointer;
+}
+.aw-btn:hover { background: var(--signal-soft); }
+.aw-btn:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
+.aw-btn:disabled { opacity: .45; cursor: not-allowed; }
+.aw-btn--primary { background: var(--signal); border-color: var(--signal); color: var(--on-signal); }
+.aw-btn--primary:hover { background: var(--signal); filter: brightness(1.08); }
+.aw-btn--danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+.aw-btn--ghost { background: transparent; border-color: transparent; color: var(--ink-muted); }
+.aw-btn--ghost:hover { color: var(--ink); }
+.aw-btn--sm { height: 28px; padding: 0 var(--space-3); }
+.aw-key {
+  font-family: var(--font-mono); font-size: 11px; line-height: 16px; min-width: 16px; padding: 0 4px;
+  border: 1px solid currentColor; border-radius: var(--radius-xs); text-align: center; opacity: .8;
+}
+
+/* ---- status chip ---- */
+.aw-chip {
+  display: inline-flex; align-items: center; gap: var(--space-1); height: 22px; padding: 0 var(--space-2); box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink-muted); white-space: nowrap;
+}
+.aw-chip--signal { border-color: var(--signal); color: var(--signal); background: var(--signal-soft); }
+.aw-chip--warn { border-color: var(--warn); color: var(--warn); }
+.aw-chip--danger { border-color: var(--danger); color: var(--danger); }
+.aw-icon, .aw-sigil { flex: none; display: inline-block; vertical-align: middle; }
+
+/* ---- unit token ---- */
+.aw-unit { display: block; overflow: visible; }
+.aw-unit-hp { font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+.aw-unit--spent .aw-unit-body { filter: grayscale(1) brightness(.62); }
+.aw-unit--selected .aw-unit-body { filter: drop-shadow(0 0 4px var(--signal)); }
+.aw-unit-ring { fill: none; stroke: var(--signal); stroke-width: 2; }
+
+/* ---- map tile ---- */
+.aw-tile { position: relative; flex: none; }
+.aw-tile-art { display: block; }
+.aw-tile-grid { fill: none; stroke: var(--map-shade); stroke-opacity: .22; stroke-width: .5; }
+.aw-tile-overlay, .aw-tile-fog { position: absolute; inset: 0; pointer-events: none; }
+.aw-tile-overlay--move { background: var(--overlay-move); box-shadow: inset 0 0 0 1px var(--signal); }
+.aw-tile-overlay--attack { background: repeating-linear-gradient(135deg, var(--overlay-attack) 0 5px, transparent 5px 8px); box-shadow: inset 0 0 0 1px var(--danger); }
+.aw-tile-fog { background: var(--overlay-fog); }
+.aw-tile-unit { position: absolute; inset: 0; display: grid; place-items: center; }
+.aw-tile-unit > .aw-unit { width: 100%; height: 100%; }
+.aw-cursor { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; overflow: visible; }
+.aw-cursor path { fill: none; stroke: var(--signal); stroke-width: 3.5; stroke-linecap: square; filter: drop-shadow(0 0 3px var(--signal)); }
+.aw-cursor--target path { stroke: var(--danger); filter: drop-shadow(0 0 3px var(--danger)); }
+
+/* ---- commanders ---- */
+.aw-portrait { position: relative; flex: none; display: grid; place-items: center; overflow: hidden; }
+.aw-portrait-mark { position: absolute; right: -14%; bottom: -14%; opacity: .2; line-height: 0; }
+.aw-portrait-initials { position: relative; font-family: var(--font-display); font-weight: 700; letter-spacing: .02em; line-height: 1; }
+.aw-portrait-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.aw-portrait-band { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 0; text-align: center; background: var(--map-shade); color: var(--map-ink); }
+.aw-power { display: inline-flex; align-items: center; gap: var(--space-2); }
+.aw-power svg { display: block; overflow: visible; }
+.aw-pip { fill: none; stroke: var(--line-strong); stroke-width: 1.5; }
+.aw-pip-fill { fill: var(--signal); }
+.aw-power-state { color: var(--ink-muted); }
+.aw-power-state--ready { color: var(--signal); }
+.aw-hud > .aw-frame-in { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-2) var(--space-4) var(--space-2) var(--space-2); }
+.aw-hud-body { display: flex; flex-direction: column; gap: 2px; }
+.aw-hud-top { display: flex; align-items: baseline; gap: var(--space-3); }
+.aw-hud-funds { display: flex; align-items: baseline; gap: var(--space-1); }
+
+/* ---- turn banner ---- */
+.aw-banner {
+  position: relative; display: flex; align-items: center; gap: var(--space-4); min-height: 72px; padding: 0 var(--space-6); overflow: hidden;
+  clip-path: polygon(var(--chamfer) 0, 100% 0, 100% calc(100% - var(--chamfer)), calc(100% - var(--chamfer)) 100%, 0 100%, 0 var(--chamfer));
+}
+.aw-banner--choir { box-shadow: inset 0 0 0 2px var(--on-choir); }
+.aw-banner-cycle { display: flex; flex-direction: column; line-height: 1; }
+.aw-banner-cycle .headline { font-size: 36px; line-height: 36px; }
+.aw-banner-rule { width: 2px; align-self: stretch; margin: var(--space-3) 0; background: currentColor; opacity: .5; }
+.aw-banner-who { display: flex; flex-direction: column; }
+.aw-banner-mark { position: absolute; right: var(--space-4); top: 50%; transform: translateY(-50%); opacity: .35; line-height: 0; }

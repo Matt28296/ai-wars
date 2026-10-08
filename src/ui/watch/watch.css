@@ -1,0 +1,162 @@
+/* The watch-only battle viewer (M5.0). A dark HUD around a bright map, per the design system: the battlefield is the hero, chrome is
+   dark, quiet and edged. Loaded after src/styles/tokens.css; every colour is a token. Kit components (frame, tile, unit, chip, meter,
+   portrait, banner) live in kit/kit.css. */
+@import './kit/kit.css';
+
+html, body { margin: 0; background: var(--void); color: var(--ink); }
+body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -webkit-text-size-adjust: 100%; }
+#root { min-height: 100vh; }
+
+.aww-root, .aww-root * { box-sizing: border-box; }
+.aww-root { max-width: 1480px; margin: 0 auto; padding: var(--space-4); }
+.aww-root button { font: inherit; }
+
+/* ---- page layout: board column + side column; stacked on a phone ---- */
+.aww-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-areas: "stage side" "bottom side";
+  gap: var(--space-4) var(--space-6);
+  align-items: start;
+}
+.aww-stage { grid-area: stage; min-width: 0; position: relative; }
+.aww-side { grid-area: side; display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.aww-bottom { grid-area: bottom; display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+@media (max-width: 900px) {
+  .aww-root { padding: var(--space-3) var(--space-4) var(--space-6); }
+  .aww-main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "stage" "bottom" "side"; gap: var(--space-4); }
+}
+
+/* ---- turn banner row ---- */
+.aww-banner-row { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); }
+.aww-turn-banner { width: 100%; }
+.aww-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: 22px; }
+.aww-chip {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink-muted); white-space: nowrap;
+}
+.aww-chip--warn { border-color: var(--warn); color: var(--warn); }
+.aww-toolbar { margin-left: auto; }
+.aww-victory {
+  display: inline-flex; align-items: center; gap: var(--space-2); height: 26px; padding: 0 var(--space-3);
+  border: 1px solid var(--signal); background: var(--signal-soft); color: var(--signal); text-transform: uppercase;
+}
+
+/* ---- the board: bright map in its own scrolling frame ---- */
+.aww-board-wrap { position: relative; display: flex; justify-content: center; min-width: 0; }
+.aww-frame {
+  max-width: 100%; overflow: auto; width: fit-content; max-height: 100%;
+  border: 1px solid var(--line-strong); background: var(--map-shade);
+  scrollbar-width: thin; scrollbar-color: var(--line-strong) var(--panel);
+}
+.aww-board { position: relative; }
+.aww-terrain { display: grid; }
+.aww-units, .aww-fx-layer { position: absolute; inset: 0; pointer-events: none; }
+.aww-unit-slot { position: absolute; left: 0; top: 0; will-change: transform; }
+.aww-unit-inner { width: 100%; height: 100%; }
+.aww-bob { animation: aww-bob 560ms steps(1, end) infinite; }
+@keyframes aww-bob { 0% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+.aww-prop-chip {
+  position: absolute; display: grid; place-items: center; background: var(--map-shade); border-radius: var(--radius-xs);
+  pointer-events: none; line-height: 0;
+}
+.aww-capture { position: absolute; height: 5px; margin: 0 3px; width: calc(100% - 6px); background: var(--map-shade); pointer-events: none; }
+.aww-capture > span { display: block; height: 100%; background: var(--warn); }
+
+/* ---- effects ---- */
+.aww-fx { position: absolute; pointer-events: none; transform-origin: 50% 50%; }
+.aww-fx-hit { background: #fff; box-shadow: inset 0 0 0 2px var(--warn); }
+.aww-fx-boom {
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 14%, #ffd36b 15% 34%, #ff7a2f 35% 56%, #ff462800 72%);
+}
+.aww-fx-pulse { border: 2px solid var(--signal); box-shadow: 0 0 10px var(--signal), inset 0 0 8px var(--signal); }
+.aww-fx-spawn { border: 2px dashed var(--signal); }
+.aww-fx-ambush {
+  display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; color: var(--warn);
+  -webkit-text-stroke: 3px var(--map-shade); paint-order: stroke fill;
+}
+.aww-number {
+  position: absolute; text-align: center; font-family: var(--font-mono); font-weight: 600; line-height: 1; color: var(--map-ink);
+  -webkit-text-stroke: 3px var(--map-shade); paint-order: stroke fill; pointer-events: none; white-space: nowrap;
+}
+.aww-number--damage { text-shadow: 0 0 6px var(--danger); }
+.aww-number--heal { text-shadow: 0 0 6px var(--signal); }
+
+/* ---- turn-banner sweep, over the board ---- */
+.aww-sweep { position: absolute; left: 0; right: 0; top: calc(50% - 36px); z-index: 5; pointer-events: none; }
+.aww-sweep-band { width: 100%; filter: drop-shadow(var(--shadow-panel)); }
+
+/* ---- power cut-in: the whole screen ---- */
+.aww-cutin { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; justify-content: center; align-items: stretch; pointer-events: none; overflow: hidden; }
+.aww-cutin-band {
+  position: relative; display: flex; align-items: center; gap: var(--space-6); min-height: 168px;
+  padding: var(--space-4) max(var(--space-4), 7vw); overflow: hidden;
+  border-block: 2px solid var(--map-shade); box-shadow: 0 6px 28px #000000a6;
+}
+.aww-cutin-band--double { min-height: 196px; }
+.aww-cutin-band--choir { box-shadow: inset 0 0 0 3px var(--on-choir), 0 6px 28px #000000a6; }
+.aww-cutin-portrait {
+  flex: none; padding: 5px; background: var(--map-shade); line-height: 0;
+  clip-path: polygon(var(--chamfer-sm) 0, 100% 0, 100% calc(100% - var(--chamfer-sm)), calc(100% - var(--chamfer-sm)) 100%, 0 100%, 0 var(--chamfer-sm));
+}
+.aww-cutin-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; position: relative; z-index: 1; }
+.aww-cutin-kicker { text-transform: uppercase; opacity: .85; }
+.aww-cutin-name { font-size: clamp(28px, 6.5vw, 56px); line-height: 1.05; text-transform: uppercase; overflow-wrap: anywhere; }
+.aww-cutin-quote { font-style: italic; min-height: 3.2em; max-width: 46ch; }
+.aww-cutin-mark { position: absolute; right: 3vw; top: 50%; transform: translateY(-50%); opacity: .22; line-height: 0; }
+.aww-cutin-flare { width: 100%; height: 12px; }
+
+/* ---- HUD ---- */
+.aww-huds { display: flex; flex-direction: column; gap: var(--space-3); }
+.aww-hud { display: block; width: 100%; }
+.aww-hud > .aw-frame-in { padding-right: var(--space-4); }
+.aww-hud--current { background: var(--signal); }
+.aww-hud--defeated { opacity: .55; }
+.aww-hud .aw-hud-body { min-width: 0; flex: 1; }
+.aww-hud-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
+.aww-hud-units { margin-left: auto; display: inline-flex; gap: var(--space-1); align-items: baseline; }
+
+/* ---- event log ---- */
+.aww-log { display: block; width: 100%; height: clamp(240px, 36vh, 400px); }
+.aww-log > .aw-frame-in { display: flex; flex-direction: column; }
+.aww-log-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4) var(--space-2); border-bottom: 1px solid var(--line); }
+.aww-log-toggle { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink-muted); cursor: pointer; }
+.aww-log-toggle input { accent-color: var(--signal); margin: 0; }
+.aww-log-list { list-style: none; margin: 0; padding: var(--space-2) 0; overflow-y: auto; flex: 1; min-height: 0; scrollbar-width: thin; scrollbar-color: var(--line-strong) var(--panel); }
+.aww-log-line { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: var(--space-2); padding: 3px var(--space-4); }
+.aww-log-empty { padding: var(--space-3) var(--space-4); color: var(--ink-muted); }
+.aww-log-step { color: var(--ink-muted); text-align: right; }
+.aww-log-text { color: var(--ink); overflow-wrap: anywhere; }
+.aww-log-line--power .aww-log-text { color: var(--signal); }
+.aww-log-line--alert .aww-log-text { color: var(--warn); }
+.aww-log-line--economy .aww-log-text, .aww-log-line--quiet .aww-log-text, .aww-log-line--quiet { color: var(--ink-muted); }
+
+/* ---- playback controls and the viewer toggle ---- */
+.aww-controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4);
+  padding: var(--space-3); border: 1px solid var(--line-strong); background: var(--panel);
+}
+.aww-transport, .aww-speeds { display: flex; gap: var(--space-2); }
+.aww-glyph { flex: none; }
+.aw-btn[aria-pressed='true'] { box-shadow: inset 0 0 0 1px var(--on-signal); }
+.aww-scrub { flex: 1 1 200px; display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.aww-scrub input[type='range'] { flex: 1; min-width: 0; accent-color: var(--signal); margin: 0; height: 24px; }
+.aww-scrub-count { min-width: 64px; text-align: right; color: var(--ink); }
+.aww-viewer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.aww-viewer-opt {
+  display: inline-flex; align-items: center; gap: var(--space-2); height: 28px; padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-xs); background: var(--panel-raised); color: var(--ink);
+  cursor: pointer; text-transform: uppercase;
+}
+.aww-viewer-opt:hover { background: var(--signal-soft); }
+.aww-viewer-opt:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
+.aww-viewer-opt--on, .aww-viewer-opt--on:hover { background: var(--signal); border-color: var(--signal); color: var(--on-signal); }
+@media (max-width: 520px) {
+  .aw-key { display: none; }
+  .aww-scrub { flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aww-bob { animation: none; }
+}
