@@ -7,6 +7,10 @@
 //
 // G8b added to the core: the war-room table (table.ts), the match intro (intro.ts), the ion-storm static (storm.ts), the occupied-
 // property call to the terrain (occupancy.ts), the effects kit's reduced-motion switch, and a tighter framing (rig.ts).
+// G10 added the battle's feel: the movement trails (drawn by the effects kit from the plan's move beats, mapping.ts), the attack camera
+// (attack.ts), the explosion's shake (shake.ts) and the power sweep (sweep.ts). The camera's three layers (the intro, the attack camera,
+// the shake) all give way to the viewer: none runs under reduced motion, and none of the attack camera once the viewer has taken the
+// camera by zooming or dragging.
 import {
   ACESFilmicToneMapping, Color, DirectionalLight, Group, HemisphereLight, PCFShadowMap,
   PerspectiveCamera, SRGBColorSpace, Scene, Vector2, Vector3, WebGLRenderer,
@@ -36,6 +40,12 @@ import {
 } from './lighting';
 import { analyseStep, captureProgress, facingHeading, hashSeed, mapSignature, mapStage, surfaceY, toFxItems, toNumberItems } from './mapping';
 import type { StageState, StepInfo, WorldEnv } from './mapping';
+import { attackPose } from './attack';
+import type { P3 } from './attack';
+import { SHAKE_AMPLITUDE, shakeOffset } from './shake';
+import type { ShakeOffset } from './shake';
+import { PowerSweep } from './sweep';
+import type { SweepStats } from './sweep';
 import { Intro, introAction } from './intro';
 import { OCCUPIED_SNAP_DT_SEC, occupiedPredicate, occupiedTiles, sameTiles } from './occupancy';
 import { UnitRegistry } from './registry';
@@ -82,6 +92,12 @@ export interface StageDebug {
   table: TableStats | null;
   zoomLevel: number;
   reducedMotion: boolean;
+  /** How strongly the attack camera applies this frame (0 when it is off, was lowered to keep the units in view, or no attack is running). */
+  attack: number;
+  /** The camera shake applied this frame, as a fraction of its peak: 0 when none runs. */
+  shake: number;
+  /** The power sweep: whether it is up and what it shows. */
+  sweep: SweepStats;
 }
 
 /** FXAA is on: the renderer's own antialiasing is therefore off (art-direction.md "Tone and post"). */
@@ -113,6 +129,7 @@ export class StageRuntime {
   private storm: StormStatic | null = null;
   private terrain: TerrainView | null = null;
   private readonly intro = new Intro();
+  private readonly sweep = new PowerSweep();
   private mapSig = '';
   private appliedFrame: ViewFrame | null = null;
   /** The tiles the terrain was last told are occupied, and whether it must be told again (a new terrain starts with none). */
@@ -142,6 +159,12 @@ export class StageRuntime {
   private cleaned = false;
   /** The viewer chose a zoom step themselves: the size-based default no longer applies. */
   private userZoomed = false;
+  /** The viewer zoomed or dragged: the camera is theirs, and the attack camera stays off (the intro's rule). */
+  private cameraTaken = false;
+  /** What the attack camera and the shake did to the last frame (for debug()). */
+  private attackApplied = 0;
+  private shakeApplied = 0;
+  private readonly shakeOut: ShakeOffset = { x: 0, y: 0 };
   private wheelAcc = 0;
   private wheelLockUntil = 0;
   private drag: { id: number; x: number; y: number } | null = null;
@@ -188,6 +211,7 @@ export class StageRuntime {
     this.registry = new UnitRegistry(this.modules.createUnitView);
     this.fx = this.modules.createFx();
     this.scene.add(this.fx.group);
+    this.scene.add(this.sweep.mesh);
 
     this.composer = new EffectComposer(r);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -389,13 +413,14 @@ export class StageRuntime {
     this.syncOccupancy(state);
     this.drawFx(state);
     this.overlay(sample);
+    this.updateSweep(state, reduced);
 
     terrain.update(dt, this.time);
     this.registry.update(dt, this.time);
     this.fx.update(dt, this.time);
     this.updateLight(step.frame.weather, dt, reduced);
     this.intro.update(dt);
-    this.updateCamera(dt, reduced, state.shake);
+    this.updateCamera(dt, reduced, state);
     this.updateSetting(reduced);
     this.composer.render(dt);
   }
@@ -479,21 +504,68 @@ export class StageRuntime {
     (this.scene.background as Color).setHex(l.background);
   }
 
-  private updateCamera(dt: number, reduced: boolean, shake: number): void {
-    this.rig.update(dt, !reduced);
-    const pose = this.rig.pose(0, this.intro.framing());
-    const cam = this.camera;
-    let sx = 0;
-    let sz = 0;
-    if (shake > 0 && !reduced) {
-      const k = shake * 0.1;
-      sx = (Math.sin(this.time * 61) + Math.sin(this.time * 97 + 1)) * 0.5 * k;
-      sz = (Math.sin(this.time * 73 + 2) + Math.sin(this.time * 113)) * 0.5 * k;
+  /** The power sweep crosses the board in the direction the commander's own side faces; under reduced motion it is a plain fade. */
+  private updateSweep(state: StageState, reduced: boolean): void {
+    const spec = state.sweep;
+    const facing = spec ? this.homes[spec.player] ?? 'right' : 'right';
+    this.sweep.update(spec, { width: this.boardSize.width, height: this.boardSize.height, direction: facing === 'left' ? -1 : 1, reduced });
+  }
+
+  /** The world points the attack camera must keep in the picture: both units' feet, heads and the corners of their tiles. */
+  private attackPoints(state: StageState): { keep: P3[]; mid: { x: number; z: number } } | null {
+    const a = state.attack;
+    if (!a) return null;
+    const env = this.env();
+    const keep: P3[] = [];
+    for (const c of [a.from, a.to]) {
+      const x = (c.x + 0.5) * TILE;
+      const z = (c.y + 0.5) * TILE;
+      const y = env.surface(c.x, c.y);
+      keep.push({ x, y: y + 0.05, z }, { x, y: y + 0.65, z });
+      for (const sx of [-0.45, 0.45]) for (const sz of [-0.45, 0.45]) keep.push({ x: x + sx, y: y + 0.05, z: z + sz });
     }
-    cam.position.set(pose.position.x + sx, pose.position.y, pose.position.z + sz);
+    return { keep, mid: { x: ((a.from.x + a.to.x) / 2 + 0.5) * TILE, z: ((a.from.y + a.to.y) / 2 + 0.5) * TILE } };
+  }
+
+  private updateCamera(dt: number, reduced: boolean, state: StageState): void {
+    this.rig.update(dt, !reduced);
+    const framing = this.intro.framing();
+    let pose = this.rig.pose(0, framing);
+    let pitchDeg = framing.pitchDeg;
+    // the attack camera: a layer over the rig, off under reduced motion, during the intro, and once the viewer has taken the camera
+    this.attackApplied = 0;
+    if (state.attack && !reduced && !this.cameraTaken && !this.intro.active) {
+      const w = this.attackPoints(state);
+      if (w) {
+        const r = attackPose({
+          board: this.boardSize, aspect: this.camera.aspect, zoom: this.rig.zoom, target: this.rig.target, mid: w.mid,
+          keep: w.keep, strength: state.attack.strength, restDistance: pose.distance,
+        });
+        pose = r.pose;
+        pitchDeg = r.pitchDeg;
+        this.attackApplied = r.strength;
+      }
+    }
+    // the shake: a small, decaying move of the whole picture across and up, sized to the camera's distance so it reads the same at any zoom
+    let ox = 0;
+    let oy = 0;
+    this.shakeApplied = 0;
+    if (state.shake && !reduced) {
+      const o = shakeOffset(state.shake.seed, state.shake.u, state.shake.weight, this.shakeOut);
+      const amp = SHAKE_AMPLITUDE * pose.distance;
+      ox = o.x * amp;
+      oy = o.y * amp;
+      this.shakeApplied = Math.max(Math.abs(o.x), Math.abs(o.y));
+    }
+    const pitch = (pitchDeg * Math.PI) / 180;
+    const dx = ox;
+    const dy = oy * Math.cos(pitch);
+    const dz = -oy * Math.sin(pitch);
+    const cam = this.camera;
+    cam.position.set(pose.position.x + dx, pose.position.y + dy, pose.position.z + dz);
     cam.near = pose.near;
     cam.far = pose.far;
-    cam.lookAt(this.tmp.set(pose.target.x + sx, pose.target.y, pose.target.z + sz));
+    cam.lookAt(this.tmp.set(pose.target.x + dx, pose.target.y + dy, pose.target.z + dz));
     cam.updateProjectionMatrix();
     const flat = Math.hypot(pose.position.x - pose.target.x, pose.position.z - pose.target.z);
     this.lastPose = {
@@ -533,6 +605,7 @@ export class StageRuntime {
 
   zoomStep(dir: 1 | -1): void {
     this.intro.skip(); // the viewer took the camera
+    this.cameraTaken = true;
     this.userZoomed = true;
     this.setZoomLevel(stepZoom(this.rig.level, dir), false);
   }
@@ -549,6 +622,9 @@ export class StageRuntime {
       table: this.table ? this.table.stats() : null,
       zoomLevel: this.rig.level,
       reducedMotion: this.view?.reducedMotion ?? false,
+      attack: this.attackApplied,
+      shake: this.shakeApplied,
+      sweep: this.sweep.stats(),
     };
   }
 
@@ -583,6 +659,7 @@ export class StageRuntime {
     const d = this.drag;
     if (!d || d.id !== e.pointerId) return;
     this.intro.skip();
+    this.cameraTaken = true;
     this.rig.pan(e.clientX - d.x, e.clientY - d.y, this.canvas.clientHeight);
     d.x = e.clientX;
     d.y = e.clientY;
@@ -617,6 +694,7 @@ export class StageRuntime {
     this.canvas.removeEventListener('wheel', this.onWheel);
     this.registry.dispose((v) => this.unitsGroup.remove(v.object));
     this.fx.dispose();
+    this.sweep.dispose();
     if (this.terrain) {
       this.scene.remove(this.terrain.group);
       this.terrain.dispose();

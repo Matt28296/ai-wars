@@ -6,8 +6,9 @@
 import { Group, Object3D, Vector2 } from 'three';
 import type { WebGLRenderer } from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GameEvent } from '../../../game/aw';
+import type { Coord, GameEvent } from '../../../game/aw';
 import { fixtureMap } from '../../../game/aw/testing';
+import type { FixtureUnit } from '../../../game/aw/testing';
 import { recordMatch, viewTimeline } from '../../watch/timeline';
 import type { Timeline, TimelineStep, ViewFrame } from '../../watch/timeline';
 import { fieldSetup, pt } from '../../watch/testing';
@@ -16,7 +17,10 @@ import type { TransitionPlan } from '../../watch/transition';
 import type { CreateFx, CreateTerrain, CreateUnitView, FxView, TerrainView, UnitView } from '../contract';
 import { createFxKit } from '../fx';
 import type { FxKit } from '../fx';
+import { FACTION_ACCENT } from '../palette';
 import { INTRO_DISTANCE, INTRO_PITCH_DEG, INTRO_SECONDS } from './intro';
+import { SHAKE_AMPLITUDE } from './shake';
+import { SWEEP } from './sweep';
 import { OCCUPIED_SNAP_DT_SEC } from './occupancy';
 import { fitDistance, PITCH_DEG } from './rig';
 import { StageRuntime } from './runtime';
@@ -629,6 +633,345 @@ describe('the match intro', () => {
     r.view({ timeline: longTimeline, step: 0 });
     r.page.frames(3);
     expect(r.rt.debug().intro.active).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------- G10: the feel of a battle
+
+/** What the stage does while a plan plays, through the real runtime and the stand-in page: a view at `step` 1 that runs `plan`. */
+function playing(opts: { events: GameEvent[]; next?: ViewFrame; reduced?: boolean; modules?: Partial<StageModules> }): { r: Rig; plan: TransitionPlan; rest: ReturnType<StageRuntime['debug']>['camera'] } {
+  const next = opts.next ?? frame0;
+  const plan = planOf(frame0, next, opts.events);
+  const timeline = timelineOf([frame0, next], [[], opts.events]);
+  const r = make(opts.modules);
+  r.view({ timeline, step: 1, reducedMotion: opts.reduced ?? false });
+  r.page.frames(4);
+  const rest = r.rt.debug().camera;
+  r.view({ timeline, step: 1, plan, reducedMotion: opts.reduced ?? false });
+  return { r, plan, rest };
+}
+const camPos = (rt: StageRuntime): { x: number; y: number; z: number } => {
+  const p = (rt as unknown as { camera: { position: { x: number; y: number; z: number } } }).camera.position;
+  return { x: p.x, y: p.y, z: p.z };
+};
+
+describe('movement trails reach the effects kit', () => {
+  const path: Coord[] = [pt(2, 1), pt(2, 0), pt(3, 0), pt(4, 0)];
+  const walk: GameEvent[] = [{ kind: 'moved', unitId: LANCER, path }];
+  const kitOf = (): { kit: () => FxKit; create: CreateFx } => {
+    let k: FxKit | null = null;
+    return { kit: () => k as FxKit, create: () => { k = createFxKit(); return k; } };
+  };
+
+  it('a hover craft over land kicks dust while it glides: alpha puffs in the existing smoke batch, nothing else, no extra draw call', () => {
+    const fx = kitOf();
+    const { r, plan } = playing({ events: walk, next: moved(frame0, LANCER, 4, 0), modules: { createFx: fx.create } });
+    const mid = plan.moves[0].startMs + plan.moves[0].durMs / 2;
+    r.page.advance(mid);
+    const st = fx.kit().stats();
+    expect(st.instances.smoke).toBeGreaterThan(0);
+    expect(st.instances.glow).toBe(0);
+    expect(st.instances.debris).toBe(0);
+    expect(st.drawCalls).toBeLessThanOrEqual(3);
+    r.page.advance(plan.durationMs); // the plan is over: nothing left
+    r.page.frames(2);
+    expect(fx.kit().stats().instances).toEqual({ glow: 0, smoke: 0, debris: 0 });
+  });
+
+  /** The summed opacity of the smoke batch's instances this frame (how much dust there is, not how many puffs). */
+  const dustAmount = (kit: FxKit): number => {
+    const mesh = kit.group.getObjectByName('fx-smoke') as unknown as { geometry: { instanceCount: number; getAttribute(n: string): { data: { array: Float32Array } } } };
+    const data = mesh.geometry.getAttribute('iA').data.array;
+    let sum = 0;
+    for (let i = 0; i < mesh.geometry.instanceCount; i++) sum += data[i * 16 + 11];
+    return sum;
+  };
+
+  it('is nothing at the start of the glide and fades to next to nothing as the unit comes to rest (the trail follows its speed)', () => {
+    const fx = kitOf();
+    const { r, plan } = playing({ events: walk, next: moved(frame0, LANCER, 4, 0), modules: { createFx: fx.create } });
+    const dur = plan.moves[0].durMs;
+    r.page.advance(1);
+    expect(fx.kit().stats().instances.smoke).toBe(0);
+    r.page.advance(dur / 2 - 1);
+    const mid = dustAmount(fx.kit());
+    expect(mid).toBeGreaterThan(0.3);
+    r.page.advance(dur / 2 - 3); // 3 ms before the end of the glide
+    expect(dustAmount(fx.kit())).toBeLessThan(mid * 0.2);
+  });
+
+  it('reduced motion: the viewer\'s plan has no glides, so no trails, and the kit is asked for half the particles', () => {
+    const fx = kitOf();
+    const next = moved(frame0, LANCER, 4, 0);
+    const calm = planTransition(frame0, next, walk, { speed: 1, reducedMotion: true });
+    expect(calm.moves).toEqual([]);
+    const r = make({ createFx: fx.create });
+    const timeline = timelineOf([frame0, next], [[], walk]);
+    r.view({ timeline, step: 1, reducedMotion: true });
+    r.page.frames(3);
+    r.view({ timeline, step: 1, plan: calm, reducedMotion: true });
+    for (let t = 0; t < 400; t += 40) {
+      r.page.advance(40);
+      expect(fx.kit().stats().instances.smoke, `t=${t}`).toBe(0);
+    }
+  });
+});
+
+describe('the attack camera in the runtime', () => {
+  const rest = fitDistance({ width: W, height: H }, CANVAS_W / CANVAS_H);
+
+  it('eases in toward the fight (a quarter nearer, 6 degrees lower), holds, and returns exactly to the resting framing as the attack ends', () => {
+    const { r, plan } = playing({ events: [ATTACK] });
+    // the strikes run 0..760 ms; the window has no lead (nothing precedes the first strike) and ends 240 ms after the last: 0..1000
+    expect(plan.fx.filter((f) => f.kind === 'hit').map((f) => [f.startMs, f.durMs])).toEqual([[0, 380], [380, 380]]);
+    const series: { t: number; distance: number; pitch: number; attack: number }[] = [];
+    for (let t = 20; t <= 1200; t += 20) {
+      r.page.advance(20);
+      const d = r.rt.debug();
+      series.push({ t, distance: d.camera.distance, pitch: d.camera.pitchDeg, attack: d.attack });
+    }
+    const at = (t: number) => series.find((s) => s.t === t)!;
+    // in: from the resting distance, falling smoothly until 240 ms
+    expect(at(20).distance).toBeGreaterThan(rest * 0.99);
+    for (let t = 40; t <= 240; t += 20) expect(at(t).distance).toBeLessThan(at(t - 20).distance);
+    // held: a quarter nearer and 6 degrees lower, with the whole strength, between 240 and 760 ms
+    for (let t = 240; t <= 760; t += 20) {
+      expect(at(t).attack, `t=${t}`).toBe(1);
+      expect(at(t).distance, `t=${t}`).toBeCloseTo(rest * 0.75, 9);
+      expect(at(t).pitch, `t=${t}`).toBeCloseTo(PITCH_DEG - 6, 9);
+    }
+    // out: rising smoothly back, and exactly the resting camera from 1000 ms on
+    for (let t = 780; t <= 1000; t += 20) expect(at(t).distance).toBeGreaterThan(at(t - 20).distance);
+    for (let t = 1000; t <= 1200; t += 20) {
+      expect(at(t).attack, `t=${t}`).toBe(0);
+      expect(at(t).distance, `t=${t}`).toBeCloseTo(rest, 9);
+      expect(at(t).pitch, `t=${t}`).toBeCloseTo(PITCH_DEG, 9);
+    }
+    expect(plan.durationMs).toBeGreaterThan(1000); // it was gone before the plan was (the damage number is still rising)
+  });
+
+  it('is off under reduced motion: the framing never changes during an attack', () => {
+    const { r } = playing({ events: [ATTACK], reduced: true });
+    for (let t = 0; t < 1100; t += 40) {
+      r.page.advance(40);
+      expect(r.rt.debug().attack, `t=${t}`).toBe(0);
+      expect(r.rt.debug().camera.distance, `t=${t}`).toBeCloseTo(rest, 9);
+    }
+  });
+
+  it('is off once the viewer has taken the camera: a zoom step, or a drag', () => {
+    const zoomed = playing({ events: [ATTACK] });
+    zoomed.r.rt.zoomStep(1);
+    for (let t = 0; t < 1100; t += 40) {
+      zoomed.r.page.advance(40);
+      expect(zoomed.r.rt.debug().attack, `zoom t=${t}`).toBe(0);
+    }
+    const dragged = playing({ events: [ATTACK] });
+    const rt = dragged.r.rt as unknown as { onPointerDown(e: Partial<PointerEvent>): void; onPointerMove(e: Partial<PointerEvent>): void };
+    rt.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 100, clientY: 100 });
+    rt.onPointerMove({ pointerId: 1, clientX: 110, clientY: 105 });
+    for (let t = 0; t < 1100; t += 40) {
+      dragged.r.page.advance(40);
+      expect(dragged.r.rt.debug().attack, `drag t=${t}`).toBe(0);
+      expect(dragged.r.rt.debug().camera.distance, `drag t=${t}`).toBeGreaterThan(rest * 0.99);
+    }
+    // known-bad: the same plan with the camera untouched does apply it
+    const free = playing({ events: [ATTACK] });
+    free.r.page.advance(500);
+    expect(free.r.rt.debug().attack).toBe(1);
+  });
+
+  it('is off while the match intro runs, and in a step with no strike', () => {
+    const r = make();
+    const timeline = timelineOf([frame0, frame0], [[], [ATTACK]]);
+    r.view({ timeline, step: 0 });
+    r.page.advance(20);
+    expect(r.rt.debug().intro.active).toBe(true);
+    expect(r.rt.debug().attack).toBe(0);
+    const quiet = playing({ events: [{ kind: 'captured', at: pt(5, 2), terrain: 'arcology', by: 0, from: null }] });
+    for (let t = 0; t < 600; t += 40) {
+      quiet.r.page.advance(40);
+      expect(quiet.r.rt.debug().attack).toBe(0);
+    }
+  });
+
+  it('gives less, down to nothing, when the push-in would cut a unit off: a long map with the fighters at its two ends', () => {
+    // at the widest zoom the whole map fills the picture across, so a push-in would leave both fighters outside it
+    const rows = ['.'.repeat(24), '.'.repeat(24), '.'.repeat(24), '.'.repeat(24)];
+    const units: FixtureUnit[] = [{ type: 'lancer', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 22, y: 1 }];
+    const wide = viewTimeline(recordMatch({ ...fieldSetup(units, { fog: false }), map: fixtureMap(rows, units, undefined, 'g10-wide') }, []), 'all').steps[0].frame;
+    const events: GameEvent[] = [{ kind: 'attacked', attackerId: idOf(wide, 'lancer'), defenderId: idOf(wide, 'trooper'), damage: 10, counter: 0, attackerHp: 100, defenderHp: 90 }];
+    const plan = planOf(wide, wide, events);
+    const timeline = timelineOf([wide, wide], [[], events]);
+    const r = make();
+    r.view({ timeline, step: 1 });
+    r.page.frames(4);
+    r.view({ timeline, step: 1, plan });
+    const restDistance = r.rt.debug().camera.distance;
+    let min = restDistance;
+    for (let t = 0; t < 900; t += 30) {
+      r.page.advance(30);
+      min = Math.min(min, r.rt.debug().camera.distance);
+    }
+    // the same fight in the same picture on a short map would push all the way in; here the guard holds it back
+    expect(min).toBeGreaterThan(restDistance * 0.75 + 1e-6);
+  });
+});
+
+describe('the explosion\'s shake in the runtime', () => {
+  const DEAD1: GameEvent = { kind: 'destroyed', unitId: TROOPER, at: pt(3), type: 'trooper', owner: 1 };
+  const killOnly = (reduced = false) => playing({ events: [DEAD1], next: without(frame0, TROOPER), reduced });
+
+  it('moves the camera at the start of the explosion by a few pixels at most, decays, and leaves it exactly at rest a quarter second later', () => {
+    const { r, plan, rest } = killOnly();
+    const restPos = camPos(r.rt);
+    const boom = plan.fx.find((f) => f.kind === 'explosion')!;
+    r.page.advance(boom.startMs + 10);
+    const d = r.rt.debug();
+    expect(d.shake).toBeGreaterThan(0);
+    const early = camPos(r.rt);
+    const off = Math.hypot(early.x - restPos.x, early.y - restPos.y, early.z - restPos.z);
+    expect(off).toBeGreaterThan(0);
+    expect(off).toBeLessThanOrEqual(SHAKE_AMPLITUDE * rest.distance * 1.0001); // never more than the peak, scaled to the distance
+    // decaying: the largest offsets of the last quarter are under a tenth of the first quarter's
+    const peaks = (from: number, to: number): number => {
+      let m = 0;
+      for (let ms = from; ms < to; ms += 4) {
+        r.page.advance(4);
+        const p = camPos(r.rt);
+        m = Math.max(m, Math.hypot(p.x - restPos.x, p.y - restPos.y, p.z - restPos.z));
+      }
+      return m;
+    };
+    const firstQuarter = peaks(10, 70);
+    peaks(70, 190);
+    const lastQuarter = peaks(190, 245);
+    expect(firstQuarter).toBeGreaterThan(0);
+    expect(lastQuarter).toBeLessThan(firstQuarter * 0.2);
+    r.page.advance(10); // 255 ms after the start
+    expect(r.rt.debug().shake).toBe(0);
+    expect(camPos(r.rt)).toEqual(restPos); // exactly where it was
+  });
+
+  it('is the same shake for the same beat every time (scrubbing and replays show it exactly)', () => {
+    const trace = (): number[] => {
+      const { r, plan } = killOnly();
+      const boom = plan.fx.find((f) => f.kind === 'explosion')!;
+      r.page.advance(boom.startMs);
+      const out: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        r.page.advance(16);
+        const p = camPos(r.rt);
+        out.push(p.x, p.y, p.z);
+      }
+      r.rt.dispose();
+      return out;
+    };
+    const a = trace();
+    const b = trace();
+    expect(a).toEqual(b);
+    expect(new Set(a).size).toBeGreaterThan(8);
+  });
+
+  it('never under reduced motion, and a plain hit gives none', () => {
+    const calm = killOnly(true);
+    const calmBoom = calm.plan.fx.find((f) => f.kind === 'explosion')!;
+    calm.r.page.advance(calmBoom.startMs + 10);
+    expect(calm.r.rt.debug().shake).toBe(0);
+    expect(camPos(calm.r.rt)).toEqual({ x: calm.rest.x, y: calm.rest.y, z: calm.rest.z });
+    const hit = playing({ events: [{ ...ATTACK, damage: 10, defenderHp: 90 } as GameEvent] });
+    for (let t = 0; t < 700; t += 20) {
+      hit.r.page.advance(20);
+      expect(hit.r.rt.debug().shake, `t=${t}`).toBe(0);
+    }
+  });
+});
+
+describe('the power sweep in the runtime', () => {
+  const surge: GameEvent[] = [{ kind: 'powerActivated', player: 0, level: 'surge', commander: 'rook' }];
+  const overclock: GameEvent[] = [{ kind: 'powerActivated', player: 1, level: 'overclock', commander: 'sefa' }];
+  const sweepMesh = (rt: StageRuntime): { visible: boolean; parent: unknown } | null => (rt as unknown as { scene: { getObjectByName(n: string): { visible: boolean; parent: unknown } | undefined } }).scene.getObjectByName('power-sweep') ?? null;
+
+  it('is one hidden mesh in the scene until a power runs, shows in the activating commander\'s faction colour for the whole cut-in, and is gone after', () => {
+    const { r, plan } = playing({ events: surge });
+    expect(sweepMesh(r.rt)).not.toBeNull();
+    expect(r.rt.debug().sweep.visible).toBe(false);
+    const d = plan.cutIn!.durMs;
+    r.page.advance(d / 2);
+    const mid = r.rt.debug().sweep;
+    expect(mid.visible).toBe(true);
+    expect(mid.drawCalls).toBe(1);
+    expect(mid.color).toBe(FACTION_ACCENT.helion);
+    expect(mid.intensity).toBe(SWEEP.surge.intensity);
+    expect(sweepMesh(r.rt)!.visible).toBe(true);
+    r.page.advance(d); // the cut-in is over
+    r.page.frames(2);
+    expect(r.rt.debug().sweep.visible).toBe(false);
+    expect(sweepMesh(r.rt)!.visible).toBe(false);
+  });
+
+  it('Overclock is stronger than Surge, and the other player\'s power shows the other faction', () => {
+    const { r, plan } = playing({ events: overclock });
+    r.page.advance(plan.cutIn!.durMs / 2);
+    const s = r.rt.debug().sweep;
+    expect(s.color).toBe(FACTION_ACCENT.tidewell);
+    expect(s.color).not.toBe(FACTION_ACCENT.helion);
+    expect(s.intensity).toBe(SWEEP.overclock.intensity);
+    expect(s.bands).toBe(2);
+    expect(s.intensity).toBeGreaterThan(SWEEP.surge.intensity * 1.8);
+  });
+
+  it('crosses the board toward the commander\'s own side\'s front: player 0 (facing east) sweeps east, player 1 (facing west) sweeps west', () => {
+    const run = (events: GameEvent[]): number[] => {
+      const { r, plan } = playing({ events });
+      const out: number[] = [];
+      for (let i = 1; i <= 8; i++) {
+        r.page.advance(plan.cutIn!.durMs / 10);
+        out.push(r.rt.debug().sweep.center);
+      }
+      return out;
+    };
+    const east = run(surge);
+    const west = run(overclock);
+    for (let i = 1; i < east.length; i++) {
+      expect(east[i]).toBeGreaterThan(east[i - 1]);
+      expect(west[i]).toBeLessThan(west[i - 1]);
+    }
+  });
+
+  it('under reduced motion it is a plain fade: no band, a wash that rises and falls with the cut-in', () => {
+    const { r, plan } = playing({ events: surge, reduced: true });
+    const d = plan.cutIn!.durMs;
+    const modes = new Set<string>();
+    const shown: boolean[] = [];
+    for (let i = 1; i <= 9; i++) {
+      r.page.advance(d / 10);
+      const s = r.rt.debug().sweep;
+      modes.add(s.mode);
+      shown.push(s.visible);
+    }
+    expect([...modes]).toEqual(['fade']);
+    expect(shown[4]).toBe(true);
+    expect(r.rt.debug().sweep.intensity).toBe(SWEEP.surge.wash);
+  });
+
+  it('adds one draw call for the whole stage while a power runs and none otherwise (the table, storm and sweep are the only extras)', () => {
+    const { r, plan } = playing({ events: surge });
+    r.page.advance(10);
+    expect(r.rt.debug().sweep.drawCalls).toBe(0); // the band has not started: the cut-in's first moments
+    r.page.advance(plan.cutIn!.durMs / 2 - 10);
+    expect(r.rt.debug().sweep.drawCalls).toBe(1);
+    expect(r.rt.debug().table!.drawCalls).toBe(3);
+  });
+
+  it('dispose frees the mesh and takes it out of the scene', () => {
+    const r = make();
+    r.view({ timeline: timelineOf([frame0]) });
+    r.page.frames(2);
+    const mesh = sweepMesh(r.rt)!;
+    expect(mesh.parent).not.toBeNull();
+    r.rt.dispose();
+    expect(mesh.parent).toBeNull();
   });
 });
 

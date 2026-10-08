@@ -4,6 +4,9 @@
 // particle and no Math.random anywhere, so scrubbing backwards shows exactly what going forward showed at the same progress, and
 // update() has nothing to advance.
 //
+// The movement trails (G10: 'dust', 'wake', 'contrail', trails.ts) are effects like the rest: drawn from (kind, progress, seed, at, to)
+// alone, with `to` a point behind the mover, through the same batches, and halved by reduced motion.
+//
 // Cost: the whole kit draws through three instanced batches (additive glow, alpha smoke, opaque debris) plus one sprite per
 // visible number, so a frame is 3 draw calls plus numbers however many effects run. Four pooled point lights give the
 // muzzle and explosion pops. Buffers are preallocated; draw() allocates nothing once the number pool is warm.
