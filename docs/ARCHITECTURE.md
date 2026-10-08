@@ -1,5 +1,7 @@
 # Ascendant Wars — Architecture
 
+> **Superseded in part (2026-10-08).** Ascendant Wars is now a fork of Blacklink (see `docs/delivery/DECISIONS.md` D-001). The engine boundaries and rules below still hold and move to `src/game/aw` in M1. The app shell, the manual-control battle UI and the shell/story UI described here are replaced: the player's agent plays every battle, and the platform comes from the fork in M2.
+
 Browser game: **Vite + React 18 + TypeScript**, no other runtime dependencies. Tests: **vitest** (`npm test`). Typecheck: `npm run typecheck`. Dev server: `npm run dev`.
 
 ## Sources of truth

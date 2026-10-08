@@ -1,0 +1,5 @@
+# Supply-chain hygiene (same rule as Blacklink): a package version must be a week old before it can be installed,
+# and only the listed dependencies may run install scripts.
+minimumReleaseAge: 10080
+onlyBuiltDependencies:
+  - esbuild
