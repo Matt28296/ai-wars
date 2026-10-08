@@ -7,8 +7,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { CutIn } from '../watch/CutIn';
-import { Sigil, TurnBanner, factionShort } from '../watch/kit';
+import { TurnBanner } from '../watch/kit';
 import { commanderNameOf } from '../watch/format';
+import { ownerOf } from '../watch/seats';
+import { VictoryChip } from '../watch/VictoryChip';
 import type { StageProps } from '../watch/Stage';
 import { StageRuntime } from './stage/runtime';
 import type { Overlay } from './stage/runtime';
@@ -20,7 +22,7 @@ export interface Stage3DProps extends StageProps {
   onFail?: (reason: string) => void;
 }
 
-export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, onFail }: Stage3DProps): ReactElement {
+export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, seats, onFail }: Stage3DProps): ReactElement {
   const cur = timeline.steps[Math.min(step, timeline.last)];
   const frame = cur.frame;
   const hostRef = useRef<HTMLDivElement>(null);
@@ -73,7 +75,6 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
     runtime.current?.setView({ timeline, step, plan, reducedMotion });
   }, [timeline, step, plan, reducedMotion]);
 
-  const winner = frame.winnerTeam;
   const bannerFaction = frame.players[frame.current]?.faction ?? 'helion';
   const bannerCommander = commanderNameOf(frame.players[frame.current]?.commander ?? '');
   const sweep = overlay?.banner ?? null;
@@ -84,12 +85,7 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
       <div className="aww-banner-row">
         <TurnBanner key={`${frame.cycle}-${frame.current}`} className="aww-turn-banner" cycle={frame.cycle} faction={bannerFaction} commander={bannerCommander} />
         <div className="aww-chips">
-          {winner !== null && (
-            <span className="aww-victory label">
-              <Sigil faction={frame.players.find((p) => p.team === winner)?.faction ?? null} size={18} tone="ink" />
-              Victory: {frame.players.filter((p) => p.team === winner).map((p) => factionShort(p.faction)).join(' and ')}
-            </span>
-          )}
+          <VictoryChip frame={frame} seats={seats} />
           <span className="aww-chip caption">{frame.viewer === 'all' ? 'Omniscient view' : frame.fogActive ? 'Fog of war' : 'No fog'}</span>
           {frame.weather === 'ionstorm' && <span className="aww-chip caption aww-chip--warn">Ion storm</span>}
           {toolbar && <div className="aww-toolbar">{toolbar}</div>}
@@ -100,7 +96,7 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
           className="aww-stage3d"
           ref={hostRef}
           role="img"
-          aria-label={`Battlefield in 3D, cycle ${frame.cycle}, ${factionShort(bannerFaction)} turn`}
+          aria-label={`Battlefield in 3D, cycle ${frame.cycle}, ${ownerOf(seats, frame.current, bannerFaction)} turn`}
           data-step={step}
           data-quality={quality ?? undefined}
           style={{ ['--aww-3d-ratio' as string]: stageAspect({ width: frame.width, height: frame.height }).toFixed(3) }}
