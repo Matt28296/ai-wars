@@ -13,7 +13,7 @@ export function declareWinner(ctx: Ctx, team: number): void {
 }
 
 /** Removes the player's units; properties go to the spire's captor (hq) or turn neutral; their spires become arcologies. */
-export function defeatPlayer(ctx: Ctx, p: PlayerIndex, reason: 'rout' | 'hq' | 'resign', by: PlayerIndex | null = null): void {
+export function defeatPlayer(ctx: Ctx, p: PlayerIndex, reason: 'rout' | 'hq' | 'resign' | 'deadline', by: PlayerIndex | null = null): void {
   const s = ctx.s;
   const pl = s.players[p];
   if (!pl || pl.defeated) return;
@@ -96,14 +96,13 @@ function standings(s: GameState): Standing[] {
 
 /**
  * D-013: a campaign deadline. When cycle `deadline.cycles` has ended and nobody has won, every player on
- * `deadline.team` is defeated and the game-over check runs, so the other side wins. The contract's `playerDefeated`
- * reason has no 'deadline' value, so the defeat is reported as 'rout' (the units are gone either way).
+ * `deadline.team` is defeated (reason 'deadline') and the game-over check runs, so the other side wins.
  */
 function applyDeadline(ctx: Ctx, ended: number): void {
   const s = ctx.s;
   const d = s.deadline;
   if (!d || ended < d.cycles || s.winnerTeam !== null) return;
-  for (const p of s.players) if (p.team === d.team) defeatPlayer(ctx, p.index, 'rout');
+  for (const p of s.players) if (p.team === d.team) defeatPlayer(ctx, p.index, 'deadline');
   checkGameOver(ctx);
 }
 

@@ -170,7 +170,7 @@ export type GameEvent =
   | { kind: 'repaired'; unitId: number; amount: number; cost: number }
   | { kind: 'crashed'; unitId: number; at: Coord }      // air/sea out of charge
   | { kind: 'weather'; weather: Weather; turns: number }
-  | { kind: 'playerDefeated'; player: PlayerIndex; reason: 'rout' | 'hq' | 'resign' }
+  | { kind: 'playerDefeated'; player: PlayerIndex; reason: 'rout' | 'hq' | 'resign' | 'deadline' }
   | { kind: 'victory'; team: number };
 
 export interface ApplyResult { state: GameState; events: GameEvent[] }

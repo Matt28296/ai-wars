@@ -437,7 +437,7 @@ describe('D-013 deadline', () => {
     expect(r.state.players[0].defeated).toBe(true);
     expect(r.state.players[1].defeated).toBe(false);
     expect(r.state.units.some((u) => u.owner === 0)).toBe(false);
-    expect(r.events).toContainEqual({ kind: 'playerDefeated', player: 0, reason: 'rout' });
+    expect(r.events).toContainEqual({ kind: 'playerDefeated', player: 0, reason: 'deadline' });
     expect(r.events).toContainEqual({ kind: 'victory', team: 1 });
     // Known-bad control: the same clock with no deadline ends nothing.
     expect(play(duel(), ...ends(4)).state.winnerTeam).toBeNull();
@@ -461,7 +461,7 @@ describe('D-013 deadline', () => {
     expect(r.state.winnerTeam).toBe(0);
     expect(r.state.cycle).toBe(2);
     expect(r.state.players[0].defeated).toBe(false);
-    expect(r.events).not.toContainEqual({ kind: 'playerDefeated', player: 0, reason: 'rout' });
+    expect(r.events.some((e) => e.kind === 'playerDefeated' && e.player === 0)).toBe(false);
   });
 
   it('lets a survive objective met on the deadline cycle count as meeting it', () => {
@@ -480,7 +480,7 @@ describe('D-013 deadline', () => {
     const both = play(duel({ turnLimit: 2, deadline: { team: 0, cycles: 2 } }, 'lancer', 'trooper'), ...ends(4));
     expect(both.state.winnerTeam).toBe(1);
     expect(both.state.players[0].defeated).toBe(true);
-    expect(both.events).toContainEqual({ kind: 'playerDefeated', player: 0, reason: 'rout' });
+    expect(both.events).toContainEqual({ kind: 'playerDefeated', player: 0, reason: 'deadline' });
   });
 
   it('lets a turn limit that ends earlier decide, so a later deadline never fires', () => {
