@@ -8,6 +8,8 @@
 //   rings     capture rings, one mesh, progress read from a texture                                                  (capture.ts)
 //   low form  a property under a unit sinks its tall parts to a quarter height: a one-texel-per-tile map the vertex shader reads  (shading.ts)
 // Fog of war and the ion-storm grade are applied inside every material (shading.ts), so one texture write changes what is dimmed.
+// A living board (ORDER G11, living.ts): cloud shadows, a gust over the grass that the trees' sway follows, and caustics on the shallows, all
+// inside the same materials (no draw call, no texture) and all on one clock that `setMotion(false)` stops.
 import {
   BufferAttribute, Color, Group, InstancedMesh, Mesh, NearestFilter,
   type BufferGeometry, type Material, type Texture,
@@ -21,6 +23,7 @@ import { addDecor, broadleafGeometry, pineGeometry, planTrees } from './flora';
 import { PartSet, SINK_ATTR, type Bucket, type PartRecord } from './geo';
 import { buildGround } from './ground';
 import { analyseBoard, type Board } from './layout';
+import { LiveClock, cloudDarkening, gust } from './living';
 import { smoothstep } from './rng';
 import { LOW_EASE_SEC, buildWindowTextures, createMaterials, createUniforms, lowFormY, tileMap } from './shading';
 import { buildSigilAtlas, sigilCell, sigilInk, sigilUv } from './sigils';
@@ -66,10 +69,23 @@ export interface TerrainDebug {
   sigilSample(x: number, y: number, a: number, b: number): number | null;
   /** Every material the kit uses, by role, and the shared uniforms they must all read (the fog map above all). */
   materials(): Record<string, Material>;
-  uniforms(): { fogMap: Texture; storm: number; time: number; occMap: Texture };
+  uniforms(): { fogMap: Texture; storm: number; time: number; live: number; occMap: Texture };
+  /** The living clock: its time (the stage's, held still while motion is off) and whether motion is on. */
+  living(): { time: number; motion: boolean };
+  /** Cloud-shadow darkening (0..0.15) at world (x, z) as the shader would draw it right now: the CPU mirror, on the kit's own clock and storm. */
+  cloudAt(x: number, z: number): number;
+  /** The gust (-1..1) at world (x, z) right now: what the grass brightness and the trees' sway read. */
+  gustAt(x: number, z: number): number;
 }
 
 export interface TerrainKit extends TerrainView {
+  /**
+   * Switch the board's ambient motion on or off (reduced motion). Off, the cloud shadows, the gust, the trees' sway and the caustics hold exactly
+   * where they are; on again, they carry on from there. This is on the kit, not on TerrainView: the stage calls it when its reduced-motion setting
+   * changes, the same way it hands the effects kit its own (`typeof kit.setMotion === 'function'`). The water's waves keep following the time
+   * `update` is given, as they always have. A kit starts with motion on.
+   */
+  setMotion(on: boolean): void;
   readonly board: Board;
   readonly stats: TerrainStats;
   readonly debug: TerrainDebug;
@@ -134,6 +150,7 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
   ledger.texture(win.albedo);
   ledger.texture(win.emissive);
   const uniforms = createUniforms(fogMap, width, height, occMap);
+  const clock = new LiveClock();
   const mats = createMaterials(uniforms, win.albedo, win.emissive, atlas);
   const waterMat = createWaterMaterial(uniforms);
   const ringMat = createRingMaterial(uniforms, capMap);
@@ -293,6 +310,9 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
     setWeather(weather: Weather) {
       stormTarget = weather === 'ionstorm' ? 1 : 0;
     },
+    setMotion(on) {
+      clock.setMotion(on);
+    },
     update(dtSec, timeSec) {
       // A huge dt (scrubbing, a first frame after a long pause) reaches every target at once; NaN and negative steps do nothing.
       const dt = dtSec > 0 ? dtSec : 0;
@@ -311,6 +331,7 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
       }
       if (moved) occMap.needsUpdate = true;
       uniforms.uTime.value = timeSec;
+      uniforms.uLive.value = clock.advance(timeSec);
       uniforms.uStorm.value += (stormTarget - uniforms.uStorm.value) * (1 - Math.exp(-dt * 3));
       mats.glow.emissiveIntensity = 1 + GLOW_PULSE * Math.sin(timeSec * 2.3);
     },
@@ -347,7 +368,10 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
         return out;
       },
       materials: () => ({ ...mats, water: waterMat, rings: ringMat }),
-      uniforms: () => ({ fogMap: uniforms.uFogMap.value, storm: uniforms.uStorm.value, time: uniforms.uTime.value, occMap: uniforms.uOccMap.value }),
+      uniforms: () => ({ fogMap: uniforms.uFogMap.value, storm: uniforms.uStorm.value, time: uniforms.uTime.value, live: uniforms.uLive.value, occMap: uniforms.uOccMap.value }),
+      living: () => ({ time: clock.time, motion: clock.motion }),
+      cloudAt: (x, z) => cloudDarkening(x, z, uniforms.uLive.value, uniforms.uStorm.value),
+      gustAt: (x, z) => gust(x, z, uniforms.uLive.value),
       paintAt(x, y) {
         const rec = byTile.get(y * width + x)?.find((r) => r.role === 'paint');
         const g = rec && bucketGeo[rec.bucket];

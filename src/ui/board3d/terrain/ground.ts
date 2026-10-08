@@ -35,7 +35,8 @@ const SEA_BED = new Color(SEA.base).multiplyScalar(0.7);
 
 const WALL_DARK = { sea: new Color(0x0e1a24), shoal: new Color(0x40382b), glass: new Color(0x1d2429), maglev: new Color(0x1d2127) };
 
-interface Vtx { x: number; y: number; z: number; c: Color }
+/** `w` is the grass weight the wind brightness wave reads (1 on the top and bevel of a flats or canopy tile, 0 elsewhere, 0 when absent). */
+interface Vtx { x: number; y: number; z: number; c: Color; w?: number }
 
 /** Number of cells across the top of a tile: enough for the colour noise and the shape, no more. */
 function gridN(t: TileInfo): number {
@@ -141,11 +142,13 @@ class Soup {
   pos: number[] = [];
   nrm: number[] = [];
   col: number[] = [];
+  grass: number[] = [];
   tris = 0;
   vert(v: Vtx, nx: number, ny: number, nz: number): void {
     this.pos.push(v.x, v.y, v.z);
     this.nrm.push(nx, ny, nz);
     this.col.push(v.c.r, v.c.g, v.c.b);
+    this.grass.push(v.w ?? 0);
   }
   /** A triangle with a flat normal. The winding is flipped if needed so the face looks along `hint`. */
   flat(a: Vtx, b: Vtx, c: Vtx, hx: number, hy: number, hz: number): void {
@@ -181,6 +184,7 @@ export function buildGround(board: Board): GroundBuild {
   for (const t of board.tiles) {
     const n = gridN(t);
     const flatTop = t.terrain === 'ridge';
+    const grass = t.terrain === 'flats' || t.terrain === 'canopy' ? 1 : 0;
     const inset = (i: number): number => BEVEL + ((1 - 2 * BEVEL) * i) / n;
 
     // Top grid.
@@ -191,7 +195,7 @@ export function buildGround(board: Board): GroundBuild {
         const u = inset(i);
         const v = inset(j);
         const y = surfaceY(t, u, v);
-        P.push({ x: t.x + u, y, z: t.y + v, c: topColor(t, u, v, new Color()) });
+        P.push({ x: t.x + u, y, z: t.y + v, c: topColor(t, u, v, new Color()), w: grass });
         const gx = (surfaceY(t, u + eps, v) - surfaceY(t, u - eps, v)) / (2 * eps);
         const gz = (surfaceY(t, u, v + eps) - surfaceY(t, u, v - eps)) / (2 * eps);
         const l = Math.hypot(gx, 1, gz);
@@ -224,7 +228,7 @@ export function buildGround(board: Board): GroundBuild {
       const ox = i === 0 ? 0 : i === n ? 1 : p.x - t.x;
       const oz = j === 0 ? 0 : j === n ? 1 : p.z - t.y;
       const c = tmp.copy(p.c).multiplyScalar(0.78);
-      return { x: t.x + ox, y: p.y - BEVEL, z: t.y + oz, c: new Color().copy(c) };
+      return { x: t.x + ox, y: p.y - BEVEL, z: t.y + oz, c: new Color().copy(c), w: p.w };
     });
     for (let k = 0; k < ring.length; k++) {
       const k2 = (k + 1) % ring.length;
@@ -282,6 +286,7 @@ export function buildGround(board: Board): GroundBuild {
   g.setAttribute('position', new BufferAttribute(new Float32Array(soup.pos), 3));
   g.setAttribute('normal', new BufferAttribute(new Float32Array(soup.nrm), 3));
   g.setAttribute('color', new BufferAttribute(new Float32Array(soup.col), 3));
+  g.setAttribute('aGrass', new BufferAttribute(new Float32Array(soup.grass), 1));
   g.computeBoundingBox();
   g.computeBoundingSphere();
   return { geometry: g, triangles: soup.tris };
