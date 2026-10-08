@@ -33,7 +33,7 @@ Work is split by **owner area**. Areas never share a file, so builders in separa
 | M1.8 | The eleven commanders as engine data — **merged PR #10 `88e751e`** | `c6f8876` | M1.4 | done | `pnpm test src/content/commanders.test.ts` (41) |
 | M1.9 | Six original skirmish maps and a reusable map checker — **merged PR #13 `cd3bb7a`** | `feed69b` | M1.0 | done | `pnpm test src/content/maps.test.ts` (51) |
 | M3.0 | Fog-honest agent view (D-016): observation + action list for a fogged player; a move ending on a hidden enemy resolves as an ambush — **merged PR #16 `e6654d4`** | `3f0b34c` | M1.6b | done | planted hidden enemy: identical observation and action list with and without it |
-| M3.0b | Per-viewer event filter (D-016): the events a viewer may see per step — PR #18 | `3706d99` | M3.0 | in CI | `pnpm test src/game/aw/view-events.test.ts` (44) |
+| M3.0b | Per-viewer event filter (D-016): the events a viewer may see per step — **merged PR #18 `7589bb6`** | `3706d99` | M3.0 | done | `pnpm test src/game/aw/view-events.test.ts` (44) |
 | M3.1 | Doctrine brain (D-004/D-005): structured standing orders → deterministic action choice over the fog-honest list; seeded bot-vs-bot balance runs on the six maps with a source hash recorded | `e6654d4` | M3.0 | in progress (builder) | win rates per map and side within the band set in the order; replay-identical |
 | M2 | Platform fork (R01, R02, R09, R10, R35) | M1 | D-003 cleared | **no — blocked** | see milestone plan |
 | M4.0 | Act I "Cinder Season", missions 1–4 as data — **merged PR #15 `3f0b34c`** | `55ae6d9` | M1.9 | done | `pnpm test src/content/missions.test.ts` |
