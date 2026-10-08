@@ -1,20 +1,34 @@
 // Production: an owned, empty fabricator / skyport / dock builds units of its domain. New units start acted.
+// D-015.3: a player may have at most MAX_UNITS_PER_PLAYER units on the map, cargo included.
 import { TERRAIN_TYPES, UNIT_LIST } from '../../data';
 import { illegal } from './errors';
 import { unitCost } from './modifiers';
-import { emit, inBounds, unitAt, unitType } from './state';
+import { emit, inBounds, unitAt, unitCount, unitType } from './state';
 import type { Ctx } from './state';
 import type { Coord, GameState, UnitTypeId } from './types';
 
-export function buildOptions(state: GameState, at: Coord): { type: UnitTypeId; cost: number; affordable: boolean }[] {
+/** D-015.3: the most units one player can have on the map at once (loaded cargo counts). Our rule, not a measured original. */
+export const MAX_UNITS_PER_PLAYER = 50;
+
+/** Why a build entry is unavailable: not enough funds, or the player is at the unit cap (the cap wins when both hold). */
+export interface BuildOption { type: UnitTypeId; cost: number; affordable: boolean; reason?: 'funds' | 'cap' }
+
+/** True when the player cannot field another unit (D-015.3). */
+export function atUnitCap(state: GameState, p: number): boolean {
+  return unitCount(state, p) >= MAX_UNITS_PER_PLAYER;
+}
+
+export function buildOptions(state: GameState, at: Coord): BuildOption[] {
   if (state.winnerTeam !== null || !Number.isInteger(at.x) || !Number.isInteger(at.y) || !inBounds(state, at)) return [];
   const tile = state.tiles[at.y][at.x];
   const domain = TERRAIN_TYPES[tile.terrain].builds;
   if (!domain || tile.owner !== state.current || unitAt(state, at)) return [];
   const funds = state.players[state.current].funds;
-  return UNIT_LIST.filter((u) => u.domain === domain).map((u) => {
+  const capped = atUnitCap(state, state.current);
+  return UNIT_LIST.filter((u) => u.domain === domain).map((u): BuildOption => {
     const cost = unitCost(state, state.current, u, at);
-    return { type: u.id, cost, affordable: cost <= funds };
+    if (capped) return { type: u.id, cost, affordable: false, reason: 'cap' };
+    return cost <= funds ? { type: u.id, cost, affordable: true } : { type: u.id, cost, affordable: false, reason: 'funds' };
   });
 }
 
@@ -28,6 +42,7 @@ export function validateBuild(state: GameState, at: Coord, type: UnitTypeId): nu
   if (!domain) illegal(`${tile.terrain} cannot build units`);
   if (domain !== t.domain) illegal(`${tile.terrain} cannot build ${t.domain} units`);
   if (unitAt(state, at)) illegal('the build site is occupied');
+  if (atUnitCap(state, state.current)) illegal(`unit cap reached: ${MAX_UNITS_PER_PLAYER} units per player, cargo included`);
   const cost = unitCost(state, state.current, t, at);
   if (cost > state.players[state.current].funds) illegal('not enough funds');
   return cost;

@@ -1,20 +1,17 @@
 // Fog of war (docs/research/mechanics.md §9, with D-012.2).
 // visibility()[y][x] answers "can this player see a unit standing on (x, y)?":
 //   - every unit of the player's team sees the Manhattan diamond of its vision radius (own and allied units share);
-//   - vision = type vision + commander `vision` modifiers, +3 for foot/exo on a ridge (D-012.2), −1 in an ion storm,
-//     never below 1;
+//   - vision is effectiveVision (modifiers.ts): type vision + commander `vision` modifiers, +3 for foot/exo on a ridge
+//     (D-012.2), −1 in an ion storm (D-015.2), never below 1;
 //   - an owned (or allied) property sees its own tile only;
 //   - a ground unit on canopy is hidden unless an observer stands next to it (distance 1). Air units hover above
 //     canopy and are not hidden by it; shoal and sea never hide anything;
 //   - a unit with `hidden: true` (future stealth) is visible to enemies only when one of them is adjacent;
 //   - `revealTurns > 0` (the 'reveal' power effect) lifts the fog for the user's whole team.
 // Fog is on when the game has fog or an ion storm is raging; with fog off everything is visible.
-import { sumField, unitModifiers } from './modifiers';
+import { effectiveVision } from './modifiers';
 import { manhattan, teamOf, unitType } from './state';
 import type { GameState, PlayerIndex, Unit } from './types';
-
-/** Foot and exo units standing on a ridge see this much further (D-012.2; the AW mountain rule). */
-const RIDGE_VISION_BONUS = 3;
 
 export function fogActive(state: GameState): boolean {
   return state.fog || state.weather === 'ionstorm';
@@ -22,20 +19,6 @@ export function fogActive(state: GameState): boolean {
 
 function revealed(state: GameState, team: number): boolean {
   return state.players.some((p) => p.team === team && !p.defeated && (p.revealTurns ?? 0) > 0);
-}
-
-/**
- * A unit's vision radius. This is computed here rather than through effectiveVision (modifiers.ts) because that one
- * still adds +1 on ridges; D-012.2 rules +3. Once modifiers.ts carries +3 the two agree and this can delegate.
- */
-function unitVision(state: GameState, unit: Unit): number {
-  const t = unitType(unit.type);
-  let v = t.vision + sumField(unitModifiers(state, unit), 'vision');
-  if (state.tiles[unit.y]?.[unit.x]?.terrain === 'ridge' && (t.moveType === 'foot' || t.moveType === 'exo')) {
-    v += RIDGE_VISION_BONUS;
-  }
-  if (state.weather === 'ionstorm') v -= 1;
-  return Math.max(1, v);
 }
 
 /**
@@ -49,7 +32,7 @@ function observe(state: GameState, team: number): { seen: Uint8Array; near: Uint
   const near = new Uint8Array(W * H);
   for (const u of state.units) {
     if (teamOf(state, u.owner) !== team) continue;
-    const v = unitVision(state, u);
+    const v = effectiveVision(state, u);
     for (let dy = -v; dy <= v; dy++) {
       const y = u.y + dy;
       if (y < 0 || y >= H) continue;

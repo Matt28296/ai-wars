@@ -8,7 +8,7 @@
 // the counter's second (the counter-first doctrine reverses the order, as the strikes do).
 import { DAMAGE } from '../../data/damage';
 import { illegal } from './errors';
-import { fogActive, visionGrid } from './fog';
+import { canSeeUnit, fogActive, visionGrid } from './fog';
 import {
   canFireAfterMove, defenseBonus, effectiveRange, firepowerBonus, hasCounterFirst, luckRange, terrainStarsFor,
 } from './modifiers';
@@ -70,7 +70,16 @@ function topLevel(state: GameState, id: number): Unit | undefined {
   return undefined;
 }
 
-/** Enemy units this unit could attack if it stood at `from` (indirect: only from where it is, unless a power allows). */
+/** The state as `unit` sees it from `from`: vision is measured from where the unit would stand, not from where it stands now. */
+function viewFrom(state: GameState, unit: Unit, from: Coord): GameState {
+  if (from.x === unit.x && from.y === unit.y) return state;
+  return { ...state, units: state.units.map((u) => (u.id === unit.id ? { ...u, x: from.x, y: from.y } : u)) };
+}
+
+/**
+ * Enemy units this unit could attack if it stood at `from` (indirect: only from where it is, unless a power allows).
+ * Only enemies the attacker's team can see are listed (canSeeUnit: fog, canopy, air over canopy, stealth).
+ */
 export function attackTargets(state: GameState, unitId: number, from: Coord): Coord[] {
   const unit = topLevel(state, unitId);
   if (!unit) return [];
@@ -79,16 +88,15 @@ export function attackTargets(state: GameState, unitId: number, from: Coord): Co
   const t = unitType(unit.type);
   const moved = from.x !== unit.x || from.y !== unit.y;
   if (moved && isIndirectType(t) && !canFireAfterMove(state, unit, from)) return [];
-  // Fog: what the unit sees is measured from where it would stand, not from where it stands now.
-  const seen = moved ? { ...state, units: state.units.map((u) => (u.id === unit.id ? { ...u, x: from.x, y: from.y } : u)) } : state;
+  const seen = viewFrom(state, unit, from);
   const grid = fogActive(seen) ? visionGrid(seen, unit.owner) : null;
   const out: Coord[] = [];
   for (const e of state.units) {
     if (!areEnemies(state, unit.owner, e.owner)) continue;
     const d = manhattan(from, e);
     if (d < range[0] || d > range[1]) continue;
-    if (grid && grid[e.y * state.width + e.x] !== 1) continue;
     if (!weaponAgainst(t.id, e.type, unit.ammo)) continue;
+    if (!canSeeUnit(seen, unit.owner, e, grid)) continue;
     out.push({ x: e.x, y: e.y });
   }
   return out;
@@ -124,7 +132,11 @@ export function attackRangeTiles(state: GameState, unitId: number): Coord[] {
   return out;
 }
 
-/** Damage % (internal HP, uncapped — ≥ defender HP means a kill) over the luck range, and the counter range. */
+/**
+ * Damage % (internal HP, uncapped — ≥ defender HP means a kill) over the luck range, and the counter range.
+ * A target the attacker cannot see from `from` gets the same answer as an empty tile (zero damage, no counter), so a
+ * forecast never reveals a hidden unit.
+ */
 export function forecast(
   state: GameState, attackerId: number, from: Coord, target: Coord,
 ): { damage: [number, number]; counter: [number, number] | null } {
@@ -132,6 +144,7 @@ export function forecast(
   const defender = unitAt(state, target);
   const none = { damage: [0, 0] as [number, number], counter: null };
   if (!attacker || !defender || !areEnemies(state, attacker.owner, defender.owner)) return none;
+  if (!canSeeUnit(viewFrom(state, attacker, from), attacker.owner, defender)) return none;
   const w = weaponAgainst(attacker.type, defender.type, attacker.ammo);
   if (!w) return none;
   const [aLo, aHi] = luckRange(state, attacker, from);
