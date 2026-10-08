@@ -9,7 +9,7 @@ function Panel({ p }: { p: PlayerPanelModel }): ReactElement {
   return (
     <PlayerHud
       className={cx('aww-hud', p.isCurrent && !p.defeated && 'aww-hud--current', p.defeated && 'aww-hud--defeated')}
-      commander={{ name: p.commanderName, faction: p.faction, initials: p.initials, state: p.active ?? undefined }}
+      commander={{ id: p.commanderId, mood: p.mood, name: p.commanderName, faction: p.faction, initials: p.initials, state: p.active ?? undefined }}
       funds={p.funds}
       power={{ value: p.meter.value, surge: p.meter.surge, max: p.meter.max, active: p.active }}
     >

@@ -2,6 +2,7 @@
 // display type and the commander's quote typed in, then it sweeps out. Surge is a single band, Overclock a double band with flares.
 // All timing is in transition.ts; this file only draws a sample of it.
 import type { CSSProperties, ReactElement } from 'react';
+import { cutInMood } from '../portraits/mood';
 import { CommanderPortrait, Sigil, cx, fillOf, inkOf, onOf } from './kit';
 import type { CutInSample } from './transition';
 
@@ -19,7 +20,7 @@ export function CutIn({ sample, reducedMotion }: { sample: CutInSample; reducedM
         style={{ ...slide(sample.slide), background: fillOf(b.faction), color: onOf(b.faction) }}
       >
         <div className="aww-cutin-portrait" style={slide(sample.portraitSlide, 60)}>
-          <CommanderPortrait name={b.commanderName} faction={b.faction} initials={b.initials} size={96} state={b.level} />
+          <CommanderPortrait id={b.commanderId} mood={cutInMood(b.commanderId, b.level)} name={b.commanderName} faction={b.faction} initials={b.initials} size={96} state={b.level} />
         </div>
         <div className="aww-cutin-text">
           <span className="label aww-cutin-kicker">{b.commanderName} / {overclock ? 'Overclock' : 'Surge'}</span>

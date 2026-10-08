@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ascendant Wars - portrait gallery (dev only)</title>
+    <style>
+      html, body { margin: 0; background: #0a0e14; color: #e8edf3; font-family: var(--font-sans, system-ui, sans-serif); }
+      #root { padding: 16px 20px 24px; box-sizing: border-box; }
+      h1 { font: 600 16px/1 var(--font-display, sans-serif); margin: 0 0 4px; letter-spacing: .04em; }
+      p.note { margin: 0 0 12px; color: #9aa8ba; font-size: 12px; }
+      .row { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
+      .name { width: 118px; flex: none; font: 600 12px/1.2 var(--font-display, sans-serif); }
+      .name small { display: block; color: #9aa8ba; font: 400 11px/1.3 var(--font-sans, sans-serif); }
+      .cell { flex: none; text-align: center; }
+      .cell img { display: block; }
+      .cell span { display: block; font-size: 10px; color: #9aa8ba; margin-top: 2px; }
+      .head .cell { width: 96px; font: 600 11px/1 var(--font-display, sans-serif); text-transform: uppercase; letter-spacing: .06em; color: #9aa8ba; }
+      .strip { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; align-items: flex-start; }
+      .strip h2 { width: 100%; font: 600 12px/1 var(--font-display, sans-serif); margin: 6px 0 0; letter-spacing: .06em; text-transform: uppercase; color: #9aa8ba; }
+      .sil { background: #e8edf3; }
+      .sil img { filter: brightness(0); }
+      .grid { display: grid; gap: 10px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/ui/portraits/gallery.ts"></script>
+  </body>
+</html>
