@@ -54,8 +54,8 @@ export interface LogLine {
   step: number;
   text: string;
   tone: LogTone;
-  /** The event kind behind the sentence ('unknown' for a kind this build does not know). */
-  kind: GameEvent['kind'] | 'unknown';
+  /** The event kind behind the sentence ('unknown' for a kind this build does not know, 'orders' for a note about the player's orders). */
+  kind: GameEvent['kind'] | 'unknown' | 'orders';
   icon: LogIcon;
   /**
    * The side the sentence is about (its grammatical subject), for the faction stripe. null when the viewer was never shown who it was:
@@ -311,6 +311,36 @@ export function formatEvent(e: GameEvent, ctx: FormatContext, step = 0): LogLine
 function assertNever(e: never, step: number): LogLine {
   void e;
   return { step, text: 'Something happens', tone: 'quiet', kind: 'unknown', icon: 'info', faction: null };
+}
+
+/** A line the log shows that is not an engine event (G14: the player's orders changing), from `step` on. */
+export interface LogNote {
+  step: number;
+  text: string;
+}
+
+/**
+ * The log with the notes put in: a note sits after every line of its own step (so under the turn header that step starts) and before the
+ * lines of any later one. With no notes it is the very same array. Notes are shown as quiet-free information lines, with no side's stripe.
+ */
+export function mergeNotes(lines: LogLine[], notes: readonly LogNote[] | undefined): LogLine[] {
+  if (!notes || notes.length === 0) return lines;
+  const out: LogLine[] = [];
+  const sorted = notes.map((n, i) => ({ n, i })).sort((a, b) => a.n.step - b.n.step || a.i - b.i);
+  let k = 0;
+  const flush = (upTo: number): void => {
+    while (k < sorted.length && sorted[k].n.step <= upTo) {
+      const { n } = sorted[k++];
+      out.push({ step: n.step, text: n.text, tone: 'info', kind: 'orders', icon: 'info', faction: null });
+    }
+  };
+  for (const l of lines) {
+    flush(l.step - 1);
+    out.push(l);
+  }
+  // Notes at or after the last line's step: those at the last line's step belong after it, and so do the ones beyond.
+  flush(Number.POSITIVE_INFINITY);
+  return out;
 }
 
 /** The whole log of a timeline: one line per kept event, in order. */

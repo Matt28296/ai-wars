@@ -30,13 +30,15 @@ export interface ControlsProps {
   dispatch: (a: PlaybackAction) => void;
   /** The viewer's timeline: with it the scrubber shows its cycle ticks and power markers; without it, a plain slider. */
   timeline?: Timeline;
+  /** G14: the match is still being computed and playback has caught up with it. Shows one quiet word beside the step count; absent, nothing. */
+  thinking?: boolean;
 }
 
 /** The slider thumb's width in px (watch.css --aww-thumb): the marks and the tooltip are placed with the same figure. */
 const THUMB_PX = 16;
 const at = (p: number): CSSProperties => ({ '--p': p }) as CSSProperties;
 
-export function Controls({ state, dispatch, timeline }: ControlsProps): ReactElement {
+export function Controls({ state, dispatch, timeline, thinking = false }: ControlsProps): ReactElement {
   const { step, last, playing, speed } = state;
   const marks = useMemo(() => (timeline ? timelineMarks(timeline.steps) : null), [timeline]);
   const [hover, setHover] = useState<number | null>(null);
@@ -117,6 +119,7 @@ export function Controls({ state, dispatch, timeline }: ControlsProps): ReactEle
         <span className="stat-sm aww-scrub-count">
           {step}/{last}
         </span>
+        {thinking && <span className="aww-thinking caption" role="status" data-thinking="yes">Thinking…</span>}
       </div>
     </div>
   );

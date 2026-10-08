@@ -29,6 +29,8 @@ export interface MatchRecord {
   states: GameState[];
   /** rawEvents[i] are ALL the events of actions[i], hidden units included. Never hand these to a player viewer. */
   rawEvents: GameEvent[][];
+  /** Set by extendRecord only: the setup object the record was made from, so a growing match can tell it is still the same match. */
+  input?: CreateGameOptions;
 }
 
 export interface TimelineStep {
@@ -75,6 +77,43 @@ export function recordMatch(input: CreateGameOptions, actions: Action[]): MatchR
   return { setup, actions: actions.slice(), states, rawEvents };
 }
 
+/**
+ * The record of a match that is still being played (G14): `prev` is the record of the first `prev.actions.length` of `actions`, and only the
+ * actions after those are applied. The result equals `recordMatch(input, actions)`. When `prev` is not a record of a prefix of `actions` (a
+ * different setup, a shorter list, or an action that is not the same object), the whole match is recorded again, so a caller that hands
+ * over anything else still gets the right record, only slower. The caller must not change an action it has handed over.
+ */
+export function extendRecord(prev: MatchRecord | null, input: CreateGameOptions, actions: readonly Action[]): MatchRecord {
+  if (!prev || prev.input !== input || actions.length < prev.actions.length) return recordMatchFrom(input, actions);
+  for (let i = 0; i < prev.actions.length; i++) if (actions[i] !== prev.actions[i]) return recordMatchFrom(input, actions);
+  if (actions.length === prev.actions.length) return prev;
+  const states = prev.states.slice();
+  const rawEvents = prev.rawEvents.slice();
+  let state = states[states.length - 1];
+  for (let i = prev.actions.length; i < actions.length; i++) {
+    const result = applyOne(state, actions[i], i);
+    state = result.state;
+    rawEvents.push(result.events);
+    states.push(state);
+  }
+  return { setup: prev.setup, actions: actions.slice(), states, rawEvents, input };
+}
+
+function applyOne(state: GameState, action: Action, i: number): { state: GameState; events: GameEvent[] } {
+  try {
+    return applyAction(state, action);
+  } catch (err) {
+    if (err instanceof IllegalActionError) {
+      throw new IllegalActionError(`recordMatch: action #${i} (${action?.kind}) is illegal: ${err.message}`);
+    }
+    throw err;
+  }
+}
+
+function recordMatchFrom(input: CreateGameOptions, actions: readonly Action[]): MatchRecord {
+  return { ...recordMatch(input, actions.slice()), input };
+}
+
 /** The omniscient frame: the true state, every tile in sight. Used for the 'all' viewer only. */
 export function omniscientFrame(state: GameState): ViewFrame {
   const tiles: ObservedTile[][] = state.tiles.map((row) => row.map((t) => ({ terrain: t.terrain, owner: t.owner, capture: t.capture })));
@@ -115,10 +154,29 @@ function checkViewer(record: MatchRecord, viewer: Viewer): void {
 export function viewTimeline(record: MatchRecord, viewer: Viewer): Timeline {
   checkViewer(record, viewer);
   const players = record.states[0].players.length;
-  const steps: TimelineStep[] = [];
-  let uses: number[] = new Array<number>(players).fill(0);
-  steps.push({ index: 0, action: null, frame: frameFor(record.states[0], viewer), events: [], powerUses: uses });
-  for (let i = 0; i < record.actions.length; i++) {
+  const uses: number[] = new Array<number>(players).fill(0);
+  const steps: TimelineStep[] = [{ index: 0, action: null, frame: frameFor(record.states[0], viewer), events: [], powerUses: uses }];
+  appendSteps(steps, record, viewer);
+  return { viewer, steps, last: steps.length - 1 };
+}
+
+/**
+ * The timeline of a match that has grown (G14): `prev` is this viewer's timeline over the first part of `record`, and only the steps after
+ * it are built. The result equals `viewTimeline(record, viewer)`. A `prev` that is for another viewer, or is longer than the record, is
+ * ignored and the whole timeline is built again.
+ */
+export function extendTimeline(prev: Timeline | null, record: MatchRecord, viewer: Viewer): Timeline {
+  if (!prev || prev.viewer !== viewer || prev.steps.length > record.states.length) return viewTimeline(record, viewer);
+  if (prev.steps.length === record.states.length) return prev;
+  const steps = prev.steps.slice();
+  appendSteps(steps, record, viewer);
+  return { viewer, steps, last: steps.length - 1 };
+}
+
+/** Adds the steps for the record's actions after the ones `steps` already holds (steps.length - 1 of them). */
+function appendSteps(steps: TimelineStep[], record: MatchRecord, viewer: Viewer): void {
+  let uses = steps[steps.length - 1].powerUses;
+  for (let i = steps.length - 1; i < record.actions.length; i++) {
     const before = record.states[i];
     const after = record.states[i + 1];
     const raw = record.rawEvents[i];
@@ -127,7 +185,6 @@ export function viewTimeline(record: MatchRecord, viewer: Viewer): Timeline {
     for (const e of events) if (e.kind === 'powerActivated') uses[e.player] += 1;
     steps.push({ index: i + 1, action: record.actions[i], frame: frameFor(after, viewer), events, powerUses: uses });
   }
-  return { viewer, steps, last: steps.length - 1 };
 }
 
 /** Finds a unit in a frame by id, loaded cargo included. */

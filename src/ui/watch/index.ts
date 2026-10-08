@@ -7,4 +7,5 @@ export type { DemoMatch } from './demo';
 export { formatHash, parseHash } from './controls';
 export type { HashState } from './controls';
 export type { Viewer } from './timeline';
+export type { LogNote } from './format';
 export type { Speed } from './timing';

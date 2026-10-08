@@ -9,13 +9,18 @@
 //
 // Ending the agent's turn plays the other seats with Doctrine until it is the agent's turn again, the game is decided, the agent's seat is
 // out, or the cap is reached. Every applied action, the agent's and Doctrine's, is announced to subscribers in order, then the result.
+//
+// G14: the browser's Deploy plays seat 0 with Doctrine too, under the orders the player has set (`playOwnTurn(orders)`). The orders in force
+// at the start of each of seat 0's turns are kept with the index of the action they start at (`orderChanges()`), so the record says which
+// orders each action was chosen under and a replay stays exact (D-022). `continueAfterDefeat` plays on when only the agent's seat is out,
+// as Deploy always has. None of this is reachable through the MCP tools: they never call playOwnTurn and never set the option.
 import type { Mission } from '../content/types';
 import { IllegalActionError, applyAction, buildOptions, createGame, powerCost, resolvedSetup, unitAt } from '../game/aw';
 import type { Action, Coord, CreateGameOptions, GameEvent, GameState, PlayerIndex, UnitTypeId } from '../game/aw';
 import { actionKey } from '../game/aw/legal';
 import { agentActions, observe, observedState } from '../game/aw/observe';
 import type { Observation } from '../game/aw/observe';
-import { stateHash } from '../game/aw/replay';
+import { canonicalJson, stateHash } from '../game/aw/replay';
 import { viewEvents } from '../game/aw/view-events';
 import { DEFAULT_ORDERS, decide, validateOrders } from '../game/doctrine';
 import type { StandingOrders } from '../game/doctrine';
@@ -89,6 +94,22 @@ export interface AgentRecord {
   result: MatchResult | null;
 }
 
+/**
+ * The orders seat 0 played under, from one of its turns on (G14, D-022). `from` is the index of the first action of that turn (the number
+ * of actions applied before it); `cycle` is the cycle it was played in. The first entry is always `from: 0`, and a later one is written only
+ * when the orders differ from the entry before it. Orders are the validated copy.
+ */
+export interface OrderChange {
+  from: number;
+  cycle: number;
+  orders: StandingOrders;
+}
+
+/** The record with the orders each of seat 0's turns was played under. `record()` itself is unchanged: the MCP feed serves that one. */
+export interface OrderedRecord extends AgentRecord {
+  orderChanges: OrderChange[];
+}
+
 /** What the tools need from a match. AgentMatch is the real one; tests substitute leaky ones to prove the checks catch a leak. */
 export interface MatchHost {
   readonly mission: Mission;
@@ -123,6 +144,11 @@ export interface MatchOptions {
   driver?: (state: GameState, seat: PlayerIndex) => Action;
   /** Told when a subscriber throws. A failing subscriber never stops a match. */
   onSubscriberError?: (err: unknown) => void;
+  /**
+   * G14: do not end the match when the agent's seat alone is out and nobody has won; play the others on to a winner or the cap, as Deploy
+   * (playDoctrine) does when an ally still stands. Default false: the MCP match ends as a defeat.
+   */
+  continueAfterDefeat?: boolean;
 }
 
 const refuse = (reason: RefusalReason, message: string): Refusal => ({ ok: false, reason, message });
@@ -141,6 +167,8 @@ export class AgentMatch implements MatchHost {
   private lastStep: LiveStep;
   private readonly agentOrders: StandingOrders;
   private readonly driver: (state: GameState, seat: PlayerIndex) => Action;
+  private readonly continueAfterDefeat: boolean;
+  private readonly orderLog: OrderChange[] = [];
   private readonly listeners = new Set<(e: MatchEvent) => void>();
   private readonly onSubscriberError: (err: unknown) => void;
   private cache: { state: GameState; entries: LegalEntry[]; byId: Map<string, LegalEntry> } | null = null;
@@ -155,6 +183,7 @@ export class AgentMatch implements MatchHost {
     this.agentOrders = validateOrders(opts.orders ?? DEFAULT_ORDERS);
     this.driver = opts.driver ?? ((state, seat) => decide(state, seat, DEFAULT_ORDERS));
     this.onSubscriberError = opts.onSubscriberError ?? (() => {});
+    this.continueAfterDefeat = opts.continueAfterDefeat === true;
     this.state = createGame(this.setup);
     this.lastStep = firstLiveStep(this.state, this.seat);
     this.settle();
@@ -198,6 +227,16 @@ export class AgentMatch implements MatchHost {
     return { setup: this.setup, actions: structuredClone(this.actions), result: this.result() };
   }
 
+  /** The orders seat 0 was played under by `playOwnTurn`, turn by turn (a copy). Empty for a match the agent played itself. */
+  orderChanges(): OrderChange[] {
+    return structuredClone(this.orderLog);
+  }
+
+  /** `record()` plus `orderChanges()`: what the browser's Deploy hands the debrief and a replay. */
+  recordWithOrders(): OrderedRecord {
+    return { ...this.record(), orderChanges: this.orderChanges() };
+  }
+
   /** Told of each applied action as it happens, then the result. Returns the way to unsubscribe. */
   subscribe(listener: (e: MatchEvent) => void): () => void {
     this.listeners.add(listener);
@@ -226,13 +265,39 @@ export class AgentMatch implements MatchHost {
     if (this.finished) return refuse('game-over', 'The match is over. Call start_mission to play again.');
     if (this.state.current !== this.seat) return refuse('not-your-turn', 'It is not your seat\'s turn.');
     const events = this.step({ kind: 'endTurn' }, 'agent');
+    return { ok: true, events, played: this.playOthers(events) };
+  }
+
+  /**
+   * G14: plays the agent's seat's whole turn with Doctrine under `orders` (default: the orders the match was made with), then the other
+   * seats as `endTurn` does. The orders are the ones in force for this turn only; they are written to `orderChanges()` when they differ from
+   * the turn before. `played` counts every action Doctrine took, the agent's seat included. Refused like `endTurn` when it is not the turn.
+   */
+  playOwnTurn(orders?: StandingOrders): EndTurnOutcome {
+    if (this.finished) return refuse('game-over', 'The match is over. Call start_mission to play again.');
+    if (this.state.current !== this.seat) return refuse('not-your-turn', 'It is not your seat\'s turn.');
+    const o = validateOrders(orders ?? this.agentOrders);
+    const last = this.orderLog[this.orderLog.length - 1];
+    if (!last || canonicalJson(last.orders) !== canonicalJson(o)) this.orderLog.push({ from: this.actions.length, cycle: this.state.cycle, orders: structuredClone(o) });
+    const events: GameEvent[] = [];
+    let own = 0;
+    while (!this.finished && this.state.current === this.seat) {
+      if (own >= MAX_DOCTRINE_STEPS) throw new Error(`doctrine took ${own} actions in one turn without ending it`);
+      for (const e of this.step(decide(this.state, this.seat, o), 'doctrine')) events.push(e);
+      own++;
+    }
+    return { ok: true, events, played: own + this.playOthers(events) };
+  }
+
+  /** Plays the other seats with Doctrine until it is the agent's turn again or the match is over; returns how many actions it took. */
+  private playOthers(events: GameEvent[]): number {
     let played = 0;
     while (!this.finished && this.state.current !== this.seat) {
       if (played >= MAX_DOCTRINE_STEPS) throw new Error(`doctrine took ${played} actions in one turn without handing the turn back`);
       for (const e of this.step(this.driver(this.state, this.state.current), 'doctrine')) events.push(e);
       played++;
     }
-    return { ok: true, events, played };
+    return played;
   }
 
   // ------------------------------------------------------------ for tests only
@@ -283,7 +348,7 @@ export class AgentMatch implements MatchHost {
     const s = this.state;
     let reason: MatchResult['reason'];
     if (s.winnerTeam !== null) reason = 'victory';
-    else if (s.players[this.seat].defeated) reason = 'defeat';
+    else if (s.players[this.seat].defeated && !this.continueAfterDefeat) reason = 'defeat';
     else if (s.cycle > this.cap) reason = 'cap';
     else return;
     const mine = s.players[this.seat].team;

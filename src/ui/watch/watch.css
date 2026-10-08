@@ -234,6 +234,7 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aw-btn[aria-pressed='true'] { box-shadow: inset 0 0 0 1px var(--on-signal); }
 .aww-scrub { flex: 1 1 220px; display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .aww-scrub-count { min-width: 64px; text-align: right; color: var(--ink); }
+.aww-thinking { color: var(--ink-muted); white-space: nowrap; } /* G14: the match is still being computed; one quiet word, no spinner */
 
 /* The scrubber: a 4 px track under a square thumb. Cycle ticks hang below the track (taller every fifth cycle), power markers sit above it:
    a small diamond for a Surge, a larger one for an Overclock, in the activating side's colour. The thumb is 16 px wide, so a mark at step n

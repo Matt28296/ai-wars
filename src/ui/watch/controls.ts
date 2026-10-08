@@ -27,8 +27,11 @@ export type PlaybackAction =
   | { type: 'speed'; speed: Speed }
   /** The auto-player moving on after a step's animation and pause. */
   | { type: 'advance' }
-  /** The timeline changed (another viewer): keep the position, clamp it to the new length. */
-  | { type: 'newTimeline'; last: number };
+  /**
+   * The timeline changed (another viewer): keep the position, clamp it to the new length. With `grow` (G14: the same viewer's timeline,
+   * longer because the match is still being computed) only the length changes: not the position, not an animation in flight.
+   */
+  | { type: 'newTimeline'; last: number; grow?: boolean };
 
 export function initialPlayback(last: number, opts: { step?: number; speed?: Speed; playing?: boolean } = {}): PlaybackState {
   const step = Math.max(0, Math.min(last, Math.trunc(opts.step ?? 0)));
@@ -38,12 +41,28 @@ export function initialPlayback(last: number, opts: { step?: number; speed?: Spe
 const clampStep = (n: number, last: number): number => Math.max(0, Math.min(last, Math.trunc(Number.isFinite(n) ? n : 0)));
 
 export function playbackReducer(s: PlaybackState, a: PlaybackAction): PlaybackState {
+  return reduce(s, a, false);
+}
+
+/**
+ * G14: the reducer for a match that is still being computed. The end of its timeline is only the end of what is computed so far, so
+ * playback that runs out of steps keeps its place and keeps `playing` (it waits for more) instead of stopping, and Play at that end does
+ * not start the match over. Everything else is `playbackReducer`. Once the match is whole, use `playbackReducer` again.
+ */
+export function livePlaybackReducer(s: PlaybackState, a: PlaybackAction): PlaybackState {
+  return reduce(s, a, true);
+}
+
+function reduce(s: PlaybackState, a: PlaybackAction, open: boolean): PlaybackState {
   switch (a.type) {
     case 'toggle':
-      return s.playing ? { ...s, playing: false } : playbackReducer(s, { type: 'play' });
+      return s.playing ? { ...s, playing: false } : reduce(s, { type: 'play' }, open);
     case 'play':
-      // Playing from the end starts the match again.
-      if (s.step >= s.last) return s.last > 0 ? { ...s, step: 0, playing: true, animate: false } : s;
+      // Playing from the end starts the match again. A match still being computed has no end to start again from: it waits.
+      if (s.step >= s.last) {
+        if (open) return s.playing ? s : { ...s, playing: true };
+        return s.last > 0 ? { ...s, step: 0, playing: true, animate: false } : s;
+      }
       return { ...s, playing: true };
     case 'pause':
       return { ...s, playing: false };
@@ -54,18 +73,20 @@ export function playbackReducer(s: PlaybackState, a: PlaybackAction): PlaybackSt
       return s.step <= 0 ? s : { ...s, step: s.step - 1, playing: false, animate: false };
     case 'seek': {
       const step = clampStep(a.step, s.last);
-      return step === s.step ? s : { ...s, step, animate: false, playing: s.playing && step < s.last };
+      return step === s.step ? s : { ...s, step, animate: false, playing: s.playing && (step < s.last || open) };
     }
     case 'speed':
       return a.speed === s.speed ? s : { ...s, speed: a.speed };
     case 'advance': {
-      if (!s.playing || s.step >= s.last) return { ...s, playing: false };
+      if (!s.playing) return { ...s, playing: false };
+      if (s.step >= s.last) return open ? s : { ...s, playing: false };
       const step = s.step + 1;
-      return { ...s, step, animate: true, playing: step < s.last };
+      return { ...s, step, animate: true, playing: step < s.last || open };
     }
     case 'newTimeline': {
+      if (a.grow) return a.last === s.last ? s : { ...s, last: a.last };
       const step = clampStep(s.step, a.last);
-      return { ...s, last: a.last, step, animate: false, playing: s.playing && step < a.last };
+      return { ...s, last: a.last, step, animate: false, playing: s.playing && (step < a.last || open) };
     }
     default:
       return s;
