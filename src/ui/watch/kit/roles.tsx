@@ -33,6 +33,9 @@ export function Paths(props: { list: readonly PathSpec[]; color: string; transfo
   );
 }
 
+/** Three bars, the last two cut short: the mark of a side with no name (the briefing's unmarked plate draws the same bars). */
+export const UNMARKED_PATH = 'M4 6h16v3H4zM4 10.5h11v3H4zM4 15h16v3H4z';
+
 /** The chamfered corner cut as a clip-path (top-left and bottom-right), for banners and portraits. */
 export const CHAMFER = (c: string): string =>
   `polygon(${c} 0, 100% 0, 100% calc(100% - ${c}), calc(100% - ${c}) 100%, 0 100%, 0 ${c})`;

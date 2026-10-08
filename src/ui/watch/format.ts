@@ -8,6 +8,8 @@ import { COMMANDERS } from '../../content/commanders';
 import { FACTIONS, TERRAIN_TYPES, UNIT_TYPES } from '../../data';
 import type { CommanderId, Coord, FactionId, GameEvent, PlayerIndex, Unit, UnitTypeId } from '../../game/aw';
 import { UNSEEN_UNIT } from '../../game/aw/view-events';
+import { isMasked, ownerOf, subjectOf } from './seats';
+import type { Seats } from './seats';
 import type { ViewFrame } from './timeline';
 
 export type LogTone = 'info' | 'combat' | 'power' | 'economy' | 'alert' | 'quiet';
@@ -60,6 +62,8 @@ export interface LogLine {
    * a shot from an unseen unit has no stripe, so the stripe cannot tell a fogged viewer what the sentence withholds.
    */
   faction: FactionId | null;
+  /** The side the sentence is about has no named nation (a view's `people`, G15): its sigil is drawn as the unmarked mark. */
+  masked?: boolean;
   /** Turn lines read as section headers: "Cycle 04" over "Helion turn, income 7,000 CR". */
   section?: { title: string; detail: string };
 }
@@ -138,6 +142,10 @@ export interface FormatContext {
   unitOwner?(id: number): PlayerIndex | undefined;
   /** The faction of a player, from the frame after the step. */
   factionOf?(p: PlayerIndex): FactionId | undefined;
+  /** How the side is named before a noun ("Your" Lancer, "Rook's" turn). Optional: without it a side is named as `playerName` does. */
+  ownerName?(p: PlayerIndex): string;
+  /** The side's nation is not named: a line about it draws the unmarked mark. */
+  maskedOf?(p: PlayerIndex): boolean;
 }
 
 export const credits = (n: number): string => `${n.toLocaleString('en-US')} CR`;
@@ -156,8 +164,12 @@ export function factionShort(frame: ViewFrame, p: PlayerIndex): string {
   return f ? FACTIONS[f].short : `Player ${p + 1}`;
 }
 
-/** Builds the naming context for one step from the frames before and after it and the events the viewer got. */
-export function makeFormatContext(before: ViewFrame, after: ViewFrame, events: GameEvent[]): FormatContext {
+/**
+ * Builds the naming context for one step from the frames before and after it and the events the viewer got. `seats` (a view's `people`)
+ * says how each side is named; without it a side is its nation's short name, as it always was.
+ */
+export function makeFormatContext(before: ViewFrame, after: ViewFrame, events: GameEvent[], seats?: Seats): FormatContext {
+  const factionAt = (p: PlayerIndex): FactionId | undefined => after.players[p]?.faction;
   const known = new Map<number, { type: UnitTypeId; owner: PlayerIndex }>();
   const take = (u: Unit): void => {
     known.set(u.id, { type: u.type, owner: u.owner });
@@ -172,20 +184,21 @@ export function makeFormatContext(before: ViewFrame, after: ViewFrame, events: G
   return {
     unitName(id) {
       const k = known.get(id);
-      return k ? `${factionShort(after, k.owner)} ${UNIT_TYPES[k.type].name}` : undefined;
+      return k ? `${seats ? ownerOf(seats, k.owner, factionAt(k.owner)) : factionShort(after, k.owner)} ${UNIT_TYPES[k.type].name}` : undefined;
     },
-    playerName: (p) => factionShort(after, p),
+    playerName: (p) => (seats ? subjectOf(seats, p, factionAt(p)) : factionShort(after, p)),
     commanderOf: (p) => after.players[p]?.commander,
     terrainName(c) {
       const t = after.tiles[c.y]?.[c.x]?.terrain ?? before.tiles[c.y]?.[c.x]?.terrain;
       return t ? TERRAIN_TYPES[t].name : 'ground';
     },
     teamName(team) {
-      const names = after.players.filter((p) => p.team === team).map((p) => FACTIONS[p.faction].short);
+      const names = after.players.filter((p) => p.team === team).map((p) => (seats ? subjectOf(seats, p.index, p.faction) : FACTIONS[p.faction].short));
       return names.length ? names.join(' and ') : `Team ${team + 1}`;
     },
     unitOwner: (id) => known.get(id)?.owner,
     factionOf: (p) => after.players[p]?.faction,
+    ...(seats ? { ownerName: (p: PlayerIndex) => ownerOf(seats, p, factionAt(p)), maskedOf: (p: PlayerIndex) => isMasked(seats, p) } : {}),
   };
 }
 
@@ -214,14 +227,20 @@ type Subject = { unit: number } | { player: PlayerIndex };
 
 /** One event as one plain sentence (and the tone the log colours it with, the icon it carries and the side it is about). */
 export function formatEvent(e: GameEvent, ctx: FormatContext, step = 0): LogLine {
-  const factionOfSubject = (who: Subject | undefined): FactionId | null => {
-    if (!who) return null;
-    const player = 'player' in who ? who.player : who.unit === UNSEEN_UNIT ? undefined : ctx.unitOwner?.(who.unit);
-    return player === undefined ? null : ctx.factionOf?.(player) ?? null;
+  const playerOfSubject = (who: Subject | undefined): PlayerIndex | undefined => {
+    if (!who) return undefined;
+    return 'player' in who ? who.player : who.unit === UNSEEN_UNIT ? undefined : ctx.unitOwner?.(who.unit);
   };
-  const line = (text: string, tone: LogTone, who?: Subject): LogLine => ({
-    step, text, tone, kind: e.kind, icon: logIconOf(e.kind), faction: factionOfSubject(who),
-  });
+  const line = (text: string, tone: LogTone, who?: Subject): LogLine => {
+    const player = playerOfSubject(who);
+    const masked = player !== undefined && ctx.maskedOf?.(player) === true;
+    return {
+      step, text, tone, kind: e.kind, icon: logIconOf(e.kind), faction: player === undefined ? null : ctx.factionOf?.(player) ?? null,
+      ...(masked ? { masked } : {}),
+    };
+  };
+  /** A side before a noun: "Your Lancer", "Rook's turn". Without a view's seats, the same word `playerName` gives. */
+  const owner = (p: PlayerIndex): string => ctx.ownerName?.(p) ?? ctx.playerName(p);
   const name = (id: number, start = true): string => {
     if (id === UNSEEN_UNIT) return start ? UNSEEN_START : UNSEEN_MID;
     return ctx.unitName(id) ?? (start ? UNSEEN_START : UNSEEN_MID);
@@ -243,7 +262,7 @@ export function formatEvent(e: GameEvent, ctx: FormatContext, step = 0): LogLine
       return line(hit, 'combat', who);
     }
     case 'destroyed':
-      return line(`${ctx.playerName(e.owner)} ${UNIT_TYPES[e.type].name} is destroyed`, 'combat', { player: e.owner });
+      return line(`${owner(e.owner)} ${UNIT_TYPES[e.type].name} is destroyed`, 'combat', { player: e.owner });
     case 'captureProgress':
       return line(`${name(e.unitId)} captures ${ctx.terrainName(e.at)}: ${e.remaining} of 20 left`, 'info', { unit: e.unitId });
     case 'captured':
@@ -270,7 +289,7 @@ export function formatEvent(e: GameEvent, ctx: FormatContext, step = 0): LogLine
       return line(`${ctx.playerName(e.player)} ends the turn`, 'quiet', { player: e.player });
     case 'turnStarted': {
       const title = `Cycle ${pad2(e.cycle)}`;
-      const detail = `${ctx.playerName(e.player)} turn, income ${credits(e.income)}`;
+      const detail = `${owner(e.player)} turn, income ${credits(e.income)}`;
       return { ...line(`${title}: ${detail}`, 'economy', { player: e.player }), section: { title, detail } };
     }
     case 'repaired':
@@ -295,10 +314,10 @@ function assertNever(e: never, step: number): LogLine {
 }
 
 /** The whole log of a timeline: one line per kept event, in order. */
-export function buildLog(steps: { index: number; frame: ViewFrame; events: GameEvent[] }[]): LogLine[] {
+export function buildLog(steps: { index: number; frame: ViewFrame; events: GameEvent[] }[], seats?: Seats): LogLine[] {
   const out: LogLine[] = [];
   for (let i = 1; i < steps.length; i++) {
-    const ctx = makeFormatContext(steps[i - 1].frame, steps[i].frame, steps[i].events);
+    const ctx = makeFormatContext(steps[i - 1].frame, steps[i].frame, steps[i].events, seats);
     for (const e of steps[i].events) out.push(formatEvent(e, ctx, i));
   }
   return out;

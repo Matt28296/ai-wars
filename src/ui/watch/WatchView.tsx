@@ -17,7 +17,10 @@ import { RendererToggle } from '../board3d/stage/RendererToggle';
 import { chooseRenderer, detectWebGL2 } from '../board3d/stage/support';
 import type { RendererChoice } from '../board3d/stage/support';
 import { initialPlayback, keyToAction, playbackReducer } from './controls';
-import { buildLog } from './format';
+import { buildLog, commanderNameOf } from './format';
+import { SeatsContext } from './seatsContext';
+import type { SeatBook } from './seatsContext';
+import type { SeatPresentation } from './seats';
 import { dwellMs } from './timing';
 import type { Speed } from './timing';
 import { recordMatch, viewTimeline } from './timeline';
@@ -53,6 +56,13 @@ export interface WatchViewProps {
    * controls keep working. It is how an overlay holds the battle while it talks. False by default.
    */
   hold?: boolean;
+  /**
+   * How the screen names the players (G15): one entry per player index, saying what may be shown for that seat (a name, a short label,
+   * whether its nation is shown or masked, and which portrait). The turn banner, the player panels, the viewer toggle, the victory chip,
+   * the event log, the unit intel and the battlefield's label all read it. A seat with no entry, or no list at all, is named the old way
+   * (its nation, its commander), so the demo and every view that never asked for this look exactly as before.
+   */
+  people?: readonly (SeatPresentation | undefined)[];
 }
 
 function useReducedMotion(): boolean {
@@ -67,10 +77,10 @@ function useReducedMotion(): boolean {
   return reduced;
 }
 
-export function WatchView({ setup, actions, viewer, onViewerChange, initialStep, initialSpeed, autoPlay, onPositionChange, overlay, onStep, hold = false }: WatchViewProps): ReactElement {
+export function WatchView({ setup, actions, viewer, onViewerChange, initialStep, initialSpeed, autoPlay, onPositionChange, overlay, onStep, hold = false, people }: WatchViewProps): ReactElement {
   const record = useMemo(() => recordMatch(setup, actions), [setup, actions]);
   const timeline = useMemo(() => viewTimeline(record, viewer), [record, viewer]);
-  const log = useMemo(() => buildLog(timeline.steps), [timeline]);
+  const log = useMemo(() => buildLog(timeline.steps, people), [timeline, people]);
   const reducedMotion = useReducedMotion();
 
   // The 3D board when WebGL2 works and `?renderer=2d` is not in the URL; otherwise (or by the viewer's own toggle) the flat SVG board.
@@ -152,10 +162,16 @@ export function WatchView({ setup, actions, viewer, onViewerChange, initialStep,
   }, [log, step.index]);
   const visibleLog = useMemo(() => log.slice(0, logCount), [log, logCount]);
 
+  // The 3D stage draws its own banner and is given no seats, so a banner inside this view asks here which seat a nation and a commander mean.
+  const seatBook = useMemo<SeatBook | null>(
+    () => (people ? { seats: people, keys: timeline.steps[0].frame.players.map((p) => ({ faction: p.faction, commanderName: commanderNameOf(p.commander) })), current: step.frame.current } : null),
+    [people, timeline, step.frame.current],
+  );
+
   const toolbar =
     onViewerChange || webgl2 ? (
       <div className="aww-toolbar-row">
-        {onViewerChange && <ViewerToggle frame={timeline.steps[0].frame} viewer={viewer} onChange={onViewerChange} />}
+        {onViewerChange && <ViewerToggle frame={timeline.steps[0].frame} viewer={viewer} onChange={onViewerChange} seats={people} />}
         {webgl2 && <RendererToggle mode={renderer} onChange={setRendererPick} />}
       </div>
     ) : undefined;
@@ -176,31 +192,34 @@ export function WatchView({ setup, actions, viewer, onViewerChange, initialStep,
           onDone={onDone}
           reducedMotion={reducedMotion}
           toolbar={toolbar}
+          seats={people}
           onFail={onStage3DFail}
         />
       </Suspense>
     ) : (
-      <Stage timeline={timeline} step={step.index} plan={plan} onDone={onDone} reducedMotion={reducedMotion} toolbar={toolbar} />
+      <Stage timeline={timeline} step={step.index} plan={plan} onDone={onDone} reducedMotion={reducedMotion} toolbar={toolbar} seats={people} />
     );
 
   return (
-    <div className="aww-root" data-viewer={String(viewer)} data-step={step.index}>
-      <div className="aww-main">
-        {overlay === undefined ? stage : (
-          <div className="aww-stagebox">
-            {stage}
-            <div className="aww-overlay">{overlay}</div>
+    <SeatsContext.Provider value={seatBook}>
+      <div className="aww-root" data-viewer={String(viewer)} data-step={step.index}>
+        <div className="aww-main">
+          {overlay === undefined ? stage : (
+            <div className="aww-stagebox">
+              {stage}
+              <div className="aww-overlay">{overlay}</div>
+            </div>
+          )}
+          <aside className="aww-side">
+            <Hud step={step} seats={people} />
+            <IntelCard timeline={timeline} step={step.index} seats={people} />
+            <EventLog lines={visibleLog} />
+          </aside>
+          <div className="aww-bottom">
+            <Controls state={pb} dispatch={dispatch} timeline={timeline} />
           </div>
-        )}
-        <aside className="aww-side">
-          <Hud step={step} />
-          <IntelCard timeline={timeline} step={step.index} />
-          <EventLog lines={visibleLog} />
-        </aside>
-        <div className="aww-bottom">
-          <Controls state={pb} dispatch={dispatch} timeline={timeline} />
         </div>
       </div>
-    </div>
+    </SeatsContext.Provider>
   );
 }

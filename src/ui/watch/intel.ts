@@ -11,6 +11,8 @@ import { FACTIONS, MOVE_TYPE_NAMES, TERRAIN_TYPES, UNIT_TYPES } from '../../data
 import { CAPTURE_POINTS } from '../../game/aw';
 import type { FactionId, GameEvent, PlayerIndex, TerrainId, UnitTypeId } from '../../game/aw';
 import { UNSEEN_UNIT } from '../../game/aw/view-events';
+import { isMasked, labelOf, nationTextOf, ownerOf, seatOf } from './seats';
+import type { Seats } from './seats';
 import { findUnit } from './timeline';
 import type { TimelineStep, ViewFrame } from './timeline';
 import { isSpent, unitDisplayHp, unitStatus } from './unitview';
@@ -37,6 +39,19 @@ export interface IntelUnit {
   faction: FactionId;
   factionName: string;
   commanderName: string;
+  /**
+   * How the card names the unit's side (G15): the seat's own name when the view names its seats ("Your agent", "Unmarked drones"),
+   * else the nation's name. `nation` is the nation line to print beside it, or null when the name already says it or the nation is masked.
+   */
+  ownerName: string;
+  /** The view named this seat (it was given `people`): the card then prints the seat's name, and not the commander's, on its owner lines. */
+  seated: boolean;
+  /** The nation to print beside the owner's name; null for a masked seat, or when the view names no seats (the name IS the nation). */
+  ownerNation: string | null;
+  /** The side's nation is not named: the owner line's sigil and the token's chip are the unmarked mark. */
+  masked: boolean;
+  /** How the side is named before a noun, for the token's accessible label: "Your", "Unmarked", or the nation. */
+  ownerWord: string;
   /** Display HP, 1 to 10. */
   hp: number;
   /** Three or less. */
@@ -73,6 +88,8 @@ export interface IntelTile {
   property: boolean;
   /** Short name of the property's owner; null when it is unowned or not a property. */
   owner: FactionId | null;
+  /** What the card calls the owner: the seat's label when the view names its seats, else the nation's short name. null when `owner` is. */
+  ownerLabel: string | null;
   /** Capture points left on a property being taken (below 20), else null. */
   capture: number | null;
 }
@@ -110,12 +127,13 @@ export function struckUnitId(events: readonly GameEvent[], frame: ViewFrame): nu
   return null;
 }
 
-function tileModel(frame: ViewFrame, unit: { x: number; y: number; type: UnitTypeId }): IntelTile {
+function tileModel(frame: ViewFrame, unit: { x: number; y: number; type: UnitTypeId }, seats?: Seats): IntelTile {
   const t = frame.tiles[unit.y]?.[unit.x];
   const terrain: TerrainId = t?.terrain ?? 'flats';
   const def = TERRAIN_TYPES[terrain] ?? TERRAIN_TYPES.flats;
   const airborne = UNIT_TYPES[unit.type].domain === 'air';
-  const owner = def.property && t && t.owner !== null ? frame.players[t.owner]?.faction ?? null : null;
+  const ownerIndex = def.property && t && t.owner !== null ? t.owner : null;
+  const owner = ownerIndex !== null ? frame.players[ownerIndex]?.faction ?? null : null;
   return {
     terrain: def.id,
     name: def.name,
@@ -124,11 +142,12 @@ function tileModel(frame: ViewFrame, unit: { x: number; y: number; type: UnitTyp
     terrainStars: def.def,
     property: def.property === true,
     owner,
+    ownerLabel: ownerIndex !== null && owner ? labelOf(seats, ownerIndex, owner) : null,
     capture: def.property && t?.capture !== undefined && t.capture < CAPTURE_POINTS ? t.capture : null,
   };
 }
 
-function unitModel(frame: ViewFrame, id: number): { unit: IntelUnit; tile: IntelTile } | null {
+function unitModel(frame: ViewFrame, id: number, seats?: Seats): { unit: IntelUnit; tile: IntelTile } | null {
   const u = findUnit(frame, id);
   if (!u) return null;
   const type = UNIT_TYPES[u.type];
@@ -148,6 +167,11 @@ function unitModel(frame: ViewFrame, id: number): { unit: IntelUnit; tile: Intel
     faction: owner.faction,
     factionName: FACTIONS[owner.faction].name,
     commanderName: commander?.name ?? 'Commander',
+    ownerName: seatOf(seats, u.owner)?.name ?? FACTIONS[owner.faction].name,
+    seated: seatOf(seats, u.owner) !== undefined,
+    ownerNation: seatOf(seats, u.owner) && !isMasked(seats, u.owner) ? nationTextOf(seats, u.owner, owner.faction) : null,
+    masked: isMasked(seats, u.owner),
+    ownerWord: seatOf(seats, u.owner) ? ownerOf(seats, u.owner, owner.faction) : FACTIONS[owner.faction].name,
     hp,
     hpCritical: hp <= 3,
     charge: u.charge,
@@ -161,17 +185,17 @@ function unitModel(frame: ViewFrame, id: number): { unit: IntelUnit; tile: Intel
     status: unitStatus(frame, u),
     loaded: top ? top.loaded : u.cargo.length > 0,
   };
-  return { unit, tile: tileModel(frame, u) };
+  return { unit, tile: tileModel(frame, u, seats) };
 }
 
-/** What the card shows at timeline step `index`. Reads only `steps`, which is one viewer's timeline. */
-export function intelAt(steps: readonly Pick<TimelineStep, 'index' | 'frame' | 'events'>[], index: number): IntelModel {
+/** What the card shows at timeline step `index`. Reads only `steps`, which is one viewer's timeline. `seats` names the sides (G15). */
+export function intelAt(steps: readonly Pick<TimelineStep, 'index' | 'frame' | 'events'>[], index: number, seats?: Seats): IntelModel {
   const at = Math.max(0, Math.min(steps.length - 1, Math.trunc(Number.isFinite(index) ? index : 0)));
   const step = steps[at];
   if (!step) return { kind: 'empty', message: 'Nothing has acted yet.' };
   const frame = step.frame;
   const make = (id: number, reason: IntelReason, fromStep: number): IntelModel | null => {
-    const m = unitModel(frame, id);
+    const m = unitModel(frame, id, seats);
     return m ? { kind: 'unit', reason, fromStep, unit: m.unit, tile: m.tile } : null;
   };
 

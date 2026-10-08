@@ -11,6 +11,7 @@ import type { Viewer } from '../watch/timeline';
 import { nextMissionOf, resultCardOf } from './debrief';
 import type { DeployResult } from './deploy';
 import { scriptFor } from './missionScript';
+import { seatsOfMission } from './seats';
 import { StoryOverlay } from './StoryOverlay';
 import { holdsPlayback, initialStory, storyReducer, viewOf } from './storyState';
 import type { StoryAction, StoryState } from './storyState';
@@ -19,17 +20,23 @@ export interface MissionWatchProps {
   mission: Mission;
   /** The recorded battle: Deploy's setup and actions. */
   result: Pick<DeployResult, 'setup' | 'actions'>;
+  /** Where the viewing opens and whose eyes it opens through (tests and screenshots); by default the first step, seen as the agent. */
+  initialStep?: number;
+  initialViewer?: Viewer;
 }
 
 /** The battle with its story. "Watch again" starts the whole viewing over: a new watch view and a new story, so every line is heard again. */
-export function MissionWatch({ mission, result }: MissionWatchProps): ReactElement {
+export function MissionWatch({ mission, result, initialStep, initialViewer }: MissionWatchProps): ReactElement {
   const [viewing, setViewing] = useState(0);
   const again = useCallback(() => setViewing((n) => n + 1), []);
-  return <Viewing key={viewing} mission={mission} result={result} onWatchAgain={again} />;
+  return <Viewing key={viewing} mission={mission} result={result} initialStep={initialStep} initialViewer={initialViewer} onWatchAgain={again} />;
 }
 
-function Viewing({ mission, result, onWatchAgain }: MissionWatchProps & { onWatchAgain: () => void }): ReactElement {
-  const [viewer, setViewer] = useState<Viewer>(0);
+function Viewing({ mission, result, initialStep, initialViewer, onWatchAgain }: MissionWatchProps & { onWatchAgain: () => void }): ReactElement {
+  const [viewer, setViewer] = useState<Viewer>(initialViewer ?? 0);
+  // The battle screen names the sides as the mission's own briefing does (people.ts sidePerson), so it cannot name a nation the story has
+  // not: mission 1's drones are "Unmarked drones" here too, and the player's agent is "You", not a second "Helion".
+  const people = useMemo(() => seatsOfMission(mission), [mission]);
   const story = useMemo(() => {
     const record = recordMatch(result.setup, result.actions);
     return {
@@ -50,6 +57,8 @@ function Viewing({ mission, result, onWatchAgain }: MissionWatchProps & { onWatc
       actions={result.actions}
       viewer={viewer}
       onViewerChange={setViewer}
+      people={people}
+      initialStep={initialStep}
       autoPlay
       onStep={onStep}
       hold={holdsPlayback(state)}

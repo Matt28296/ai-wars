@@ -3,20 +3,22 @@
 // board does not. It keeps one fixed height: stepping from a Trooper to an Anvil, or to nothing at all, moves nothing around it.
 import { useMemo } from 'react';
 import type { ReactElement } from 'react';
-import { FACTIONS } from '../../data';
 import { Diamonds, Frame, HpBar, Kicker, MapTile, Meter, Rounds, Sigil, StatusChip, UnitToken, cx, inkOf } from './kit';
 import { intelAt, intelReasonLabel } from './intel';
 import type { IntelModel, IntelTile, IntelUnit } from './intel';
+import type { Seats } from './seats';
 import type { Timeline } from './timeline';
 
 export interface IntelCardProps {
   timeline: Timeline;
   /** The timeline step on screen. */
   step: number;
+  /** How the view names its seats (WatchView's `people`); absent, the card names a side by its nation and its commander. */
+  seats?: Seats;
 }
 
-export function IntelCard({ timeline, step }: IntelCardProps): ReactElement {
-  const model = useMemo(() => intelAt(timeline.steps, step), [timeline, step]);
+export function IntelCard({ timeline, step, seats }: IntelCardProps): ReactElement {
+  const model = useMemo(() => intelAt(timeline.steps, step, seats), [timeline, step, seats]);
   return <IntelCardView model={model} />;
 }
 
@@ -39,14 +41,14 @@ function UnitSection({ unit }: { unit: IntelUnit }): ReactElement {
   return (
     <div className="aww-intel-unit">
       <div className="aww-intel-who">
-        <UnitToken unit={unit.type} faction={unit.faction} size={52} status={unit.status} decorative />
+        <UnitToken unit={unit.type} faction={unit.faction} size={52} status={unit.status} masked={unit.masked} decorative />
         <div className="aww-intel-names">
           <div className="heading aww-intel-name" style={{ color: inkOf(unit.faction) }}>{unit.name}</div>
           <div className="caption aww-muted aww-intel-owner">
-            <Sigil faction={unit.faction} size={14} tone="ink" />
-            <span>{unit.factionName}</span>
+            <Sigil faction={unit.faction} size={14} tone="ink" masked={unit.masked} />
+            <span>{unit.seated ? (unit.ownerNation ? `${unit.ownerName} · ${unit.ownerNation}` : unit.ownerName) : unit.factionName}</span>
           </div>
-          <div className="caption aww-muted aww-intel-role">{unit.commanderName} · {unit.role}</div>
+          <div className="caption aww-muted aww-intel-role">{unit.seated ? unit.role : <>{unit.commanderName} · {unit.role}</>}</div>
         </div>
       </div>
       <div className="aww-intel-stats">
@@ -83,7 +85,7 @@ function UnitSection({ unit }: { unit: IntelUnit }): ReactElement {
 }
 
 function TerrainSection({ tile, airborne }: { tile: IntelTile; airborne: boolean }): ReactElement {
-  const owner = tile.owner ? FACTIONS[tile.owner].short : 'Neutral';
+  const owner = tile.ownerLabel ?? 'Neutral';
   const meta =
     tile.property && tile.capture !== null
       ? `${owner} · capture ${tile.capture}/20`

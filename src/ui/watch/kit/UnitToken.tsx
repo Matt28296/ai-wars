@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react';
 import { ART, UNIT_TYPES } from '../../../data';
 import type { UnitTypeId } from '../../../game/aw';
-import { ICONS, Paths, cx, factionName, fillOf, markOf, onOf } from './roles';
+import { ICONS, Paths, UNMARKED_PATH, cx, factionName, fillOf, markOf, onOf } from './roles';
 import type { Faction, PathSpec } from './roles';
 
 export type TokenStatus = 'low-charge' | 'low-ammo' | 'capturing' | 'loaded';
@@ -20,11 +20,16 @@ export interface UnitTokenProps {
   status?: TokenStatus;
   /** Hide from assistive tech when a visible label already names the unit. */
   decorative?: boolean;
+  /** How the unit's side is named in its accessible label, when the view names sides its own way ("Your", "Unmarked"). Default: the nation. */
+  owner?: string;
+  /** The side's nation is not named: the sigil chip shows the unmarked mark. The plate keeps the nation's colours. */
+  masked?: boolean;
   className?: string;
 }
 
 const GLYPHS = ART.glyphs as unknown as Record<string, readonly PathSpec[]>;
 const SIGILS = ART.sigils as unknown as Record<string, readonly PathSpec[]>;
+const UNMARKED: readonly PathSpec[] = [UNMARKED_PATH];
 
 const STATUS_ICON: Record<TokenStatus, readonly [keyof typeof ICONS, string]> = {
   'low-charge': ['bolt', 'var(--warn)'],
@@ -40,11 +45,11 @@ const STATUS_WORD: Record<TokenStatus, string> = {
 };
 
 /** A unit on the battlefield: faction plate, unit glyph, sigil chip, HP chip and status chip in one square. */
-export function UnitToken({ unit, faction, hp = 10, spent, selected, facing = 'right', size = 48, status, decorative, className }: UnitTokenProps): ReactElement {
+export function UnitToken({ unit, faction, hp = 10, spent, selected, facing = 'right', size = 48, status, decorative, owner, masked, className }: UnitTokenProps): ReactElement {
   const def = UNIT_TYPES[unit] ?? UNIT_TYPES.trooper;
   const hpShown = Math.max(0, Math.min(10, Math.ceil(hp)));
   const choir = faction === 'choir';
-  const label = `${factionName(faction)} ${def.name}, ${hpShown} HP${spent ? ', has acted' : ''}${status ? `, ${STATUS_WORD[status]}` : ''}`;
+  const label = `${owner ?? factionName(faction)} ${def.name}, ${hpShown} HP${spent ? ', has acted' : ''}${status ? `, ${STATUS_WORD[status]}` : ''}`;
   const a11y = decorative ? { 'aria-hidden': true as const } : { role: 'img' as const, 'aria-label': label };
   const st = status ? STATUS_ICON[status] : undefined;
   return (
@@ -63,7 +68,7 @@ export function UnitToken({ unit, faction, hp = 10, spent, selected, facing = 'r
       {selected && <polygon className="aw-unit-ring" points="11,3.5 44.5,3.5 44.5,37 37,44.5 3.5,44.5 3.5,11" />}
       <rect x={1} y={1} width={15} height={15} rx={2} style={{ fill: 'var(--map-shade)' }} />
       <g transform="translate(2.5,2.5) scale(0.5)">
-        <Paths list={SIGILS[faction] ?? []} color={markOf(faction)} />
+        <Paths list={masked ? UNMARKED : SIGILS[faction] ?? []} color={markOf(faction)} />
       </g>
       {st && (
         <g>

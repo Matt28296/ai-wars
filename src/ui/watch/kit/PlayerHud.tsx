@@ -8,7 +8,9 @@ import { creditsText, cx, inkOf, pad2 } from './roles';
 import type { Faction } from './roles';
 
 export interface PlayerHudProps {
-  commander: { name: string; faction: Faction | null; id?: string; mood?: Mood; initials?: string; src?: string; state?: 'surge' | 'overclock' };
+  commander: { name: string; faction: Faction | null; id?: string; mood?: Mood; initials?: string; src?: string; state?: 'surge' | 'overclock'; masked?: boolean };
+  /** The portrait's square size in px. 48 by default; a viewer with many panels to fit draws them smaller. */
+  portraitSize?: number;
   funds?: number;
   /** The number to draw while funds tick toward `funds`. Assistive tech is always told `funds`, so a tick is never read out digit by digit. */
   fundsShown?: number;
@@ -26,11 +28,11 @@ export interface PlayerHudProps {
 }
 
 /** One player's corner of the battlefield: commander, funds, cycle and power. */
-export function PlayerHud({ commander, funds = 0, fundsShown, power, cycle, badge, aside, muted, children, className }: PlayerHudProps): ReactElement {
+export function PlayerHud({ commander, portraitSize = 48, funds = 0, fundsShown, power, cycle, badge, aside, muted, children, className }: PlayerHudProps): ReactElement {
   const shown = fundsShown ?? funds;
   return (
     <Frame floating className={cx('aw-hud', className)}>
-      <CommanderPortrait {...commander} size={48} />
+      <CommanderPortrait {...commander} size={portraitSize} />
       <div className="aw-hud-body">
         <div className="aw-hud-top">
           <span className="heading" style={{ color: muted ? 'var(--ink-muted)' : inkOf(commander.faction) }}>{commander.name}</span>

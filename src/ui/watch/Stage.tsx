@@ -6,11 +6,14 @@ import type { CSSProperties, ReactElement, ReactNode } from 'react';
 import { displayHp } from '../../game/aw';
 import type { Coord, Unit } from '../../game/aw';
 import { CutIn } from './CutIn';
-import { MapTile, Sigil, TurnBanner, UnitToken, cx, factionShort } from './kit';
+import { MapTile, Sigil, TurnBanner, UnitToken, cx } from './kit';
 import { boardPixelSize, cameraScroll, chooseTileSize } from './layout';
 import type { Timeline, ViewFrame } from './timeline';
 import { commanderNameOf } from './format';
+import { bannerSeatOf, isMasked, ownerOf } from './seats';
+import type { Seats } from './seats';
 import { sampleTransition } from './transition';
+import { VictoryChip } from './VictoryChip';
 import type { FxSample, GhostSample, NumberSample, TransitionPlan, TransitionSample } from './transition';
 import { actorIds, focusOf, homeFacings, isSpent, unitStatus } from './unitview';
 import type { Facing } from './unitview';
@@ -24,6 +27,8 @@ export interface StageProps {
   reducedMotion: boolean;
   /** Shown at the right of the chips row under the turn banner (the viewer toggle). */
   toolbar?: ReactNode;
+  /** How the view names its seats (WatchView's `people`). Absent: the banner, the victory chip and the labels name nations, as ever. */
+  seats?: Seats;
 }
 
 interface Clock { plan: TransitionPlan | null; t: number }
@@ -56,7 +61,7 @@ const TerrainLayer = memo(function TerrainLayer({ frame, tile, cursor }: Terrain
  * A property's owner is told by its fill AND by its sigil, so the two sides read apart without colour (colour-blind safe). Ownership is
  * public, so a fogged viewer sees every owner. The layer sits under the units: a unit standing on a property hides its chip.
  */
-const PropertyLayer = memo(function PropertyLayer({ frame, tile }: { frame: ViewFrame; tile: number }): ReactElement {
+const PropertyLayer = memo(function PropertyLayer({ frame, tile, masked }: { frame: ViewFrame; tile: number; masked?: readonly boolean[] }): ReactElement {
   const chip = Math.round(tile * 0.34);
   const marks: ReactElement[] = [];
   frame.tiles.forEach((row, y) => row.forEach((t, x) => {
@@ -70,7 +75,7 @@ const PropertyLayer = memo(function PropertyLayer({ frame, tile }: { frame: View
         style={{ left: x * tile + 2, top: y * tile + tile - chip - 2, width: chip, height: chip, opacity: frame.visible[y][x] ? 1 : 0.7 }}
         aria-hidden
       >
-        <Sigil faction={faction} size={Math.round(chip * 0.8)} tone="fill" />
+        <Sigil faction={faction} size={Math.round(chip * 0.8)} tone="fill" masked={masked?.[t.owner]} />
       </div>,
     );
   }));
@@ -103,9 +108,12 @@ interface UnitSlotProps {
   tile: number;
   selected: boolean;
   fade?: number;
+  /** How the unit's side is named in its accessible label, and whether its sigil is the unmarked mark (the view's `people`). */
+  owner?: string;
+  masked?: boolean;
 }
 
-const UnitSlot = memo(function UnitSlot({ unit, frame, x, y, hp, facing, tile, selected, fade = 0 }: UnitSlotProps): ReactElement {
+const UnitSlot = memo(function UnitSlot({ unit, frame, x, y, hp, facing, tile, selected, fade = 0, owner, masked }: UnitSlotProps): ReactElement {
   const faction = frame.players[unit.owner]?.faction ?? 'helion';
   const spent = isSpent(frame, unit);
   const style: CSSProperties = { width: tile, height: tile, transform: `translate(${x * tile}px, ${y * tile}px)` };
@@ -123,14 +131,18 @@ const UnitSlot = memo(function UnitSlot({ unit, frame, x, y, hp, facing, tile, s
           facing={facing}
           size={tile}
           status={unitStatus(frame, unit)}
+          owner={owner}
+          masked={masked}
         />
       </div>
     </div>
   );
 });
 
-function UnitLayer(props: { frame: ViewFrame; tile: number; sample: TransitionSample | null; homes: Facing[]; actors: Set<number> }): ReactElement {
-  const { frame, tile, sample, homes, actors } = props;
+function UnitLayer(props: { frame: ViewFrame; tile: number; sample: TransitionSample | null; homes: Facing[]; actors: Set<number>; seats?: Seats }): ReactElement {
+  const { frame, tile, sample, homes, actors, seats } = props;
+  const named = (u: Unit): { owner?: string; masked?: boolean } =>
+    seats ? { owner: ownerOf(seats, u.owner, frame.players[u.owner]?.faction), masked: isMasked(seats, u.owner) } : {};
   const items = [...frame.units]
     .filter((u) => !sample?.hidden.has(u.id))
     .sort((a, b) => a.y - b.y || a.x - b.x);
@@ -150,6 +162,7 @@ function UnitLayer(props: { frame: ViewFrame; tile: number; sample: TransitionSa
             facing={facingOf(u, place?.heading)}
             tile={tile}
             selected={actors.has(u.id)}
+            {...named(u)}
           />
         );
       })}
@@ -165,6 +178,7 @@ function UnitLayer(props: { frame: ViewFrame; tile: number; sample: TransitionSa
           tile={tile}
           selected={false}
           fade={g.fade}
+          {...named(g.unit)}
         />
       ))}
     </div>
@@ -213,7 +227,7 @@ function NumberItem({ n, tile }: { n: NumberSample; tile: number }): ReactElemen
 
 // ---------------------------------------------------------------- the stage
 
-export function Stage({ timeline, step, plan, onDone, reducedMotion, toolbar }: StageProps): ReactElement {
+export function Stage({ timeline, step, plan, onDone, reducedMotion, toolbar, seats }: StageProps): ReactElement {
   const cur = timeline.steps[step];
   const frame = cur.frame;
   const homes = useMemo(() => homeFacings(timeline.steps[0].frame), [timeline]);
@@ -246,18 +260,25 @@ export function Stage({ timeline, step, plan, onDone, reducedMotion, toolbar }: 
   const sample = useMemo(() => (plan && running ? sampleTransition(plan, t) : null), [plan, running, t]);
 
   // Board size: the largest tile that fits the space, else the smallest with the board scrolling inside its frame.
+  // Where the page fits the screen (watch.css sets --aww-fit to 1 in the two-column layout) the board's cell is exactly as tall as the
+  // page leaves it, so the tile is chosen to fill that cell. Stacked (--aww-fit 0) there is no height to fill: a screenful less the
+  // banner row and the controls stands in.
   const wrapRef = useRef<HTMLDivElement>(null);
+  const boardWrapRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [avail, setAvail] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return undefined;
     const measure = (): void => {
-      setAvail({ w: el.clientWidth, h: Math.max(280, window.innerHeight - 210) });
+      const cell = boardWrapRef.current;
+      const fits = cell !== null && getComputedStyle(el).getPropertyValue('--aww-fit').trim() === '1';
+      setAvail({ w: el.clientWidth, h: Math.max(280, fits ? cell.clientHeight - 2 : window.innerHeight - 210) });
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
+    if (boardWrapRef.current) ro.observe(boardWrapRef.current);
     window.addEventListener('resize', measure);
     return () => {
       ro.disconnect();
@@ -284,33 +305,31 @@ export function Stage({ timeline, step, plan, onDone, reducedMotion, toolbar }: 
     }
   }, [step, tile, focus]);
 
-  const winner = frame.winnerTeam;
   const bannerFaction = frame.players[frame.current]?.faction ?? 'helion';
   const bannerCommander = commanderNameOf(frame.players[frame.current]?.commander ?? '');
+  // The seats the view names (G15): who a banner is for, who won, and which sides draw the unmarked mark on the board.
+  const bannerSeat = bannerSeatOf(seats, frame.current, bannerFaction);
+  const maskedSeats = useMemo(() => frame.players.map((p) => isMasked(seats, p.index)), [frame.players, seats]);
+  const turnWord = ownerOf(seats, frame.current, bannerFaction);
 
   return (
     <div className="aww-stage" ref={wrapRef}>
       <div className="aww-banner-row">
-        <TurnBanner key={`${frame.cycle}-${frame.current}`} className="aww-turn-banner" cycle={frame.cycle} faction={bannerFaction} commander={bannerCommander} />
+        <TurnBanner key={`${frame.cycle}-${frame.current}`} className="aww-turn-banner" cycle={frame.cycle} faction={bannerFaction} commander={bannerCommander} seat={bannerSeat} />
         <div className="aww-chips">
-          {winner !== null && (
-            <span className="aww-victory label">
-              <Sigil faction={frame.players.find((p) => p.team === winner)?.faction ?? null} size={18} tone="ink" />
-              Victory: {frame.players.filter((p) => p.team === winner).map((p) => factionShort(p.faction)).join(' and ')}
-            </span>
-          )}
+          <VictoryChip frame={frame} seats={seats} />
           <span className="aww-chip caption">{frame.viewer === 'all' ? 'Omniscient view' : frame.fogActive ? 'Fog of war' : 'No fog'}</span>
           {frame.weather === 'ionstorm' && <span className="aww-chip caption aww-chip--warn">Ion storm</span>}
           {toolbar && <div className="aww-toolbar">{toolbar}</div>}
         </div>
       </div>
-      <div className="aww-board-wrap">
-        <div className="aww-frame" ref={frameRef} role="group" aria-label={`Battlefield, cycle ${frame.cycle}, ${factionShort(bannerFaction)} turn`}>
+      <div className="aww-board-wrap" ref={boardWrapRef}>
+        <div className="aww-frame" ref={frameRef} role="group" aria-label={`Battlefield, cycle ${frame.cycle}, ${turnWord} turn`}>
           <div className="aww-board" style={{ width: board.width, height: board.height }} data-tile={tile} data-step={step}>
             <TerrainLayer frame={frame} tile={tile} cursor={running ? undefined : focus} />
-            <PropertyLayer frame={frame} tile={tile} />
+            <PropertyLayer frame={frame} tile={tile} masked={seats ? maskedSeats : undefined} />
             <CaptureLayer frame={frame} tile={tile} />
-            <UnitLayer frame={frame} tile={tile} sample={sample} homes={homes} actors={actors} />
+            <UnitLayer frame={frame} tile={tile} sample={sample} homes={homes} actors={actors} seats={seats} />
             <div className="aww-fx-layer" aria-hidden>
               {sample?.fx.map((f, i) => <FxItem key={`fx${i}`} fx={f} tile={tile} />)}
               {sample?.numbers.map((n, i) => <NumberItem key={`n${i}`} n={n} tile={tile} />)}
@@ -327,6 +346,7 @@ export function Stage({ timeline, step, plan, onDone, reducedMotion, toolbar }: 
               cycle={sample.banner.beat.cycle}
               faction={frame.players[sample.banner.beat.player]?.faction ?? 'helion'}
               commander={commanderNameOf(frame.players[sample.banner.beat.player]?.commander ?? '')}
+              seat={bannerSeatOf(seats, sample.banner.beat.player, frame.players[sample.banner.beat.player]?.faction ?? 'helion')}
               className="aww-sweep-band"
             />
           </div>

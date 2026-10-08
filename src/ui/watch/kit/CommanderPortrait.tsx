@@ -16,13 +16,15 @@ export interface CommanderPortraitProps {
   /** Painted art, when it exists (wins over the monogram, but not over a portrait for `id`). */
   src?: string;
   size?: number;
+  /** A side with no name yet: the unmarked mark stands where the monogram and the nation's watermark would be. The frame keeps the nation's colours. */
+  masked?: boolean;
   /** While a power is active. */
   state?: 'surge' | 'overclock';
   className?: string;
 }
 
 /** A commander's face: faction-coloured chamfered frame, sigil watermark, and the portrait or a monogram. */
-export function CommanderPortrait({ name, id, mood, faction, initials, src, size = 96, state, className }: CommanderPortraitProps): ReactElement {
+export function CommanderPortrait({ name, id, mood, faction, initials, src, size = 96, masked, state, className }: CommanderPortraitProps): ReactElement {
   const label = state === 'surge' ? 'Surge' : state === 'overclock' ? 'Overclock' : undefined;
   const style: CSSProperties = {
     width: size,
@@ -37,10 +39,18 @@ export function CommanderPortrait({ name, id, mood, faction, initials, src, size
   const mono = initials ?? (name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2);
   return (
     <div className={cx('aw-portrait', art && 'aw-portrait--art', className)} role="img" aria-label={`${name || 'Commander'}${label ? `, ${label} active` : ''}`} style={style}>
-      <span className="aw-portrait-mark" aria-hidden>
-        <Sigil faction={faction} size={Math.round(size * 0.78)} tone="on" />
-      </span>
-      {art ? <img src={art} alt="" className="aw-portrait-img" draggable={false} /> : <span className="aw-portrait-initials" style={{ fontSize: Math.round(size * 0.36) }}>{mono}</span>}
+      {!masked && (
+        <span className="aw-portrait-mark" aria-hidden>
+          <Sigil faction={faction} size={Math.round(size * 0.78)} tone="on" />
+        </span>
+      )}
+      {art ? (
+        <img src={art} alt="" className="aw-portrait-img" draggable={false} />
+      ) : masked ? (
+        <span className="aw-portrait-initials"><Sigil faction={faction} size={Math.round(size * 0.58)} tone="on" masked /></span>
+      ) : (
+        <span className="aw-portrait-initials" style={{ fontSize: Math.round(size * 0.36) }}>{mono}</span>
+      )}
       {label && <span className="aw-portrait-band label" style={size < 72 ? { fontSize: 9, letterSpacing: '0.04em' } : undefined}>{label}</span>}
     </div>
   );

@@ -5,6 +5,7 @@ import type { ReactElement } from 'react';
 import { Icon, PlayerHud, Sigil, StatusChip, cx } from './kit';
 import { FUNDS_TWEEN_MS, METER_TWEEN_MS, playerPanels, prefersReducedMotion, tweenAt, tweenDuration } from './hud';
 import type { PlayerPanelModel } from './hud';
+import type { Seats } from './seats';
 import type { TimelineStep } from './timeline';
 
 /**
@@ -47,14 +48,20 @@ function Count({ label, title, value, icon }: { label: string; title: string; va
   );
 }
 
-function Panel({ p }: { p: PlayerPanelModel }): ReactElement {
+function Panel({ p, size }: { p: PlayerPanelModel; size?: number }): ReactElement {
   const funds = Math.round(useTweened(p.funds, FUNDS_TWEEN_MS));
   const meterValue = useTweened(p.meter.value, METER_TWEEN_MS);
   const live = p.isCurrent && !p.defeated;
   return (
     <PlayerHud
       className={cx('aww-hud', live && 'aww-hud--current', p.defeated && 'aww-hud--defeated')}
-      commander={{ id: p.commanderId, mood: p.mood, name: p.commanderName, faction: p.faction, initials: p.initials, state: p.active ?? undefined }}
+      portraitSize={size}
+      commander={{
+        // Only a seat that wears a commander's face is given the commander's id (a bust, if there is one); the agent and the drones wear a
+        // monogram and a side with no name wears the unmarked plate.
+        id: p.portrait === 'commander' ? p.commanderId : undefined,
+        mood: p.mood, name: p.title, faction: p.faction, initials: p.initials, state: p.active ?? undefined, masked: p.masked,
+      }}
       funds={p.funds}
       fundsShown={funds}
       power={{ value: meterValue, surge: p.meter.surge, max: p.meter.max, active: p.active }}
@@ -68,18 +75,24 @@ function Panel({ p }: { p: PlayerPanelModel }): ReactElement {
       }
     >
       <div className="aww-hud-meta">
-        <Sigil faction={p.faction} size={16} tone="ink" />
-        <span className="label aw-muted">{p.factionName}</span>
+        <Sigil faction={p.faction} size={16} tone="ink" masked={p.masked} />
+        <span className="label aw-muted">{p.nationText}</span>
       </div>
     </PlayerHud>
   );
 }
 
-export function Hud({ step }: { step: TimelineStep }): ReactElement {
-  const panels = playerPanels(step);
+/** Three or more panels share the side column with the intel card and the log, so each is drawn tighter (watch.css .aww-huds--tight). */
+export const TIGHT_AT = 3;
+/** Four or five panels cannot fit a short window beside the intel card and a log at all: the column scrolls in itself (watch.css .aww-huds--many). */
+export const MANY_AT = 4;
+
+export function Hud({ step, seats }: { step: TimelineStep; seats?: Seats }): ReactElement {
+  const panels = playerPanels(step, seats);
+  const tight = panels.length >= TIGHT_AT;
   return (
-    <div className="aww-huds" aria-label="Players">
-      {panels.map((p) => <Panel key={p.index} p={p} />)}
+    <div className={cx('aww-huds', tight && 'aww-huds--tight', panels.length >= MANY_AT && 'aww-huds--many')} aria-label="Players">
+      {panels.map((p) => <Panel key={p.index} p={p} size={tight ? 40 : undefined} />)}
     </div>
   );
 }

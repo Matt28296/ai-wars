@@ -48,7 +48,7 @@ function Header({ l, age }: { l: LogLine & { section: NonNullable<LogLine['secti
   return (
     <div className={cx('aww-log-line', 'aww-log-line--turn', age === 0 && 'aww-log-line--newest')} style={stripeStyle(l, 0)} data-kind={l.kind}>
       <span className="aww-log-head-row" role="heading" aria-level={3} aria-label={l.text}>
-        {l.faction && <Sigil faction={l.faction} size={15} tone="fill" />}
+        {l.faction && <Sigil faction={l.faction} size={15} tone="fill" masked={l.masked} />}
         <span className="label aww-log-title">{l.section.title}</span>
         <span className="caption aww-log-detail">{l.section.detail}</span>
       </span>
@@ -70,7 +70,7 @@ function Line({ l, age }: { l: LogLine; age: number }): ReactElement {
       <span className="aww-log-step stat-sm">{l.step}</span>
       <LogGlyph icon={l.icon} />
       <span className="aww-log-text body-sm">
-        {cue === 'sigil' && l.faction && <Sigil faction={l.faction} size={13} tone="fill" />}
+        {cue === 'sigil' && l.faction && <Sigil faction={l.faction} size={13} tone="fill" masked={l.masked} />}
         {l.text}
       </span>
     </li>
