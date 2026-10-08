@@ -4,8 +4,11 @@
 // the sample to the picture (mapping.ts) and draws.
 //
 // Post (art-direction.md): bloom with a high threshold -> tone mapping and sRGB (OutputPass) -> FXAA -> a light vignette.
+//
+// G8b added to the core: the war-room table (table.ts), the match intro (intro.ts), the ion-storm static (storm.ts), the occupied-
+// property call to the terrain (occupancy.ts), the effects kit's reduced-motion switch, and a tighter framing (rig.ts).
 import {
-  ACESFilmicToneMapping, BoxGeometry, Color, DirectionalLight, Group, HemisphereLight, Mesh, MeshStandardMaterial, PCFShadowMap,
+  ACESFilmicToneMapping, Color, DirectionalLight, Group, HemisphereLight, PCFShadowMap,
   PerspectiveCamera, SRGBColorSpace, Scene, Vector2, Vector3, WebGLRenderer,
 } from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -23,7 +26,7 @@ import type { Facing } from '../../watch/unitview';
 import type { Timeline, ViewFrame } from '../../watch/timeline';
 import type { CreateFx, CreateTerrain, CreateUnitView, FxView, TerrainView } from '../contract';
 import { TILE } from '../contract';
-import { createFx as defaultFx } from '../fx';
+import { createFxKit } from '../fx';
 import { createTerrain as defaultTerrain } from '../terrain';
 import { createUnitView as defaultUnits } from '../units';
 import { UI } from '../palette';
@@ -31,10 +34,16 @@ import { safeFrame } from './guard';
 import {
   EXPOSURE, KEY_LUX, SHADOW_MAP_SIZE, fitShadow, lightingFor, lightningFlash, stormMixFor, sunDirection,
 } from './lighting';
-import { analyseStep, captureProgress, facingHeading, mapSignature, mapStage, surfaceY, toFxItems, toNumberItems } from './mapping';
+import { analyseStep, captureProgress, facingHeading, hashSeed, mapSignature, mapStage, surfaceY, toFxItems, toNumberItems } from './mapping';
 import type { StageState, StepInfo, WorldEnv } from './mapping';
+import { Intro, introAction } from './intro';
+import { OCCUPIED_SNAP_DT_SEC, occupiedPredicate, occupiedTiles, sameTiles } from './occupancy';
 import { UnitRegistry } from './registry';
 import { CameraRig, FOV_DEG, MAX_ZOOM_LEVEL, defaultZoomLevel, easeToward, stepZoom, wheelToSteps } from './rig';
+import { createStormStatic } from './storm';
+import type { StormStats, StormStatic } from './storm';
+import { createTable } from './table';
+import type { TableStats, TableView } from './table';
 
 export interface Overlay { banner: BannerSample | null; cutIn: CutInSample | null }
 
@@ -60,6 +69,19 @@ export interface StageModules {
   createTerrain: CreateTerrain;
   createUnitView: CreateUnitView;
   createFx: CreateFx;
+  /** The GPU side. Tests inject a stand-in so the whole stage can run in node; the page always uses the real one. */
+  createRenderer: (canvas: HTMLCanvasElement) => WebGLRenderer;
+}
+
+/** Plain numbers for tests and the dev gallery: what the core is doing now. */
+export interface StageDebug {
+  intro: { active: boolean; progress: number };
+  /** The camera's world position, its pitch down from horizontal (degrees) and its distance to what it looks at. */
+  camera: { x: number; y: number; z: number; pitchDeg: number; distance: number };
+  storm: StormStats | null;
+  table: TableStats | null;
+  zoomLevel: number;
+  reducedMotion: boolean;
 }
 
 /** FXAA is on: the renderer's own antialiasing is therefore off (art-direction.md "Tone and post"). */
@@ -87,10 +109,23 @@ export class StageRuntime {
   private readonly fx: FxView;
   private readonly tmp = new Vector3();
   private readonly ro: ResizeObserver;
-  private table: Mesh<BoxGeometry, MeshStandardMaterial> | null = null;
+  private table: TableView | null = null;
+  private storm: StormStatic | null = null;
   private terrain: TerrainView | null = null;
+  private readonly intro = new Intro();
   private mapSig = '';
   private appliedFrame: ViewFrame | null = null;
+  /** The tiles the terrain was last told are occupied, and whether it must be told again (a new terrain starts with none). */
+  private occupied: ReadonlySet<number> = new Set();
+  private occupiedDirty = true;
+  /** The view just jumped (a scrub, a rewind, another viewer's timeline): the next occupancy change lands at once instead of easing. */
+  private occupiedSnap = false;
+  private boardSize = { width: 1, height: 1 };
+  /** The reduced-motion setting last handed to the effects kit (null: never). */
+  private fxReduced: boolean | null = null;
+  private flash = 0;
+  private viewportPx = 800;
+  private lastPose: { x: number; y: number; z: number; pitchDeg: number; distance: number } = { x: 0, y: 0, z: 0, pitchDeg: 0, distance: 0 };
 
   private view: StageView | null = null;
   private info: StepInfo | null = null;
@@ -113,13 +148,19 @@ export class StageRuntime {
 
   constructor(host: HTMLElement, private readonly hooks: StageHooks, modules: Partial<StageModules> = {}) {
     this.host = host;
-    this.modules = { createTerrain: defaultTerrain, createUnitView: defaultUnits, createFx: defaultFx, ...modules };
+    this.modules = {
+      createTerrain: defaultTerrain,
+      createUnitView: defaultUnits,
+      createFx: () => createFxKit(),
+      createRenderer: (canvas) => new WebGLRenderer({ canvas, antialias: !FXAA_ON, powerPreference: 'high-performance', stencil: false }),
+      ...modules,
+    };
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'aww-stage3d-canvas';
     this.canvas.setAttribute('aria-hidden', 'true');
     host.appendChild(this.canvas);
     try {
-      this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: !FXAA_ON, powerPreference: 'high-performance', stencil: false });
+      this.renderer = this.modules.createRenderer(this.canvas);
     } catch (err) {
       this.canvas.remove();
       throw err;
@@ -190,6 +231,20 @@ export class StageRuntime {
       this.planStart = performance.now();
       this.planDone = false;
     }
+    this.followReducedMotion(view.reducedMotion);
+    const jumped = !prev || prev.step !== view.step || prev.timeline !== view.timeline;
+    if (jumped && !(view.plan && view.plan.durationMs > 0)) this.occupiedSnap = true;
+    const intro = introAction({
+      first: !prev,
+      step: step.index,
+      reducedMotion: view.reducedMotion,
+      timelineChanged: !!prev && prev.timeline !== view.timeline,
+      stepChanged: !!prev && prev.step !== view.step,
+      planned: !!view.plan && view.plan.durationMs > 0,
+      active: this.intro.active,
+    });
+    if (intro === 'start') this.intro.start();
+    else if (intro === 'skip') this.intro.skip();
 
     const frame = safeFrame(step.frame).frame;
     this.ensureTerrain(frame);
@@ -202,6 +257,14 @@ export class StageRuntime {
       const snap = !view.plan || view.plan.durationMs <= 0;
       this.rig.focusOn(step.index > 0 ? this.info.focus ?? null : null, snap);
     }
+  }
+
+  /** The effects kit halves its particles under reduced motion. It is told on the first view and whenever the setting changes. */
+  private followReducedMotion(reduced: boolean): void {
+    if (this.fxReduced === reduced) return;
+    this.fxReduced = reduced;
+    const kit = this.fx as FxView & { setReducedMotion?: (on: boolean) => void };
+    if (typeof kit.setReducedMotion === 'function') kit.setReducedMotion(reduced);
   }
 
   private ensureTerrain(frame: ViewFrame): void {
@@ -221,28 +284,24 @@ export class StageRuntime {
       weather: frame.weather,
     });
     this.scene.add(this.terrain.group);
-    this.rig.setBoard({ width: frame.width, height: frame.height });
-    this.buildTable(frame);
+    this.boardSize = { width: frame.width, height: frame.height };
+    this.occupied = new Set();
+    this.occupiedDirty = true;
+    this.rig.setBoard(this.boardSize);
+    this.buildSetting(frame, sig);
     this.fitSun(frame);
     this.stormMix = stormMixFor(frame.weather);
   }
 
-  /** The command table the diorama stands on: a dark slab a little larger than the board, below the water line. */
-  private buildTable(frame: ViewFrame): void {
-    if (this.table) {
-      this.scene.remove(this.table);
-      this.table.geometry.dispose();
-      this.table.material.dispose();
-    }
-    const margin = 0.7;
-    const geo = new BoxGeometry(frame.width * TILE + margin * 2, 0.4, frame.height * TILE + margin * 2);
-    const mat = new MeshStandardMaterial({ color: 0x141b25, roughness: 0.75, metalness: 0.25 });
-    const table = new Mesh(geo, mat);
-    table.position.set((frame.width * TILE) / 2, -0.2 - 0.3, (frame.height * TILE) / 2);
-    table.receiveShadow = true;
-    table.name = 'table';
-    this.scene.add(table);
-    this.table = table;
+  /** The war-room table the diorama stands on and the ion-storm static over it: both are made from the board's size alone. */
+  private buildSetting(frame: ViewFrame, signature: string): void {
+    this.table?.dispose();
+    this.storm?.dispose();
+    const board = { width: frame.width, height: frame.height };
+    this.table = createTable(board);
+    this.scene.add(this.table.group);
+    this.storm = createStormStatic(board, hashSeed(signature));
+    this.scene.add(this.storm.points);
   }
 
   private fitSun(frame: ViewFrame): void {
@@ -327,6 +386,7 @@ export class StageRuntime {
     const reduced = view.reducedMotion;
     const state = mapStage({ frame: step.frame, prev: before.frame, plan, sample, t, info, step: step.index });
     this.syncUnits(state, dt, !reduced && sample !== null);
+    this.syncOccupancy(state);
     this.drawFx(state);
     this.overlay(sample);
 
@@ -334,8 +394,37 @@ export class StageRuntime {
     this.registry.update(dt, this.time);
     this.fx.update(dt, this.time);
     this.updateLight(step.frame.weather, dt, reduced);
+    this.intro.update(dt);
     this.updateCamera(dt, reduced, state.shake);
+    this.updateSetting(reduced);
     this.composer.render(dt);
+  }
+
+  /**
+   * Tells the terrain which tiles have a live unit on them, whenever that set changes (and once for every new terrain). The set is read
+   * from the units drawn this frame, so ghosts of dying units and units the viewer cannot see never count.
+   *
+   * The terrain eases its low form inside update(dt). The first call on a board, and any change that comes with a scrub or a step jump,
+   * is followed at once by an update with a long dt so the buildings snap to their state; during playback the real frame dt eases them.
+   */
+  private syncOccupancy(state: StageState): void {
+    const t = this.terrain;
+    if (!t) return;
+    const snap = this.occupiedSnap;
+    this.occupiedSnap = false;
+    const next = occupiedTiles(state.units, this.boardSize.width, this.boardSize.height);
+    if (!this.occupiedDirty && sameTiles(next, this.occupied)) return;
+    const first = this.occupiedDirty;
+    this.occupied = next;
+    this.occupiedDirty = false;
+    t.setOccupied(occupiedPredicate(next, this.boardSize.width));
+    if (first || snap) t.update(OCCUPIED_SNAP_DT_SEC, this.time);
+  }
+
+  /** The table follows the camera and the weather; the storm static fades with the storm mix and drifts on the stage's clock. */
+  private updateSetting(reduced: boolean): void {
+    this.table?.update(this.camera.position, this.stormMix, this.flash);
+    this.storm?.update(this.time, this.stormMix, reduced, this.viewportPx, FOV_DEG);
   }
 
   private syncUnits(state: StageState, dt: number, smooth: boolean): void {
@@ -379,6 +468,7 @@ export class StageRuntime {
   private updateLight(weather: Weather, dt: number, reduced: boolean): void {
     this.stormMix = easeToward(this.stormMix, stormMixFor(weather), dt, 1.2, reduced);
     const flash = lightningFlash(this.time, weather === 'ionstorm' && !reduced);
+    this.flash = flash;
     const l = lightingFor(this.stormMix, flash);
     this.hemi.color.setHex(l.sky);
     this.hemi.groundColor.setHex(l.ground);
@@ -391,7 +481,7 @@ export class StageRuntime {
 
   private updateCamera(dt: number, reduced: boolean, shake: number): void {
     this.rig.update(dt, !reduced);
-    const pose = this.rig.pose(0);
+    const pose = this.rig.pose(0, this.intro.framing());
     const cam = this.camera;
     let sx = 0;
     let sz = 0;
@@ -405,6 +495,11 @@ export class StageRuntime {
     cam.far = pose.far;
     cam.lookAt(this.tmp.set(pose.target.x + sx, pose.target.y, pose.target.z + sz));
     cam.updateProjectionMatrix();
+    const flat = Math.hypot(pose.position.x - pose.target.x, pose.position.z - pose.target.z);
+    this.lastPose = {
+      x: pose.position.x, y: pose.position.y, z: pose.position.z, distance: pose.distance,
+      pitchDeg: (Math.atan2(pose.position.y - pose.target.y, flat) * 180) / Math.PI,
+    };
   }
 
   // ------------------------------------------------------------ size
@@ -414,6 +509,7 @@ export class StageRuntime {
     const w = Math.max(1, Math.floor(this.host.clientWidth));
     const h = Math.max(1, Math.floor(this.host.clientHeight));
     const pr = Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO);
+    this.viewportPx = h * pr;
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.composer.setPixelRatio(pr);
@@ -436,12 +532,25 @@ export class StageRuntime {
   // ------------------------------------------------------------ camera input (camera only: nothing here selects or commands a unit)
 
   zoomStep(dir: 1 | -1): void {
+    this.intro.skip(); // the viewer took the camera
     this.userZoomed = true;
     this.setZoomLevel(stepZoom(this.rig.level, dir), false);
   }
 
   get zoomLevel(): number { return this.rig.level; }
   get maxZoomLevel(): number { return MAX_ZOOM_LEVEL; }
+
+  /** What the core is doing now, as plain numbers (the tests and the dev gallery read it; nothing in the page does). */
+  debug(): StageDebug {
+    return {
+      intro: { active: this.intro.active, progress: this.intro.progress },
+      camera: { ...this.lastPose },
+      storm: this.storm ? this.storm.stats() : null,
+      table: this.table ? this.table.stats() : null,
+      zoomLevel: this.rig.level,
+      reducedMotion: this.view?.reducedMotion ?? false,
+    };
+  }
 
   private readonly onWheel = (e: WheelEvent): void => {
     e.preventDefault();
@@ -473,6 +582,7 @@ export class StageRuntime {
   private readonly onPointerMove = (e: PointerEvent): void => {
     const d = this.drag;
     if (!d || d.id !== e.pointerId) return;
+    this.intro.skip();
     this.rig.pan(e.clientX - d.x, e.clientY - d.y, this.canvas.clientHeight);
     d.x = e.clientX;
     d.y = e.clientY;
@@ -512,11 +622,10 @@ export class StageRuntime {
       this.terrain.dispose();
       this.terrain = null;
     }
-    if (this.table) {
-      this.table.geometry.dispose();
-      this.table.material.dispose();
-      this.table = null;
-    }
+    this.table?.dispose();
+    this.table = null;
+    this.storm?.dispose();
+    this.storm = null;
     this.sun.shadow.dispose();
     for (const pass of this.composer.passes) pass.dispose();
     this.composer.dispose();
