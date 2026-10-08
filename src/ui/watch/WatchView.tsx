@@ -5,15 +5,21 @@
 //
 // A player viewer renders ONLY observe(state, viewer) and its log uses ONLY viewEvents(before, after, events, viewer); 'all' is the
 // omniscient post-match view (timeline.ts). The board, HUD, log and animation are all drawn from the timeline's frames and events.
-import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+//
+// G18 (D-023, "a very clean interface"): the screen is the board, ONE slim bar above it (the screen's own back link and title, the cycle, whose turn
+// it is and the viewer's funds, then Orders when given, Details and a quiet View menu) and ONE row of playback below it. Players, unit intel and the
+// log share a single drawer the viewer opens with "Details" or the key D; the viewer switch, the 3D / 2D switch and the fog chip live in the View menu.
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import type { Action, CreateGameOptions } from '../../game/aw';
-import { Controls, ViewerToggle } from './Controls';
-import { EventLog } from './EventLog';
-import { Hud } from './Hud';
-import { IntelCard } from './IntelCard';
+import { barModel } from './bar';
+import { Bar, DetailsButton } from './Bar';
+import { Controls } from './Controls';
+import { Drawer } from './Drawer';
+import { countLogLines, drawerReducer, initialDrawer, routeKey, unreadLines } from './drawer';
+import type { DrawerTab } from './drawer';
 import { Stage } from './Stage';
-import { RendererToggle } from '../board3d/stage/RendererToggle';
+import { ViewMenu } from './ViewMenu';
 import { chooseRenderer, detectWebGL2 } from '../board3d/stage/support';
 import type { RendererChoice } from '../board3d/stage/support';
 import { initialPlayback, keyToAction, livePlaybackReducer, playbackReducer } from './controls';
@@ -72,10 +78,17 @@ export interface WatchViewBaseProps {
   /** G14: extra lines for the event log, each shown from its step on (the order changes of the player's agent). Absent: the log is the events'. */
   logNotes?: readonly LogNote[];
   /**
-   * G14: drawn in the toolbar row beside the viewer and renderer toggles (the Orders button and its panel). Absent, nothing at all is added.
+   * G14: drawn in the slim bar's right group, before Details and View (the Orders button and its panel). Absent, nothing at all is added.
    * Decided when the view mounts: give it from the first render or never.
    */
   ordersSlot?: ReactNode;
+  /**
+   * G18: the screen's own back link, title and status pill, drawn at the left of the slim bar. The front door's screens give theirs (Deploy: "Back
+   * to briefing" and the mission; the live view: "Title" and its link status; the demo: "Title" and its name). Absent, the left of the bar is empty.
+   */
+  lead?: ReactNode;
+  /** G18: opens the details drawer on this tab when the view mounts (tests and screenshots). By default the drawer starts shut and nothing takes focus. */
+  initialDrawer?: DrawerTab;
 }
 
 /**
@@ -107,7 +120,7 @@ function useReducedMotion(): boolean {
   return reduced;
 }
 
-export function WatchView({ setup, actions, viewed, viewer, onViewerChange, initialStep, initialSpeed, autoPlay, onPositionChange, overlay, onStep, hold = false, people, live, logNotes, ordersSlot }: WatchViewProps): ReactElement {
+export function WatchView({ setup, actions, viewed, viewer, onViewerChange, initialStep, initialSpeed, autoPlay, onPositionChange, overlay, onStep, hold = false, people, live, logNotes, ordersSlot, lead, initialDrawer: drawerAtMount }: WatchViewProps): ReactElement {
   // A whole match is recorded once. A growing one (G14) keeps what it has recorded and applies only the actions that arrived since.
   // A match that arrives already viewed (G17) is not recorded at all while the viewer is the seat it was viewed for.
   if (viewed !== undefined && viewed.length === 0) throw new RangeError('WatchView: `viewed` needs step 0 at least');
@@ -191,14 +204,64 @@ export function WatchView({ setup, actions, viewed, viewer, onViewerChange, init
     return () => window.clearTimeout(id);
   }, [pb.playing, pb.step, pb.last, pb.speed, finished, plan, hold, open]);
 
-  // Keyboard: Space, Left, Right. Playback only. Space plays and pauses wherever focus is, so a button the viewer just clicked must not
-  // also press itself on the key's release: that is stopped on keyup.
+  const logCount = useMemo(() => {
+    let n = 0;
+    while (n < log.length && log[n].step <= step.index) n++;
+    return n;
+  }, [log, step.index]);
+  const visibleLog = useMemo(() => log.slice(0, logCount), [log, logCount]);
+
+  // The details drawer (G18): shut unless the mount asked otherwise. What it counts are the log lines the viewer has not yet read.
+  const lines = useMemo(() => countLogLines(visibleLog), [visibleLog]);
+  const [drawer, dispatchDrawer] = useReducer(drawerReducer, undefined, () => initialDrawer(lines, drawerAtMount));
+  const [menuOpen, setMenuOpen] = useState(false);
+  const drawerId = useId();
+  const menuId = useId();
+  const detailsButton = useRef<HTMLButtonElement>(null);
+  const viewButton = useRef<HTMLButtonElement>(null);
+  // A drawer that was open when the view mounted does not take the focus; one the viewer opens does, and gives it back to "Details" when it shuts.
+  const focusIn = useRef(false);
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+  const openDrawer = useCallback(() => {
+    focusIn.current = true;
+    dispatchDrawer({ type: 'open' });
+  }, []);
+  const closeDrawer = useCallback(() => {
+    dispatchDrawer({ type: 'close', lines: linesRef.current });
+    detailsButton.current?.focus({ preventScroll: true });
+  }, []);
+  const drawerRef = useRef(drawer);
+  drawerRef.current = drawer;
+  const menuRef = useRef(menuOpen);
+  menuRef.current = menuOpen;
+  const toggleDrawer = useCallback(() => (drawerRef.current.open ? closeDrawer() : openDrawer()), [closeDrawer, openDrawer]);
+  // Another viewer is another log: what it holds is not "new" just because it is longer than the last viewer's.
   useEffect(() => {
-    const targetOf = (e: KeyboardEvent): { tag?: string; type?: string } => {
+    dispatchDrawer({ type: 'rebase', lines: linesRef.current });
+  }, [timeline.viewer]);
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    viewButton.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Keyboard: Space, Left, Right (playback), D (the drawer) and Escape (the View menu, then the drawer). Space plays and pauses wherever focus
+  // is, so a button the viewer just clicked must not also press itself on the key's release: that is stopped on keyup.
+  useEffect(() => {
+    const targetOf = (e: KeyboardEvent): { tag?: string; type?: string; editable?: boolean } => {
       const t = e.target instanceof HTMLElement ? e.target : null;
-      return { tag: t?.tagName.toLowerCase(), type: t instanceof HTMLInputElement ? t.type : undefined };
+      return { tag: t?.tagName.toLowerCase(), type: t instanceof HTMLInputElement ? t.type : undefined, editable: t?.isContentEditable === true };
     };
     const onKey = (e: KeyboardEvent): void => {
+      const route = routeKey(e, targetOf(e), { menu: menuRef.current, drawer: drawerRef.current.open });
+      if (route) {
+        if (route === 'toggle-drawer') {
+          e.preventDefault();
+          toggleDrawer();
+        } else if (route === 'close-menu') closeMenu();
+        else closeDrawer();
+        return;
+      }
       const action = keyToAction(e, targetOf(e));
       if (!action) return;
       e.preventDefault();
@@ -213,29 +276,23 @@ export function WatchView({ setup, actions, viewed, viewer, onViewerChange, init
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, []);
+  }, [toggleDrawer, closeMenu, closeDrawer]);
 
-  const logCount = useMemo(() => {
-    let n = 0;
-    while (n < log.length && log[n].step <= step.index) n++;
-    return n;
-  }, [log, step.index]);
-  const visibleLog = useMemo(() => log.slice(0, logCount), [log, logCount]);
-
-  // The 3D stage draws its own banner and is given no seats, so a banner inside this view asks here which seat a nation and a commander mean.
+  // The 3D stage draws its own sweep and is given no seats, so a banner inside this view asks here which seat a nation and a commander mean.
   const seatBook = useMemo<SeatBook | null>(
     () => (people ? { seats: people, keys: timeline.steps[0].frame.players.map((p) => ({ faction: p.faction, commanderName: commanderNameOf(p.commander) })), current: step.frame.current } : null),
     [people, timeline, step.frame.current],
   );
 
-  const toolbar =
-    onViewerChange || webgl2 || ordersSlot ? (
-      <div className="aww-toolbar-row">
-        {onViewerChange && <ViewerToggle frame={timeline.steps[0].frame} viewer={viewer} onChange={onViewerChange} seats={people} />}
-        {webgl2 && <RendererToggle mode={renderer} onChange={setRendererPick} />}
-        {ordersSlot}
-      </div>
-    ) : undefined;
+  // The View menu picks exactly what the old toggles did (the viewer's callback, the renderer's setter) and then shuts.
+  const pickViewer = useCallback((v: Viewer) => {
+    onViewerChange?.(v);
+    closeMenu();
+  }, [onViewerChange, closeMenu]);
+  const pickRenderer = useCallback((mode: RendererChoice) => {
+    setRendererPick(mode);
+    closeMenu();
+  }, [closeMenu]);
 
   const stage =
     renderer === '3d' ? (
@@ -252,18 +309,35 @@ export function WatchView({ setup, actions, viewed, viewer, onViewerChange, init
           plan={plan}
           onDone={onDone}
           reducedMotion={reducedMotion}
-          toolbar={toolbar}
           seats={people}
           onFail={onStage3DFail}
         />
       </Suspense>
     ) : (
-      <Stage timeline={timeline} step={step.index} plan={plan} onDone={onDone} reducedMotion={reducedMotion} toolbar={toolbar} seats={people} />
+      <Stage timeline={timeline} step={step.index} plan={plan} onDone={onDone} reducedMotion={reducedMotion} seats={people} />
     );
 
   return (
     <SeatsContext.Provider value={seatBook}>
-      <div className="aww-root" data-viewer={String(viewer)} data-step={step.index}>
+      <div className="aww-root" data-viewer={String(viewer)} data-step={step.index} data-drawer={drawer.open ? drawer.tab : 'closed'}>
+        <Bar model={barModel(step.frame, people)} lead={lead}>
+          {ordersSlot}
+          <DetailsButton open={drawer.open} unread={unreadLines(drawer, lines)} controls={drawerId} onClick={toggleDrawer} buttonRef={detailsButton} />
+          <ViewMenu
+            timeline={timeline}
+            frame={step.frame}
+            viewer={viewer}
+            onViewerChange={onViewerChange ? pickViewer : undefined}
+            seats={people}
+            webgl2={webgl2}
+            renderer={renderer}
+            onRendererChange={pickRenderer}
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            id={menuId}
+            buttonRef={viewButton}
+          />
+        </Bar>
         <div className="aww-main">
           {overlay === undefined ? stage : (
             <div className="aww-stagebox">
@@ -271,11 +345,19 @@ export function WatchView({ setup, actions, viewed, viewer, onViewerChange, init
               <div className="aww-overlay">{overlay}</div>
             </div>
           )}
-          <aside className="aww-side">
-            <Hud step={step} seats={people} />
-            <IntelCard timeline={timeline} step={step.index} seats={people} />
-            <EventLog lines={visibleLog} />
-          </aside>
+          {drawer.open && (
+            <Drawer
+              id={drawerId}
+              timeline={timeline}
+              step={step.index}
+              seats={people}
+              lines={visibleLog}
+              tab={drawer.tab}
+              onTab={(tab) => dispatchDrawer({ type: 'tab', tab })}
+              onClose={closeDrawer}
+              focusIn={focusIn.current}
+            />
+          )}
           <div className="aww-bottom">
             <Controls state={pb} dispatch={dispatch} timeline={timeline} thinking={open && pb.playing && pb.step >= timeline.last} />
           </div>

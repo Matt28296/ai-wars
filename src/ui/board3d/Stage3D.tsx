@@ -1,6 +1,7 @@
 // <Stage3D {...StageProps} /> is the 3D diorama stage, a drop-in for the SVG Stage (D-018). Same props, same DOM around the board
-// (turn banner, chips row, toolbar slot, banner sweep, power cut-in); the board itself is one WebGL canvas drawn by StageRuntime, which
-// samples the same transition plan every animation frame. The HUD, log and controls stay React/DOM, outside this component.
+// (board chips, banner sweep, power cut-in); the board itself is one WebGL canvas drawn by StageRuntime, which samples the same transition
+// plan every animation frame. The bar, the drawer and the playback controls stay React/DOM, outside this component (G18: the cycle and whose
+// turn it is are the slim bar's chip, so this stage draws no banner row and no toolbar of its own).
 //
 // This is a viewer's camera and nothing more: wheel and +/- zoom, drag pans, and nothing selects or commands a unit (D-004, D-007).
 // Only the viewer's own frame and filtered events reach the runtime, so a fogged viewer's board can only show what it was told (D-016).
@@ -23,7 +24,7 @@ export interface Stage3DProps extends StageProps {
   onFail?: (reason: string) => void;
 }
 
-export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, seats, onFail }: Stage3DProps): ReactElement {
+export function Stage3D({ timeline, step, plan, onDone, reducedMotion, seats, onFail }: Stage3DProps): ReactElement {
   const cur = timeline.steps[Math.min(step, timeline.last)];
   const frame = cur.frame;
   const hostRef = useRef<HTMLDivElement>(null);
@@ -82,22 +83,16 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
   }, [timeline, step, plan, reducedMotion, maskedOwners]);
 
   const bannerFaction = frame.players[frame.current]?.faction ?? 'helion';
-  const bannerCommander = commanderNameOf(frame.players[frame.current]?.commander ?? '');
   const sweep = overlay?.banner ?? null;
   const cutIn = overlay?.cutIn ?? null;
 
   return (
     <div className="aww-stage" data-renderer="3d">
-      <div className="aww-banner-row">
-        <TurnBanner key={`${frame.cycle}-${frame.current}`} className="aww-turn-banner" cycle={frame.cycle} faction={bannerFaction} commander={bannerCommander} />
-        <div className="aww-chips">
-          <VictoryChip frame={frame} seats={seats} />
-          <span className="aww-chip caption">{frame.viewer === 'all' ? 'Omniscient view' : frame.fogActive ? 'Fog of war' : 'No fog'}</span>
-          {frame.weather === 'ionstorm' && <span className="aww-chip caption aww-chip--warn">Ion storm</span>}
-          {toolbar && <div className="aww-toolbar">{toolbar}</div>}
-        </div>
-      </div>
       <div className="aww-board-wrap">
+        <div className="aww-boardchips">
+          <VictoryChip frame={frame} seats={seats} />
+          {frame.weather === 'ionstorm' && <span className="aww-chip caption aww-chip--warn">Ion storm</span>}
+        </div>
         <div
           className="aww-stage3d"
           ref={hostRef}

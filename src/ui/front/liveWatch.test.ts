@@ -70,6 +70,17 @@ describe('the battle screen with a live battle', () => {
     return bare(renderToString(createElement(MissionWatch, { mission: m, result: { setup: r.setup, actions: r.actions.slice(0, take) }, ...props })));
   };
 
+  it('Deploy\'s slim bar starts with the way back to the briefing and the mission\'s name (G18), from the mission and nothing else', () => {
+    for (const m of [light, canopy]) {
+      const h = render(m);
+      const bar = /<header class="aww-bar"[\s\S]*?<\/header>/.exec(h)![0];
+      const lead = /<div class="aww-bar-lead">([\s\S]*?)<\/div><div class="aww-bar-mid">/.exec(bar)![1];
+      expect(lead).toContain(`href="#/mission/${m.id}"`);
+      expect(lead.replace(/<[^>]*>/g, '')).toBe(`Back to briefingMission ${String(m.order).padStart(2, '0')} · ${m.title}`);
+      expect(h).not.toContain('awf-watchbar"'); // Deploy's own strip is not part of this view (it is hidden by front.css)
+    }
+  });
+
   it('a battle with no `live` has no Orders button and no live marker: the screen it always was', () => {
     const h = render(canopy);
     expect(h).not.toContain('data-action="orders"');
@@ -84,6 +95,11 @@ describe('the battle screen with a live battle', () => {
     expect(h).toContain('aria-expanded="false"');
     expect(h).not.toContain('awf-orders-pop');
     expect(h.indexOf('aww-toolbar-row')).toBeLessThan(h.indexOf('data-action="orders"'));
+    // G18: the Orders button is in the slim bar, before Details and View
+    const bar = /<header class="aww-bar"[\s\S]*?<\/header>/.exec(h)![0];
+    expect(bar).toContain('data-action="orders"');
+    expect(bar.indexOf('data-action="orders"')).toBeLessThan(bar.indexOf('data-action="details"'));
+    expect(bar.indexOf('data-action="details"')).toBeLessThan(bar.indexOf('data-action="view"'));
     const open = render(light, { live: live(true, { pending: true }), ordersOpen: true });
     expect(open).toContain('awf-orders-pop');
     expect(open).toContain('From your next turn');
@@ -111,12 +127,15 @@ describe('the battle screen with a live battle', () => {
       { from: 0, cycle: 1, orders: freshOrders() },
       { from: step, cycle: 2, orders: setPosture(freshOrders(), { group: 'armour' }, 'advance') },
     ];
-    const at = (n: number): string => bare(renderToString(createElement(MissionWatch, { mission: light, result: { setup: r.setup, actions: r.actions, orderChanges: changes }, initialStep: n })));
+    // (the log is in the drawer, G18: open on its tab)
+    const at = (n: number): string => bare(renderToString(createElement(MissionWatch, { mission: light, result: { setup: r.setup, actions: r.actions, orderChanges: changes }, initialStep: n, drawerOpen: 'log' })));
     expect(at(step)).toContain('Cycle 2 · Armour: Advance');
     expect(at(step)).toContain('data-kind="orders"');
     expect(at(step - 1), 'not before the turn it starts').not.toContain('Cycle 2 · Armour: Advance');
     // known-bad twin: a battle with no changes has no such line anywhere
-    expect(bare(renderToString(createElement(MissionWatch, { mission: light, result: { setup: r.setup, actions: r.actions, orderChanges: [changes[0]] }, initialStep: step })))).not.toContain('data-kind="orders"');
+    expect(bare(renderToString(createElement(MissionWatch, { mission: light, result: { setup: r.setup, actions: r.actions, orderChanges: [changes[0]] }, initialStep: step, drawerOpen: 'log' })))).not.toContain('data-kind="orders"');
+    // shut, the drawer holds no log at all, so the line is not in the page; the Details button is where it will be counted
+    expect(bare(renderToString(createElement(MissionWatch, { mission: light, result: { setup: r.setup, actions: r.actions, orderChanges: changes }, initialStep: step })))).not.toContain('data-kind="orders"');
   });
 
   it('the story shows no debrief while the battle is still open (its last step is not known yet), and shows it at the last step once it is over', () => {

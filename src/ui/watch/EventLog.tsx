@@ -77,7 +77,11 @@ function Line({ l, age }: { l: LogLine; age: number }): ReactElement {
   );
 }
 
-export const EventLog = memo(function EventLog({ lines }: { lines: LogLine[] }): ReactElement {
+/**
+ * `active` (G18): false while the log sits in a hidden drawer tab, where it has no height to measure. It going true snaps the list to the newest
+ * line again (when the viewer had not scrolled away from it), so a tab that was hidden while lines arrived opens on the latest, not the top.
+ */
+export const EventLog = memo(function EventLog({ lines, active = true }: { lines: LogLine[]; active?: boolean }): ReactElement {
   const [showMoves, setShowMoves] = useState(false);
   const [following, setFollowing] = useState(true);
   const listRef = useRef<HTMLOListElement>(null);
@@ -113,7 +117,7 @@ export const EventLog = memo(function EventLog({ lines }: { lines: LogLine[] }):
     if (grew > 0 && grew <= 3 && !prefersReducedMotion() && target - el.scrollTop < 320) el.scrollTo({ top: target, behavior: 'smooth' });
     else el.scrollTop = target;
     lastTop.current = el.scrollTop;
-  }, [shown.length, lines, showMoves]);
+  }, [shown.length, lines, showMoves, active]);
 
   const onScroll = useCallback((): void => {
     const el = listRef.current;

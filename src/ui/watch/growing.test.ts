@@ -180,16 +180,20 @@ describe('the new props change nothing they were not asked to', () => {
     expect(render({ live: { open: false } })).toBe(base);
   });
 
-  it('the orders slot sits in the toolbar row, after the viewer and renderer toggles, and nowhere else', () => {
+  it('the orders slot sits in the slim bar\'s right group (G18), before Details and the View menu that now holds the toggles, and nowhere else', () => {
     const probe = createElement('button', { id: 'orders-probe' }, 'Orders probe');
     const h = render({ ordersSlot: probe, onViewerChange: () => {} });
     expect(h).toContain('<button id="orders-probe">Orders probe</button>');
-    const row = h.slice(h.indexOf('class="aww-toolbar-row"'));
-    expect(row.indexOf('aww-viewer')).toBeLessThan(row.indexOf('orders-probe'));
+    const bar = h.slice(h.indexOf('<header class="aww-bar"'), h.indexOf('</header>'));
+    const row = bar.slice(bar.indexOf('class="aww-toolbar-row"'));
+    expect(row.indexOf('orders-probe')).toBeGreaterThan(-1);
+    expect(row.indexOf('orders-probe')).toBeLessThan(row.indexOf('data-action="details"'));
+    expect(row.indexOf('data-action="details"')).toBeLessThan(row.indexOf('data-action="view"'));
+    expect(row.indexOf('orders-probe')).toBeLessThan(row.indexOf('aww-viewer'));
     expect(h.split('orders-probe').length - 1).toBe(1);
-    // the slot alone makes the toolbar row (a view with no viewer toggle still has somewhere for it)
-    expect(render({ ordersSlot: probe })).toContain('class="aww-toolbar-row"');
+    // the slot is simply added to the bar: the page with it is the page without it, plus the probe
     expect(render({ ordersSlot: probe })).not.toBe(base);
+    expect(render({ ordersSlot: probe }).replace('<button id="orders-probe">Orders probe</button>', '')).toBe(base);
   });
 
   it('the controls say Thinking only when asked to, in one quiet word', () => {

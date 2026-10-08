@@ -282,18 +282,21 @@ describe('the screen at each moment (D-016: only the agent\'s own view until the
     expect(screen(over)).not.toContain('data-phase="result"');
   });
 
-  it('the terse card is the card with its paragraph taken off, and nothing else changed (the default card, which every other screen draws, keeps its paragraph)', () => {
+  it('the result card has no paragraph of rules anywhere, in the live view and in Deploy alike (G18): one card, the rule one hover away on the rank', () => {
     const m = mission('first-light');
     const card = resultCardOf(m, recordMatch(lightRun.record.setup, lightRun.record.actions).states);
-    const full = renderToStaticMarkup(createElement(ResultCardView, { mission: m, card, next: mission('under-canopy'), onWatchAgain: () => {} }));
-    const terse = renderToStaticMarkup(createElement(ResultCardView, { mission: m, card, next: mission('under-canopy'), terse: true, onWatchAgain: () => {} }));
-    expect(full).toContain('awf-result-rule');
-    expect(terse).not.toContain('awf-result-rule');
-    expect(full).not.toContain('title="Rank adds');
-    const stripped = terse.replace(/ title="[^"]*"/, '');
-    expect(full.replace(/<p class="awf-result-rule[\s\S]*?<\/p>/, '')).toBe(stripped);
-    // `terse` given as false is the default card, byte for byte
-    expect(renderToStaticMarkup(createElement(ResultCardView, { mission: m, card, next: mission('under-canopy'), terse: false, onWatchAgain: () => {} }))).toBe(full);
+    const deploy = renderToStaticMarkup(createElement(ResultCardView, { mission: m, card, next: mission('under-canopy'), onWatchAgain: () => {} }));
+    const live = renderToStaticMarkup(createElement(ResultCardView, { mission: m, card, onWatchAgain: () => {} }));
+    for (const h of [deploy, live]) {
+      expect(h).not.toContain('awf-result-rule');
+      expect(h).not.toContain('Your side is your agent');
+      expect(h).toContain(`title="${RANK_RULE}`);
+    }
+    // the rank and the numbers are the same markup on both screens; only the buttons differ (Deploy has a next mission)
+    const part = (h: string, open: string, close: string): string => h.slice(h.indexOf(open), h.indexOf(close, h.indexOf(open)) + close.length);
+    expect(part(deploy, '<div class="awf-result-rank"', '</dl>')).toBe(part(live, '<div class="awf-result-rank"', '</dl>'));
+    expect(deploy).toContain('data-action="next"');
+    expect(live).not.toContain('data-action="next"');
   });
 
   it('the mission\'s people are Deploy\'s: the agent is "You", and the top bar names the mission', () => {
@@ -301,6 +304,14 @@ describe('the screen at each moment (D-016: only the agent\'s own view until the
     expect(h).toContain('Mission 01 · First Light');
     expect(h).toContain('Your agent');
     expect(h).toContain('>Live<');
+    // the top bar is the watch view's own (G18): the way back, the mission and the link's status are its left end
+    const bar = /<header class="aww-bar"[\s\S]*?<\/header>/.exec(h)![0];
+    expect(bar).toContain('href="#/"');
+    expect(bar).toContain('Mission 01 · First Light');
+    expect(bar).toContain('data-pill');
+    expect(h).not.toContain('awf-watchbar"');
+    // and the drawer, opened on the players, names the agent "Your agent" as Deploy's panels do
+    expect(screen(at(lightRun, 3), 'open', { step: 2, drawer: 'players' })).toMatch(/<span class="heading" style="[^"]*">Your agent<\/span>/);
     expect(screen(at(lightRun, 3), 'reconnecting')).toContain('>Reconnecting<');
     expect(screen(fold(lightRun.messages))).toContain('>Finished<');
   });

@@ -8,11 +8,12 @@
 //
 // Opened where there is no feed (the dev server, a hosted copy), the page shows the three connect steps instead of an empty screen.
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import type { LiveStep } from '../../agent/live';
 import type { Mission } from '../../content/types';
 import { WatchView } from '../watch';
 import type { Viewer } from '../watch';
+import type { DrawerTab } from '../watch/drawer';
 import { recordMatch } from '../watch/timeline';
 import { missionById, pad2 } from './campaign';
 import { ConnectScreen } from './ConnectScreen';
@@ -48,11 +49,13 @@ export function seatScript(steps: readonly LiveStep[]): ScriptMatch {
 export interface Shown {
   step: number;
   resultRead?: boolean;
+  /** Opens the details drawer on this tab (G18). */
+  drawer?: DrawerTab;
 }
 
 const NO_CARD: ResultCard = { outcome: 'undecided', cycles: 0, parCycles: 0, lost: 0, destroyed: 0, ratio: 0, parPower: 0, speed: 0, power: 0, rank: null };
 
-function LiveWatch({ mission, state, shown, onWatchAgain }: { mission: Mission | undefined; state: LiveViewState; shown?: Shown; onWatchAgain: () => void }): ReactElement {
+function LiveWatch({ mission, state, shown, lead, onWatchAgain }: { mission: Mission | undefined; state: LiveViewState; shown?: Shown; lead: ReactNode; onWatchAgain: () => void }): ReactElement {
   const over = state.phase === 'over';
   const record = state.record;
   const [viewer, setViewer] = useState<Viewer>(state.seat);
@@ -80,6 +83,8 @@ function LiveWatch({ mission, state, shown, onWatchAgain }: { mission: Mission |
       onViewerChange={over ? setViewer : undefined}
       people={people}
       initialStep={shown?.step}
+      initialDrawer={shown?.drawer}
+      lead={lead}
       autoPlay
       onStep={onStep}
       hold={holdsPlayback(story)}
@@ -91,9 +96,8 @@ function LiveWatch({ mission, state, shown, onWatchAgain }: { mission: Mission |
             beats={beats}
             view={view}
             card={card ?? NO_CARD}
-            // The agent plays this mission and the person watches (D-023): the card says Watch again, and has no paragraph. "Next mission" would
-            // lead to a mission Doctrine plays for them, which is not what this screen is for.
-            terse
+            // The agent plays this mission and the person watches (D-023): the card says Watch again. "Next mission" would lead to a mission
+            // Doctrine plays for them, which is not what this screen is for.
             debriefRead={story.debriefRead}
             onBeatDone={onBeatDone}
             onDebriefRead={onDebriefRead}
@@ -107,7 +111,7 @@ function LiveWatch({ mission, state, shown, onWatchAgain }: { mission: Mission |
 
 const PILL: Record<LinkStatus, string> = { connecting: 'Live', open: 'Live', reconnecting: 'Reconnecting', unavailable: 'Disconnected' };
 
-/** The battle, with its slim top bar. "Watch again" starts the whole viewing over (a new watch view and a new story), as in Deploy. */
+/** The battle, whose slim top bar is the watch view's own (G18): the way back to the title, the mission's name and the link's status sit at its left end. "Watch again" starts the whole viewing over (a new watch view and a new story), as in Deploy. */
 function LiveBattle({ state, link, shown }: { state: LiveViewState; link: LinkStatus; shown?: Shown }): ReactElement {
   const mission = useMemo(() => (state.mission ? missionById(state.mission) : undefined), [state.mission]);
   const [viewing, setViewing] = useState(0);
@@ -115,12 +119,20 @@ function LiveBattle({ state, link, shown }: { state: LiveViewState; link: LinkSt
   const over = state.phase === 'over';
   return (
     <div className="awf-watch awf-live" data-screen="live" data-phase={over ? 'over' : 'playing'} data-link={link}>
-      <div className="awf-watchbar">
-        <a className="awf-back label" href={hrefs.title}>Title</a>
-        <span className="awf-watchbar-id label">{mission ? `Mission ${pad2(mission.order)} · ${mission.title}` : 'Your agent'}</span>
-        <span className="awf-pill caption" data-pill>{over && link === 'open' ? 'Finished' : PILL[link]}</span>
-      </div>
-      <LiveWatch key={viewing} mission={mission} state={state} shown={shown} onWatchAgain={again} />
+      <LiveWatch
+        key={viewing}
+        mission={mission}
+        state={state}
+        shown={shown}
+        onWatchAgain={again}
+        lead={
+          <>
+            <a className="awf-back label" href={hrefs.title}>Title</a>
+            <span className="awf-watchbar-id label">{mission ? `Mission ${pad2(mission.order)} · ${mission.title}` : 'Your agent'}</span>
+            <span className="awf-pill caption" data-pill>{over && link === 'open' ? 'Finished' : PILL[link]}</span>
+          </>
+        }
+      />
     </div>
   );
 }

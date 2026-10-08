@@ -130,10 +130,19 @@ describe('the result card', () => {
     expect(t).toContain('Speed 100 + Power 100');
   });
 
-  it('states the rule on the card itself, so the rank can be checked against it', () => {
-    const t = textOf(card(win));
-    expect(t).toContain('S from 180, A from 150, B from 100, C below');
-    expect(t).toContain('Only a victory is ranked');
+  it('states the rule on the card itself, one hover or focus away on the rank (G18, D-023: no paragraph), so the rank can be checked against it', () => {
+    const h = card(win);
+    // the paragraph is gone, everywhere; the rule is the rank's own hint, and the rank can take focus to show it
+    expect(h).not.toContain('awf-result-rule');
+    expect(textOf(h)).not.toContain('Only a victory is ranked');
+    expect(textOf(h)).not.toContain('Your side is your agent');
+    const rank = /<div class="awf-result-rank"[^>]*>/.exec(h)![0];
+    expect(rank).toContain('tabindex="0"');
+    const hint = /title="([^"]*)"/.exec(rank)![1];
+    expect(hint).toContain('S from 180, A from 150, B from 100, C below');
+    expect(hint).toContain('Only a victory is ranked');
+    expect(hint).toContain('Speed is 100 at par');
+    expect(hint).toContain('Power is enemy units destroyed');
   });
 
   it('shows no rank, and says why, for a defeat and for an undecided battle (known-bad: a letter on a loss)', () => {
@@ -296,6 +305,8 @@ describe('the watch with the story over it', () => {
     // the board's own markup is still inside the stage box, before the overlay
     expect(h.indexOf('class="aww-stage"')).toBeGreaterThan(h.indexOf('aww-stagebox'));
     expect(h.indexOf('data-story="beat"')).toBeGreaterThan(h.indexOf('class="aww-stage"'));
-    expect(h.indexOf('data-story="beat"')).toBeLessThan(h.indexOf('class="aww-side"'));
+    // G18: the drawer is not in the page until it is opened, and the playback row is under the board and its story
+    expect(h).not.toContain('class="aww-drawer"');
+    expect(h.indexOf('data-story="beat"')).toBeLessThan(h.indexOf('class="aww-bottom"'));
   }, 60_000);
 });

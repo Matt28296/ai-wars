@@ -1,6 +1,9 @@
-// G15: the height of the chrome above the watch view is ONE variable. The "Back to briefing" strip is 48 px tall on the deployed screen,
-// and every viewport-height formula in the watch view's stylesheet has to subtract it by name, not by a second hard-coded 48 (or a
-// 234 or a 562 that quietly includes it). The page is measured in a browser (the order's receipt); this guards the wiring.
+// G15: the height of the chrome above the watch view is ONE variable, and every viewport-height formula in the watch view's stylesheet has to
+// subtract it by name, not by a second hard-coded 48 (or a 234 or a 562 that quietly includes it). The page is measured in a browser (the order's
+// receipt); this guards the wiring.
+// G18: the "Back to briefing" strip that was 48 px tall above the view is the watch view's own slim bar now, so nothing stands above the view and
+// the variable is 0. The variable stays, because the formulas still subtract it by name, and a page that did put something above the view would
+// set it again.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -18,16 +21,17 @@ function viewportMinusPx(sheet: string): string[] {
 const unwired = (sheet: string): string[] => viewportMinusPx(sheet).filter((d) => !d.includes(`var(${CHROME}`));
 
 describe('the chrome height is one variable', () => {
-  it('is declared once, by the page that hosts the view, and is the strip\'s own height', () => {
+  it('is declared once, by the page that hosts the view, and is 0 (the bar is the view\'s own); Deploy\'s old strip is hidden', () => {
     expect(FRONT.match(new RegExp(`${CHROME}\\s*:`, 'g'))?.length).toBe(1);
-    expect(FRONT).toMatch(new RegExp(`\\.awf-watch\\s*\\{[^}]*${CHROME}:\\s*48px`));
-    expect(FRONT).toMatch(new RegExp(`\\.awf-watchbar\\s*\\{[^}]*min-height:\\s*var\\(${CHROME}\\)`));
+    expect(FRONT).toMatch(new RegExp(`\\.awf-watch\\s*\\{[^}]*${CHROME}:\\s*0px`));
+    expect(FRONT).toMatch(/\.awf-watch\[data-screen='watch'\]\s*>\s*\.awf-watchbar\s*\{[^}]*display:\s*none/);
+    expect(FRONT).not.toMatch(new RegExp(`\\.awf-watchbar\\s*\\{[^}]*min-height:\\s*var\\(${CHROME}\\)`));
     expect(WATCH).not.toMatch(new RegExp(`${CHROME}\\s*:`));
   });
 
   it('is subtracted by name in every viewport-height formula of the watch view', () => {
     const found = viewportMinusPx(WATCH);
-    expect(found.length, 'the stage, the log and the root each take a height from the viewport').toBeGreaterThanOrEqual(3);
+    expect(found.length, 'the root takes its height from the viewport (and its dvh twin)').toBeGreaterThanOrEqual(2);
     expect(unwired(WATCH)).toEqual([]);
   });
 
