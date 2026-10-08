@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 // Balance runs: Doctrine vs Doctrine with DEFAULT_ORDERS on the six skirmish maps, N mirrored games per map (default 20), sides swapped
 // between games, no turn limit so a stalemate shows up as "undecided at the cap". Heavy: it is NOT part of `pnpm test`; run it with
-// `pnpm balance` (options: --games N, --cap CYCLES, --maps a,b, --commanders none, --verbose).
+// `pnpm balance` (options: --games N, --cap CYCLES, --maps a,b, --commanders none, --first-mover RULE, --verbose).
+//
+// --first-mover none|noFirstIncome|secondBonus plays every game under that createGame `firstMoverRule` (M3.2); without it the games get
+// createGame's own default, which is the rule the shipped game uses. The rule in force is printed in the first line of the report.
+// "side-0 share" is side 0's wins among the DECIDED games (wins / (games - undecided)); 50% is a fair seat. Undecided games are shown
+// apart, as a share of all games.
 //
 // Mirroring: the commanders of a game are rotated through the seats, so with two seats game 2k has commanders (A, B) in seats (0, 1)
 // and game 2k+1 has (B, A); every commander sits in every seat equally often. `--commanders none` plays every seat without a commander
@@ -22,7 +27,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // ---------------------------------------------------------------- arguments
 
 function parseArgs(argv) {
-  const out = { games: 20, cap: 40, maps: null, commanders: 'rotate', verbose: false };
+  const out = { games: 20, cap: 40, maps: null, commanders: 'rotate', firstMover: null, verbose: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => {
@@ -34,6 +39,7 @@ function parseArgs(argv) {
     else if (a === '--cap') out.cap = Number(next());
     else if (a === '--maps') out.maps = next().split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--commanders') out.commanders = next();
+    else if (a === '--first-mover') out.firstMover = next();
     else if (a === '--verbose') out.verbose = true;
     else if (a === '--help' || a === '-h') out.help = true;
     else throw new Error(`unknown option ${a}`);
@@ -41,6 +47,9 @@ function parseArgs(argv) {
   if (!Number.isInteger(out.games) || out.games < 1) throw new Error('--games must be a whole number >= 1');
   if (!Number.isInteger(out.cap) || out.cap < 1) throw new Error('--cap must be a whole number >= 1');
   if (!['rotate', 'none'].includes(out.commanders)) throw new Error('--commanders must be rotate or none');
+  if (out.firstMover !== null && !['none', 'noFirstIncome', 'secondBonus'].includes(out.firstMover)) {
+    throw new Error('--first-mover must be none, noFirstIncome or secondBonus');
+  }
   return out;
 }
 
@@ -109,7 +118,7 @@ function median(xs) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log('usage: pnpm balance [-- --games N] [--cap CYCLES] [--maps a,b] [--commanders rotate|none] [--verbose]');
+    console.log('usage: pnpm balance [-- --games N] [--cap CYCLES] [--maps a,b] [--commanders rotate|none] [--first-mover none|noFirstIncome|secondBonus] [--verbose]');
     return;
   }
   const server = await createServer({
@@ -119,6 +128,8 @@ async function main() {
   });
   try {
     const { playDoctrine, DEFAULT_ORDERS } = await server.ssrLoadModule('/src/game/doctrine/index.ts');
+    const { DEFAULT_FIRST_MOVER_RULE } = await server.ssrLoadModule('/src/game/aw/index.ts');
+    const rule = args.firstMover ?? DEFAULT_FIRST_MOVER_RULE;
     const { MAPS } = await server.ssrLoadModule('/src/content/maps.ts');
     const { COMMANDERS } = await server.ssrLoadModule('/src/content/commanders.ts');
     const roster = rosterOf(COMMANDERS);
@@ -139,6 +150,7 @@ async function main() {
         const setup = {
           map, players: playersFor(map, g, roster, args.commanders), fog: !!rec.fog, weather: rec.weather ?? 'clear',
           startFunds: rec.startFunds ?? 0, seed: 1000 + g,
+          ...(args.firstMover ? { firstMoverRule: args.firstMover } : {}),
         };
         const r = playDoctrine(setup, DEFAULT_ORDERS, { maxCycles: args.cap });
         cycles.push(r.cycles);
@@ -151,11 +163,14 @@ async function main() {
 
     const w = (s, n) => String(s).padEnd(n);
     const r = (s, n) => String(s).padStart(n);
-    console.log(`Doctrine vs Doctrine, DEFAULT_ORDERS (posture ${DEFAULT_ORDERS.posture}), cap ${args.cap} cycles, commanders ${args.commanders}, ${args.games} games per map`);
-    console.log(`${w('map', 18)}${r('games', 6)}${r('side-0 wins', 13)}${r('side-1 wins', 13)}${r('side-2 wins', 13)}${r('side-3 wins', 13)}${r('undecided', 11)}${r('mean cycles', 13)}${r('secs', 7)}`);
+    console.log(`Doctrine vs Doctrine, DEFAULT_ORDERS (posture ${DEFAULT_ORDERS.posture}), cap ${args.cap} cycles, commanders ${args.commanders}, first-mover rule ${rule}${args.firstMover ? '' : ' (createGame default)'}, ${args.games} games per map`);
+    console.log(`${w('map', 18)}${r('games', 6)}${r('side-0 wins', 13)}${r('side-1 wins', 13)}${r('side-2 wins', 13)}${r('side-3 wins', 13)}${r('side-0 share', 14)}${r('undecided', 11)}${r('undecided %', 13)}${r('mean cycles', 13)}${r('secs', 7)}`);
     for (const row of rows) {
       const side = (i) => (i < row.wins.length ? row.wins[i] : '-');
-      console.log(`${w(row.id, 18)}${r(row.games, 6)}${r(side(0), 13)}${r(side(1), 13)}${r(side(2), 13)}${r(side(3), 13)}${r(row.undecided, 11)}${r(row.mean.toFixed(1), 13)}${r(row.secs.toFixed(1), 7)}`);
+      const decided = row.games - row.undecided;
+      const share = decided > 0 ? `${((100 * row.wins[0]) / decided).toFixed(0)}%` : 'n/a';
+      const und = `${((100 * row.undecided) / row.games).toFixed(0)}%`;
+      console.log(`${w(row.id, 18)}${r(row.games, 6)}${r(side(0), 13)}${r(side(1), 13)}${r(side(2), 13)}${r(side(3), 13)}${r(share, 14)}${r(row.undecided, 11)}${r(und, 13)}${r(row.mean.toFixed(1), 13)}${r(row.secs.toFixed(1), 7)}`);
     }
     console.log(`source hash ${hash} (FNV-1a 64 over ${files} files in src/game and src/content), total ${((Date.now() - started) / 1000).toFixed(1)} s`);
   } finally {

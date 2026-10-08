@@ -135,7 +135,9 @@ export function attackRangeTiles(state: GameState, unitId: number): Coord[] {
 /**
  * Damage % (internal HP, uncapped — ≥ defender HP means a kill) over the luck range, and the counter range.
  * A target the attacker cannot see from `from` gets the same answer as an empty tile (zero damage, no counter), so a
- * forecast never reveals a hidden unit.
+ * forecast never reveals a hidden unit. So does a target the attacker cannot strike from `from`: outside its range band
+ * (effectiveRange, which includes any commander modifier), or with no usable weapon against it (M3.2: before this, an arc six
+ * tiles from a lancer was forecast at 63-71).
  */
 export function forecast(
   state: GameState, attackerId: number, from: Coord, target: Coord,
@@ -145,10 +147,12 @@ export function forecast(
   const none = { damage: [0, 0] as [number, number], counter: null };
   if (!attacker || !defender || !areEnemies(state, attacker.owner, defender.owner)) return none;
   if (!canSeeUnit(viewFrom(state, attacker, from), attacker.owner, defender)) return none;
+  const dist = manhattan(from, target);
+  const range = effectiveRange(state, attacker, from);
+  if (!range || dist < range[0] || dist > range[1]) return none;
   const w = weaponAgainst(attacker.type, defender.type, attacker.ammo);
   if (!w) return none;
   const [aLo, aHi] = luckRange(state, attacker, from);
-  const dist = manhattan(from, target);
   const counters = canCounter(defender, attacker, dist);
   const cw = counters ? weaponAgainst(defender.type, attacker.type, defender.ammo) : null;
   const [dLo, dHi] = luckRange(state, defender, target);

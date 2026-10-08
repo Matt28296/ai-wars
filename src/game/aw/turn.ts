@@ -105,7 +105,10 @@ function repairUnit(ctx: Ctx, u: Unit): void {
   }
 }
 
-export function startTurn(ctx: Ctx, p: PlayerIndex): void {
+/** `noIncome`: this start of turn pays nothing (the 'noFirstIncome' first-mover rule, see createGame): no funds, and the 'turnStarted' event says 0. */
+export interface StartTurnOptions { noIncome?: boolean }
+
+export function startTurn(ctx: Ctx, p: PlayerIndex, opts: StartTurnOptions = {}): void {
   const s = ctx.s;
   const pl = s.players[p];
   countDownTimedEffects(ctx, p);
@@ -114,7 +117,7 @@ export function startTurn(ctx: Ctx, p: PlayerIndex): void {
     if (u.owner === p) u.acted = false;
   });
 
-  const income = incomeOf(s, p);
+  const income = opts.noIncome ? 0 : incomeOf(s, p);
   pl.funds += income;
 
   const supplied = new Set<number>();

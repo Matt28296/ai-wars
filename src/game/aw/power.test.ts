@@ -58,6 +58,7 @@ function game(terrain: string[], units: FixtureUnit[] = [], o: Setup = {}): Game
       { faction: 'tidewell', commander: idB, controller: 'ai', team: 1 },
     ],
     seed: o.seed ?? 1, fog: o.fog, weather: o.weather, startFunds: o.startFunds,
+    firstMoverRule: 'none', // M3.2: these tests price the original first-turn income and repairs
   });
 }
 

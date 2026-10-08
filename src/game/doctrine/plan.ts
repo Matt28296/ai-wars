@@ -14,11 +14,11 @@ import { CAPTURE_POINTS, displayHp } from '../aw';
 import { actionKey } from '../aw/legal';
 import { areEnemies, manhattan, teamOf } from '../aw/state';
 import type { Action, Coord, MoveType, Then, Unit } from '../aw/types';
-import type { Ctx, Goals, PropInfo, StrikeOutcome } from './eval';
+import type { Ctx, Goals, Pressure, PropInfo, StrikeOutcome } from './eval';
 import { covered } from './eval';
 import {
-  INF, capturable, distTo, exposure, threatOn, foeAnchors as foeAnchorsFor, frontFraction, goals, homeGoals, propertyValue, reachFrom, roleMult,
-  roleOf, serviceTiles, starsAt, strike, unitValue, foeGoals, isServiceTile,
+  INF, capturable, distTo, exposure, threatOn, foeAnchors as foeAnchorsFor, frontFraction, goals, homeGoals, pressureOf, propertyValue, reachFrom,
+  roleMult, roleOf, serviceTiles, starsAt, strike, unitValue, foeApproach, foeGoals, isServiceTile,
 } from './eval';
 import type { Posture } from './orders';
 
@@ -58,6 +58,12 @@ const SPIRE_STAKE = 400000;
 const WIN_NOW = 1e7;
 const STOP_LOSS = 1e6;
 const MIN_GAIN = 20;
+/** In pressure every step toward the enemy spire counts: a unit with nothing better to do still moves up (see chooseForUnit). */
+const PRESSURE_MIN_GAIN = 2;
+/** In pressure: what an attack that clears the enemy spire tile is worth on top of the damage, in funds; units within two tiles of it, half. */
+const OPEN_PATH = 6000;
+/** In pressure: what standing on the enemy spire costs a unit that cannot capture, in funds (it keeps my own capturers off the tile). */
+const OFF_SPIRE = 2000;
 
 /** How far along the road between the two bases (0 = mine, 1 = theirs) this posture wants the line of battle at this cycle. */
 function lineFraction(posture: Posture, cycle: number): number {
@@ -82,6 +88,10 @@ interface Plan {
 
 export interface Env {
   ctx: Ctx;
+  /** Doctrine is closing out a won game (eval.ts pressureOf). */
+  press: Pressure;
+  /** The posture in force: the orders' own, or Advance while in pressure. */
+  posture: Posture;
   P: Params;
   exposureW: number;
   lf: number;
@@ -111,7 +121,10 @@ export function groupByUnit(actions: Action[]): Map<number, Cand[]> {
 }
 
 function makeEnv(ctx: Ctx, byUnit: Map<number, Cand[]>): Env {
-  const posture = ctx.orders.posture;
+  const press = pressureOf(ctx);
+  // Hold the Line and Fall Back decide behaviour only while the agent is NOT ahead (or at the cap): in pressure it presses, whatever
+  // the orders say, so a won game gets finished instead of waiting at the line (M3.2).
+  const posture: Posture = press.on ? 'advance' : ctx.orders.posture;
   const P = PARAMS[posture];
   // Pressure (B.10-style): when my army clearly outweighs what I can see of theirs, take more risk; when it is outweighed, less.
   let mineV = 0;
@@ -130,12 +143,10 @@ function makeEnv(ctx: Ctx, byUnit: Map<number, Cand[]>): Env {
   if (ratio >= 1.4) pressure = 0.6;
   else if (ratio <= 0.7) pressure = 1.25;
   const creep = Math.max(0.4, 1 - 0.04 * Math.max(0, ctx.cycle - 8));
-  // far ahead of everything I can see, the line stops mattering: finish it
-  const crushing = ratio >= 2.2 && ctx.foes.length > 0 && ctx.cycle >= 8 && posture !== 'fallBack';
   const cheapest: Record<string, number> = { ground: INF, air: INF, sea: INF };
   for (const t of Object.values(UNIT_TYPES)) cheapest[t.domain] = Math.min(cheapest[t.domain], t.cost);
   return {
-    ctx, P, exposureW: P.exposureW * pressure * (posture === 'fallBack' ? 1 : creep), lf: crushing ? 1 : lineFraction(posture, ctx.cycle), byUnit,
+    ctx, press, posture, P, exposureW: P.exposureW * pressure * (posture === 'fallBack' ? 1 : creep), lf: press.on ? 1 : lineFraction(posture, ctx.cycle), byUnit,
     plans: new Map(), strikes: new Map(), asg: null, support: null, guard: undefined,
     maxFoeValue: maxFoe, minFoeHp: minHp, funds: ctx.view.players[ctx.me].funds, cheapest,
   };
@@ -219,7 +230,7 @@ function assignments(env: Env): Map<number, Asg> {
   }
   riders.sort((a, b) => a.u.id - b.u.id);
   const claimed = new Set<number>();
-  const posture = ctx.orders.posture;
+  const posture = env.posture;
   const ferryOk = canFerry(ctx);
   const homeG = homeGoals(ctx);
 
@@ -247,7 +258,9 @@ function assignments(env: Env): Map<number, Asg> {
       const pi = p.y * ctx.W + p.x;
       if (claimed.has(pi)) continue;
       const occ = ctx.at.get(pi);
-      if (occ && occ.owner !== ctx.me && areEnemies(ctx.view, ctx.me, occ.owner)) continue;
+      // An enemy standing on a property keeps a capturer off it, so it is not a target -- except the enemy spire in pressure: the
+      // capturer goes up behind the army, and the guard on it is what the attacks below are for (openPath).
+      if (occ && occ.owner !== ctx.me && areEnemies(ctx.view, ctx.me, occ.owner) && !(env.press.on && p.hq)) continue;
       const d = f[pi];
       const ferry = d >= INF;
       if (ferry && !ferryOk) continue;
@@ -364,7 +377,7 @@ function makePlan(env: Env, u: Unit): Plan {
   const mt = t.moveType;
   const now = here(u);
   const role = roleOf(t);
-  const posture = ctx.orders.posture;
+  const posture = env.posture;
   const sv = stepValue(u, posture);
 
   const need = needOf(env, u);
@@ -392,9 +405,19 @@ function makePlan(env: Env, u: Unit): Plan {
     return { progress: (d) => (d0 - Math.max(0, distTo(ctx, mt, g, d) - R)) * step };
   };
   const posturePlan = (lfShift: number, step: number): Plan => {
-    if (posture === 'advance') return toward(foeGoals(ctx), step);
+    // In pressure a unit that cannot capture heads for the tile NEXT to the enemy spire, not the spire: a bastion that parked on it
+    // kept thirteen of its own breachers off it for twenty cycles (tether-ridges, 36 units to 4, the spire still untaken).
+    if (posture === 'advance') return toward(env.press.on && role !== 'capturer' ? foeApproach(ctx) : foeGoals(ctx), step);
     if (posture === 'fallBack') return ring(step);
     return line(Math.max(0.05, env.lf + lfShift), step);
+  };
+  // A transport with nothing to ferry keeps to the posture the player ordered even in pressure: ahead of the army it would stand on the
+  // property its own capturer is walking to (a mule parked on the far city blocked the capture it had carried the trooper to).
+  const supportPlan = (lfShift: number, step: number): Plan => {
+    const ordered = ctx.orders.posture;
+    if (ordered === 'advance') return toward(foeGoals(ctx), step);
+    if (ordered === 'fallBack') return ring(step);
+    return line(Math.max(0.05, lineFraction(ordered, ctx.cycle) + lfShift), step);
   };
 
   if (role === 'capturer') {
@@ -407,7 +430,16 @@ function makePlan(env: Env, u: Unit): Plan {
         const docks = ctx.props.filter((p) => p.owner === ctx.me && p.terrain === 'dock');
         return toward(goals('docks', docks, true), step);
       }
-      return toward(goals(`prop:${a.prop.x},${a.prop.y}`, [a.prop], true), step);
+      const chase = toward(goals(`prop:${a.prop.x},${a.prop.y}`, [a.prop], true), step);
+      // Going for the enemy spire in pressure, a capturer goes up WITH the army: a step onto a tile the enemy can strike, with no armed unit
+      // of mine within two tiles of it, earns nothing (it is the unit that ends the game, and it waits for the escorts to clear the way).
+      if (env.press.on && a.prop.hq && a.prop.owner !== null && areEnemies(ctx.view, ctx.me, a.prop.owner)) {
+        return { progress: (d) => {
+          const gain = chase.progress(d);
+          return gain > 0 && covered(ctx, d) && !escorted(env, u, d) ? 0 : gain;
+        } };
+      }
+      return chase;
     }
     return posturePlan(-0.05, sv);
   }
@@ -420,12 +452,12 @@ function makePlan(env: Env, u: Unit): Plan {
         const step = Math.max(150, Math.min(500, propertyValue(ctx, rider.prop) * 0.05));
         return toward(goals(`dropAt:${rider.prop.x},${rider.prop.y}`, [rider.prop], false), step);
       }
-      return posturePlan(-0.1, sv);
+      return supportPlan(-0.1, sv);
     }
     const asg = assignments(env);
     const waiting = ctx.mine.filter((c) => asg.get(c.id)?.ferry && UNIT_TYPES[c.type].captures);
     if (waiting.length) return toward(goals(`waiting:${waiting.map((c) => c.id).join('.')}`, waiting.map(here), false), sv);
-    return posturePlan(-0.12, sv);
+    return supportPlan(-0.12, sv);
   }
 
   if (role === 'indirect') {
@@ -470,6 +502,36 @@ function makePlan(env: Env, u: Unit): Plan {
   return posturePlan(0, sv);
 }
 
+// ---------------------------------------------------------------- escorts and open paths (pressure, M3.2)
+
+/** Is an armed direct-fire unit of mine, not a capturer and not `u`, within two tiles of `d`? (Where my units stand now.) */
+function escorted(env: Env, u: Unit, d: Coord): boolean {
+  for (const o of env.ctx.mine) {
+    if (o.id === u.id) continue;
+    const t = UNIT_TYPES[o.type];
+    if (t.captures || !t.range || t.range[0] > 1 || o.hp < 40) continue;
+    if (manhattan(o, d) <= 2) return true;
+  }
+  return false;
+}
+
+/**
+ * In pressure, an attack that clears the way for my capturers is worth more than its damage: a unit standing ON an enemy spire keeps every
+ * capturer off the tile that ends the game, and the units around it make the same wall. Returns funds: OPEN_PATH for the unit on the
+ * spire, half for one within two tiles of it, scaled by how much of it the strike takes away (the chance to kill it, then the damage).
+ */
+function openPath(env: Env, tgt: Unit, so: StrikeOutcome): number {
+  if (!env.press.on) return 0;
+  let weight = 0;
+  for (const s of env.ctx.foeSpires) {
+    const dist = manhattan(tgt, s);
+    if (dist === 0) weight = Math.max(weight, 1);
+    else if (dist <= 2) weight = Math.max(weight, 0.5);
+  }
+  if (weight === 0) return 0;
+  return OPEN_PATH * weight * (0.6 * so.killP + 0.4 * Math.min(1, so.dealtHp / Math.max(1, tgt.hp)));
+}
+
 // ---------------------------------------------------------------- scoring one candidate
 
 interface Eval {
@@ -503,6 +565,8 @@ function posBase(env: Env, u: Unit, d: Coord): number {
     }
   }
   if (guardId(env) === u.id && ctx.homeSpires.some((s) => same(s, d))) v += STOP_LOSS * 0.5;
+  // In pressure a unit that cannot capture does not park on the enemy spire: it is the one tile my capturers need.
+  if (env.press.on && !t.captures && ctx.foeSpires.some((s) => same(s, d))) v -= OFF_SPIRE;
   return v;
 }
 
@@ -549,7 +613,9 @@ function supportOf(env: Env, tgt: Unit): number {
 
 function lastEnemy(env: Env): boolean {
   const ctx = env.ctx;
-  return !ctx.fogged && ctx.foes.length === 1 && ctx.foes[0].cargo.length === 0;
+  // What an enemy transport carries is hidden from the agent (observe.ts, M3.2), and need not be known: destroying a transport
+  // destroys everything inside it (D-015.4), so killing the last visible enemy unit wins either way.
+  return !ctx.fogged && ctx.foes.length === 1;
 }
 
 function evalCand(env: Env, u: Unit, c: Cand, mode: Need): Eval | null {
@@ -578,17 +644,18 @@ function evalCand(env: Env, u: Unit, c: Cand, mode: Need): Eval | null {
       let dealt = (so.dealtHp / 100) * tcost * roleMult(ctx, target) * pm;
       let kill = so.killP * (0.5 * unitValue(target, false) * pm + futureDamage(target));
       const taken = (so.counterHp / 100) * t.cost;
-      if (ctx.orders.posture === 'fallBack') {
+      if (env.posture === 'fallBack') {
         const near = distTo(ctx, moveTypeOf(u), homeGoals(ctx), target) <= 9;
         if (!near) {
           dealt *= 0.5;
           kill *= 0.5;
         }
       }
-      if (taken > dealt && so.killP < 0.9 && dis.value <= 0 && !killsWin) return null;
+      const opens = openPath(env, target, so);
+      if (taken > dealt && so.killP < 0.9 && dis.value <= 0 && opens <= 0 && !killsWin) return null;
       let focus = 0;
       if (so.killP < 1 && supportOf(env, target) >= target.hp) focus = 0.3 * unitValue(target, false) * (so.dealtHp / target.hp);
-      ev.value = dealt + kill + dis.value + focus - env.P.counterW * taken + posBase(env, u, d);
+      ev.value = dealt + kill + dis.value + opens + focus - env.P.counterW * taken + posBase(env, u, d);
       ev.hpAfter = Math.max(1, u.hp - so.counterHp);
       ev.cls = t.range && t.range[0] > 1 ? 3 : so.killP >= 0.5 ? 4 : 5;
       if (dis.value > 0.3 * (dis.spire ? SPIRE_STAKE : 3000) && dis.value > 0) {
@@ -745,7 +812,7 @@ function chooseForUnit(env: Env, u: Unit, cands: Cand[], pick: (n: number) => nu
   const chosen: Row = bestRow;
   if (chosen === stay) return null;
   const gain = bestScore - stayScore;
-  if (chosen.ev.cls > 2 && gain < MIN_GAIN) return null;
+  if (chosen.ev.cls > 2 && gain < (env.press.on ? PRESSURE_MIN_GAIN : MIN_GAIN)) return null;
   return { action: chosen.c.a, score: gain, cls: chosen.ev.cls };
 }
 

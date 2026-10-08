@@ -34,6 +34,8 @@ const mv = (unitId: number, path: [number, number][], then: Then = { kind: 'wait
 });
 const unit = (type: UnitTypeId, owner: number, x: number, y: number, hp?: number): FixtureUnit => ({ type, owner, x, y, ...(hp ? { hp } : {}) });
 const unitOf = (s: GameState, id: number): Unit => s.units.find((u) => u.id === id)!;
+/** A unit as observe() lists it for a viewer who may see it in full: the engine's unit plus `loaded` (M3.2). */
+const withLoaded = (u: Unit) => ({ ...u, loaded: u.cargo.length > 0 });
 const keysOf = (list: Action[]): string[] => list.map(actionKey);
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -756,7 +758,7 @@ describe('(c) with fog off the agent is told everything and offered exactly what
         if (p.index !== state.current) expect(agentActions(state, p.index), `${label}: not player ${p.index}'s turn`).toEqual([]);
         const o = observe(state, p.index);
         expect(o.units.map((u) => u.id), label).toEqual(state.units.map((u) => u.id));
-        expect(o.units, label).toEqual(state.units);
+        expect(o.units, label).toEqual(state.units.map(withLoaded));
         expect(o.visible.every((row) => row.every(Boolean)), label).toBe(true);
         expect(o.fogActive, label).toBe(false);
         unitsShown += o.units.length;
@@ -812,9 +814,9 @@ describe('observe(): the Observation', () => {
     expect(canSeeUnit(s, 0, unitOf(s, 4))).toBe(true);
     const o = observe(s, 0);
     expect(ids(o)).toEqual([1, 2, 4]);
-    expect(o.units[0]).toEqual(unitOf(s, 1));
-    expect(o.units[1]).toEqual(unitOf(s, 2)); // allied: in full
-    expect(o.units[2]).toEqual(unitOf(s, 4)); // a visible enemy: hp, charge, ammo and all
+    expect(o.units[0]).toEqual(withLoaded(unitOf(s, 1)));
+    expect(o.units[1]).toEqual(withLoaded(unitOf(s, 2))); // allied: in full
+    expect(o.units[2]).toEqual(withLoaded(unitOf(s, 4))); // a visible enemy: hp, charge, ammo and all
     // The ally sees what player 0 sees: the same team, the same picture.
     expect(observe(s, 1).units).toEqual(o.units);
     // Player 2 (the enemy) sees its own two units and, through the lancer, the ally trooper beside it. Not our trooper at (0,0).

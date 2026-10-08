@@ -4,11 +4,11 @@
 // touches the true state, state.rng, or the other players' hidden fields (their stats, unit counts, nextUnitId).
 import { TERRAIN_TYPES, UNIT_TYPES } from '../../data';
 import { DAMAGE } from '../../data/damage';
-import { CAPTURE_POINTS, attackRangeTiles, displayHp, forecast, reachable } from '../aw';
+import { CAPTURE_POINTS, MAX_UNITS_PER_PLAYER, attackRangeTiles, displayHp, forecast, reachable } from '../aw';
 import { damageValue, weaponAgainst } from '../aw/combat';
 import { terrainStarsFor } from '../aw/modifiers';
 import type { Observation } from '../aw/observe';
-import { areEnemies, isIndirectType, manhattan, teamOf } from '../aw/state';
+import { areEnemies, isIndirectType, manhattan, teamOf, unitCount } from '../aw/state';
 import { repairsDomain } from '../aw/turn';
 import type { Coord, GameState, MoveType, PlayerIndex, TerrainId, Unit, UnitType, UnitTypeId } from '../aw/types';
 import type { Composition, StandingOrders } from './orders';
@@ -264,6 +264,64 @@ export function distTo(ctx: Ctx, mt: MoveType, g: Goals, at: Coord): number {
   return 60 + best * 2;
 }
 
+// ---------------------------------------------------------------- pressure: closing out a won game (M3.2)
+
+/**
+ * "Clearly ahead": my side's army is worth at least this many times the strongest single enemy's. Chosen from Doctrine's own games (M3.1
+ * brain, 20 mirrored games on each of calder-fields, tether-ridges and saltglass-bay, fog down, 40-cycle cap): the first time a player's
+ * visible ratio reached r, did that player go on to win? Over the 42 games that were decided: r 1.2 -> 33 won (79%), 1.4 -> 36 (86%),
+ * 1.5 and 1.6 -> 37 (88%), 1.8 and 2.0 -> 38 (90%). The curve is flat from 1.5, so this is the lowest margin on the plateau (the one
+ * that keeps the earliest start, about cycle 15 to 22, for the same nine-in-ten-ish payoff); below it, one good exchange undoes the lead.
+ */
+export const AHEAD_RATIO = 1.6;
+/** A lead over next to nothing is not a lead (one scout sees one enemy trooper): my army must also be worth at least this much. */
+export const AHEAD_MIN_VALUE = 6000;
+/** "At the cap" means this close to it: a player with two fabricators is one turn of building from MAX_UNITS_PER_PLAYER. */
+export const CAP_MARGIN = 2;
+/** In pressure Doctrine builds no more once it fields this many units: the rest would queue behind each other on the way to the front. */
+export const PRESSURE_BUILD_LIMIT = 36;
+
+export type PressureReason = 'ahead' | 'cap';
+
+export interface Pressure {
+  /** Doctrine is closing out: it plays the Advance posture whatever the orders say, and goes for the enemy spire. */
+  on: boolean;
+  reason: PressureReason | null;
+  /** My side's army value over the strongest single enemy's (visible units; 0 when no enemy is in view under fog). */
+  ratio: number;
+  /** My units, cargo included. */
+  units: number;
+}
+
+/**
+ * Whether Doctrine presses to finish the game. Two causes, both read from what the player can see (never the hidden state):
+ *   ahead  my side's visible army value is at least AHEAD_RATIO times the strongest single enemy PLAYER's (and at least
+ *          AHEAD_MIN_VALUE). Only with fog down: under fog (a fog game, or an ion storm) what I see is a floor under what the enemy has,
+ *          not a measure of it, so a lead read from it is not a lead. Measured: in an ion storm both players of one Saltglass Bay game read
+ *          "ahead" at 9.05 and 4.87 at the same moment.
+ *   cap    my units, cargo included, are within CAP_MARGIN of MAX_UNITS_PER_PLAYER: the economy is full, waiting helps nobody. This one
+ *          is a fact about my own army, so fog does not touch it.
+ * When neither holds the standing orders (Hold the Line, Fall Back, Advance) decide behaviour exactly as before.
+ */
+export function pressureOf(ctx: Ctx): Pressure {
+  return memo(ctx, 'pressure', () => {
+    const units = unitCount(ctx.view, ctx.me);
+    let mine = 0;
+    for (const u of ctx.mine) mine += unitValue(u);
+    for (const u of ctx.allies) mine += unitValue(u);
+    const byOwner = new Map<PlayerIndex, number>();
+    for (const e of ctx.foes) byOwner.set(e.owner, (byOwner.get(e.owner) ?? 0) + unitValue(e, false));
+    let strongest = 0;
+    for (const v of byOwner.values()) strongest = Math.max(strongest, v);
+    // No enemy in view: with fog down that means there is none left (the whole army is "ahead"); under fog it means nothing, so ratio 0.
+    const ratio = ctx.foes.length > 0 ? mine / Math.max(1, strongest) : ctx.fogged ? 0 : mine;
+    let reason: PressureReason | null = null;
+    if (!ctx.fogged && ratio >= AHEAD_RATIO && mine >= AHEAD_MIN_VALUE) reason = 'ahead';
+    else if (units >= MAX_UNITS_PER_PLAYER - CAP_MARGIN) reason = 'cap';
+    return { on: reason !== null, reason, ratio, units };
+  });
+}
+
 // ---------------------------------------------------------------- the front: where is home, where is the enemy
 
 /** Where my side's base is: my spire(s), else my production, else any property I own. Empty when I own nothing. */
@@ -297,6 +355,8 @@ export function foeAnchors(ctx: Ctx): Coord[] {
 
 export const homeGoals = (ctx: Ctx): Goals => memo(ctx, 'goals:home', () => goals('home', homeAnchors(ctx), true));
 export const foeGoals = (ctx: Ctx): Goals => memo(ctx, 'goals:foe', () => goals('foe', foeAnchors(ctx), true));
+/** The same places, but standing NEXT to them is enough: where a unit that cannot capture heads, so it never parks on the tile a capturer needs. */
+export const foeApproach = (ctx: Ctx): Goals => memo(ctx, 'goals:foeApproach', () => goals('foe', foeAnchors(ctx), false));
 
 /** Every enemy-held property plus the enemy units in view: what an advancing army walks toward. */
 export function foeTargets(ctx: Ctx): Goals {

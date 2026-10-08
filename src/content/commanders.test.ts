@@ -159,7 +159,7 @@ const setup = (team: number, commander: string): PlayerSetup => ({
 const duo = (c0: string, c1 = 'none'): PlayerSetup[] => [setup(0, c0), setup(1, c1)];
 const game = (
   terrain: string[], units: FixtureUnit[], c0: string, c1 = 'none', extra: Partial<CreateGameOptions> & { owners?: string[] } = {},
-): GameState => fixtureGame(terrain, units, { players: duo(c0, c1), ...extra });
+): GameState => fixtureGame(terrain, units, { players: duo(c0, c1), firstMoverRule: 'none', ...extra }); // M3.2: these tests price the original first-turn income and repairs
 /** An enemy parked in a corner so player 1 is never routed. */
 const decoy = (x: number, y: number, type: UnitTypeId = 'trooper'): FixtureUnit => ({ type, owner: 1, x, y });
 

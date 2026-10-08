@@ -45,6 +45,27 @@ export interface PlayerSetup {
   aiLevel?: 'cadet' | 'officer' | 'marshal';
 }
 
+/**
+ * How the player who moves first is paid back (M3.2). Measured with Doctrine against Doctrine: with no compensation seat 0 won 17 of
+ * 20 on calder-fields, and swapping who owns what still gave 6 to 6, so the cause is the seat.
+ *   'none'          no compensation: the original rule, kept for tests and for replays recorded before M3.2.
+ *   'noFirstIncome' player 0 collects no income when cycle 1 starts (the one start of turn that createGame runs). Every other
+ *                   start of turn, player 0's later ones included, pays as usual.
+ *   'secondBonus'   every seat after player 0 starts with extra funds: seat k (k >= 1) gets 1000 x k on top of its starting funds,
+ *                   so seat 1 gets +1000, seat 2 +2000, seat 3 +3000 -- each later seat gets 1000 more than the one before it.
+ *                   Player 0 gets nothing. It is a flat sum paid at setup, before anybody's first income.
+ */
+export type FirstMoverRule = 'none' | 'noFirstIncome' | 'secondBonus';
+export const FIRST_MOVER_RULES: readonly FirstMoverRule[] = ['none', 'noFirstIncome', 'secondBonus'];
+/**
+ * The rule a game gets when its options do not name one. Chosen by `pnpm balance` (Doctrine against Doctrine, 30 mirrored games on each
+ * of calder-fields, tether-ridges and canopy-highlands, M3.2): player 0's share of the decided games, averaged over the three maps, was
+ * 74% under 'none', 69% under 'secondBonus' and 59% under 'noFirstIncome', the nearest to a fair seat. The table is in the M3.2 receipt.
+ */
+export const DEFAULT_FIRST_MOVER_RULE: FirstMoverRule = 'noFirstIncome';
+/** Extra starting funds per seat index under 'secondBonus'. */
+export const SECOND_BONUS_PER_SEAT = 1000;
+
 export interface CreateGameOptions {
   map: MapDef;
   players: PlayerSetup[];
@@ -56,6 +77,8 @@ export interface CreateGameOptions {
   seed?: number;
   startFunds?: number;
   incomePerProperty?: number;
+  /** Compensation for moving first (see FirstMoverRule). Absent = DEFAULT_FIRST_MOVER_RULE; name 'none' for the old rule. */
+  firstMoverRule?: FirstMoverRule;
 }
 
 /** Builds the starting state from a map and runs the first player's start of turn (income, repairs). */
@@ -72,6 +95,9 @@ export function createGame(opts: CreateGameOptions): GameState {
     if (!Number.isInteger(dl.cycles) || dl.cycles < 1) throw new Error(`map ${map.id}: deadline.cycles must be a whole number >= 1, got ${dl.cycles}`);
     if (!players.some((p) => p.team === dl.team)) throw new Error(`map ${map.id}: deadline.team ${dl.team} is not a team in this game`);
   }
+
+  const rule = opts.firstMoverRule ?? DEFAULT_FIRST_MOVER_RULE;
+  if (!FIRST_MOVER_RULES.includes(rule)) throw new Error(`map ${map.id}: unknown firstMoverRule ${String(rule)} (use ${FIRST_MOVER_RULES.join(', ')})`);
 
   const tiles: Tile[][] = map.terrain.map((row, y) => {
     if (row.length !== width) throw new Error(`map ${map.id}: row ${y} is ${row.length} wide, expected ${width}`);
@@ -109,7 +135,8 @@ export function createGame(opts: CreateGameOptions): GameState {
   const playerStates: Player[] = players.map((p, index) => ({
     index, faction: p.faction, commander: p.commander, team: p.team, controller: p.controller,
     ...(p.aiLevel ? { aiLevel: p.aiLevel } : {}),
-    funds: p.funds ?? opts.startFunds ?? 0, power: 0, powerUses: 0, powerState: 'none', defeated: false,
+    funds: (p.funds ?? opts.startFunds ?? 0) + (rule === 'secondBonus' ? SECOND_BONUS_PER_SEAT * index : 0),
+    power: 0, powerUses: 0, powerState: 'none', defeated: false,
     stats: {
       damageDealt: 0, damageTaken: 0, unitsLost: 0, unitsBuilt: 0, unitsDestroyed: 0,
       unitsStarted: units.filter((u) => u.owner === index).length,
@@ -127,7 +154,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     ...(opts.incomePerProperty !== undefined ? { incomePerProperty: opts.incomePerProperty } : {}),
   };
   const ctx = draft(state);
-  startTurn(ctx, 0);
+  startTurn(ctx, 0, { noIncome: rule === 'noFirstIncome' });
   return ctx.s;
 }
 
