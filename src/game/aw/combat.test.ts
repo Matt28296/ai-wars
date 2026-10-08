@@ -900,12 +900,20 @@ describe('resolveAttack and destroyUnit', () => {
   });
 
   it('through applyAction: moved, attacked, destroyed in that order, and the input state is not modified', () => {
-    const s = game(['...'], [u('bastion', 0, 0, 0), u('lancer', 1, 2, 0, 1)]);
+    // A second enemy unit far away, so the kill does not rout player 1.
+    const s = game(['...', '...'], [u('bastion', 0, 0, 0), u('lancer', 1, 2, 0, 1), u('trooper', 1, 0, 1)]);
     const snapshot = structuredClone(s);
     const r = applyAction(s, { kind: 'move', unitId: 1, path: [at(0, 0), at(1, 0)], then: { kind: 'attack', target: at(2, 0) } });
     expect(kinds(r.events)).toEqual(['moved', 'attacked', 'destroyed']);
     expect(unitAt(r.state, at(2, 0))).toBeUndefined();
     expect(s).toEqual(snapshot);
+  });
+
+  it('through applyAction: destroying the last enemy unit routs that player and ends the game (D-012.4)', () => {
+    const s = game(['...'], [u('bastion', 0, 0, 0), u('lancer', 1, 2, 0, 1)]);
+    const r = applyAction(s, { kind: 'move', unitId: 1, path: [at(0, 0), at(1, 0)], then: { kind: 'attack', target: at(2, 0) } });
+    expect(kinds(r.events)).toEqual(['moved', 'attacked', 'destroyed', 'playerDefeated', 'victory']);
+    expect(r.state.winnerTeam).toBe(0);
   });
 });
 
