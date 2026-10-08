@@ -1,5 +1,6 @@
-// Procedural modelling kit for the unit miniatures (D-018). Every model is built from primitives and convex hulls, then merged
-// per paint slot, so one unit costs a handful of meshes and its geometry can be shared by every instance of the same look.
+// Procedural modelling kit for the unit miniatures (D-018). Every model is built from primitives and convex hulls, merged per paint slot
+// and per animated node here, then merged once more into a single skinned geometry per look (skin.ts, G7), so one unit costs one draw call
+// and its geometry can be shared by every instance of the same look. The slots name the paint; livery.ts says what each one becomes.
 // Model space: origin at the feet, +X forward (heading 0), +Y up, +Z to the right of the unit.
 import {
   BoxGeometry, BufferGeometry, ConeGeometry, CylinderGeometry, Euler, Matrix4, Quaternion, RingGeometry, Shape, ShapeGeometry, SphereGeometry, Vector2, Vector3,

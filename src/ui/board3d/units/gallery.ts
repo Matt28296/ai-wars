@@ -9,7 +9,7 @@ import { UNIT_TYPES } from '../../../data';
 import type { UnitPose, UnitView } from '../contract';
 import type { UnitStatusKind } from '../../watch/unitview';
 import { TERRAIN_COLOR } from '../palette';
-import { FACTION_IDS, UNIT_IDS, createUnitViewWithPhase } from './index';
+import { FACTION_IDS, UNIT_IDS, createUnitViewWithPhase, setRimStrength } from './index';
 
 const q = new URLSearchParams(location.search);
 const num = (k: string, d: number) => (q.has(k) ? Number(q.get(k)) : d);
@@ -23,6 +23,8 @@ const focus = q.get('focus') === '1';
 const showMuzzle = q.get('muzzle') === '1' || pose === 'fire';
 const timeSec = num('time', 1.0);
 const anim = q.get('anim') === '1';
+// the faction rim (G7): 0 turns it off for a before-and-after look at the paint alone; the default is the game's. Set before any unit is built.
+if (q.has('rim')) setRimStrength(num('rim', 0.25));
 
 const FOV = 30;
 const PITCH = (55 * Math.PI) / 180;
