@@ -4,18 +4,30 @@
 // horizontal), the whole map fits at the widest zoom, three zoom steps, and the camera EASES toward the transition plan's focus
 // (it never snaps, except when the viewer scrubs). Reduced motion: no shake and no easing at all.
 //
+// Framing (G8b): the BOARD fills FILL (92%) of the limiting dimension of the picture at the widest zoom. What must stay inside is the
+// board's own rectangle (from just under the water line to the ground) and the tallest things that stand on it; the plinth and table
+// beyond the board may run off the edge of the picture, as a table does.
+//
 // The camera is camera only: nothing here selects or commands a unit (D-004, D-007).
 import { TILE } from '../contract';
 
 export const FOV_DEG = 30;
 export const PITCH_DEG = 55;
-/** The three zoom steps, widest first. Step 0 fits the whole map. */
-export const ZOOM_STEPS: readonly number[] = [1, 1.75, 3];
+/**
+ * The three zoom steps, widest first. Step 0 fits the whole map. The widest step moved in by about 7% when the fit went from "the board
+ * plus a 0.7-tile margin" to "the board at 92%", so the two closer steps are the old 1.75 and 3 scaled by that, which keeps the
+ * distance the camera stands at on steps 1 and 2 where it was (on calder-fields).
+ */
+export const ZOOM_STEPS: readonly number[] = [1, 1.6, 2.75];
 export const MAX_ZOOM_LEVEL = ZOOM_STEPS.length - 1;
-/** Slack round the board at the widest zoom, in tiles. */
-export const FIT_MARGIN = 0.7;
-/** The tallest thing on the board (a spire), so towers never leave the top of the picture at the widest zoom. */
+/** At the widest zoom the board's own extent fills this much of the limiting dimension of the picture (1 is edge to edge). */
+export const FILL = 0.92;
+/** The water line: the lowest the board shows. */
+export const FIT_FLOOR = -0.3;
+/** The tallest thing on the board (a spire, a hovering aircraft), so towers never leave the top of the picture at the widest zoom. */
 export const FIT_HEIGHT = 1.5;
+/** Tall things stand on a tile, so their tops are this far inside the board's rectangle. */
+export const FIT_INSET = 0.4;
 /** Exponential easing rate of the camera target and the zoom, per second. Critically damped: it never overshoots. */
 export const EASE_RATE = 5;
 /** Canvases narrower than this (CSS px) start one zoom step in. */
@@ -25,6 +37,10 @@ const RAD = Math.PI / 180;
 
 export interface Vec2 { x: number; z: number }
 export interface Board { width: number; height: number }
+
+/** How the camera stands relative to its resting pose: farther away (a scale of the distance) and at another pitch. The intro uses it. */
+export interface Framing { distanceScale: number; pitchDeg: number }
+export const REST_FRAMING: Framing = { distanceScale: 1, pitchDeg: PITCH_DEG };
 
 export interface CameraPose {
   /** World position of the camera. */
@@ -38,13 +54,23 @@ export interface CameraPose {
   distance: number;
 }
 
-/** The world-space corners (8) of the box that must fit at the widest zoom: the board plus its margin, from the water line to the tallest tower. */
-export function fitCorners(board: Board, margin = FIT_MARGIN, top = FIT_HEIGHT): { x: number; y: number; z: number }[] {
+/**
+ * The world points that must fit at the widest zoom: the board's four ground corners and its four corners at the water line, plus the
+ * four corners of the rectangle the tallest things stand in, at their height. Twelve points.
+ */
+export function fitCorners(board: Board, top = FIT_HEIGHT, inset = FIT_INSET): { x: number; y: number; z: number }[] {
+  const w = board.width * TILE;
+  const h = board.height * TILE;
   const out: { x: number; y: number; z: number }[] = [];
-  for (const x of [-margin, board.width * TILE + margin]) {
-    for (const y of [-0.3, top]) {
-      for (const z of [-margin, board.height * TILE + margin]) out.push({ x, y, z });
+  for (const x of [0, w]) {
+    for (const z of [0, h]) {
+      out.push({ x, y: 0, z }, { x, y: FIT_FLOOR, z });
     }
+  }
+  const ix = Math.min(inset, w / 2);
+  const iz = Math.min(inset, h / 2);
+  for (const x of [ix, w - ix]) {
+    for (const z of [iz, h - iz]) out.push({ x, y: top, z });
   }
   return out;
 }
@@ -52,7 +78,7 @@ export function fitCorners(board: Board, margin = FIT_MARGIN, top = FIT_HEIGHT):
 /**
  * The distance at which the whole board fits the picture when the camera looks at the board's centre. Closed form: with the camera
  * `d` away along (0, sin p, cos p), a point at offset (dx, dy, dz) from the target has depth d - dy sin p - dz cos p, screen-x dx and
- * screen-y dy cos p - dz sin p, and it is inside the picture while |x| <= depth tan(fov/2) aspect and |y| <= depth tan(fov/2).
+ * screen-y dy cos p - dz sin p, and it is inside the picture while |x| <= FILL depth tan(fov/2) aspect and |y| <= FILL depth tan(fov/2).
  */
 export function fitDistance(board: Board, aspect: number, fovDeg = FOV_DEG, pitchDeg = PITCH_DEG): number {
   const tanH = Math.tan((fovDeg * RAD) / 2);
@@ -66,8 +92,8 @@ export function fitDistance(board: Board, aspect: number, fovDeg = FOV_DEG, pitc
     const dy = c.y;
     const dz = c.z - cz;
     const lift = dy * sin + dz * cos; // how much nearer to the camera than the target this corner is
-    const sx = Math.abs(dx) / (tanH * Math.max(0.2, aspect));
-    const sy = Math.abs(dy * cos - dz * sin) / tanH;
+    const sx = Math.abs(dx) / (FILL * tanH * Math.max(0.2, aspect));
+    const sy = Math.abs(dy * cos - dz * sin) / (FILL * tanH);
     d = Math.max(d, Math.max(sx, sy) + lift);
   }
   return d;
@@ -281,8 +307,10 @@ export class CameraRig {
     this.cur = clampTarget(this.cur, this.board, this.zoomNow, this.aspect);
   }
 
-  pose(groundY = 0): CameraPose {
+  /** The camera pose now. `framing` pulls it back and lowers it (the match intro); the default is the resting pose. */
+  pose(groundY = 0, framing: Framing = REST_FRAMING): CameraPose {
     const fit = fitDistance(this.board, this.aspect);
-    return poseFor({ x: this.cur.x, y: groundY, z: this.cur.z }, fit / this.zoomNow, this.board);
+    const distance = (fit / this.zoomNow) * Math.max(1, framing.distanceScale);
+    return poseFor({ x: this.cur.x, y: groundY, z: this.cur.z }, distance, this.board, FOV_DEG, framing.pitchDeg);
   }
 }
