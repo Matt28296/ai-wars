@@ -20,8 +20,8 @@ Work is split by **owner area**. Areas never share a file, so builders in separa
 
 | # | Subtask | Builds on (main @ sha) | Depends on | BUILDABLE NOW | Acceptance (command or check) |
 |---|---|---|---|---|---|
-| M0.1 | Records, CI, guard, agent definitions, pnpm | `35bcf4f` | — | yes | PR `checks` green; `pnpm guard` fails on a planted Nintendo name |
-| M1.0 | Move the contract + salvage engine into `src/game/aw`; createGame, applyAction, menu queries; compiling with a smoke test | M0.1 | M0.1 | after M0.1 | `pnpm typecheck && pnpm test` green in CI |
+| M0.1 | Records, CI, guard, agent definitions, pnpm — **merged PR #1 `319d3da`** | `35bcf4f` | — | done | PR `checks` green; `pnpm guard` fails on a planted Nintendo name |
+| M1.0 | Move the contract + salvage engine into `src/game/aw`; createGame, applyAction, menu queries; compiling with a smoke test | `319d3da` | M0.1 | yes (PR #2) | `pnpm typecheck && pnpm test` green in CI |
 | M1.1 | Movement: `reachable`, move costs by type, charge limit, fog ambush truncation | M1.0 | M1.0 | after M1.0 | `pnpm test src/game/aw/movement.test.ts` |
 | M1.2 | Combat: damage formula, luck, counter, indirect rules, forecast, ammo/secondary | M1.0 | M1.0 | after M1.0 | `pnpm test src/game/aw/combat.test.ts` |
 | M1.3 | Turn economy: income, repair, resupply, charge drain + crash/sink, capture, production | M1.0 | M1.0 | after M1.0 | `pnpm test src/game/aw/economy.test.ts` |

@@ -16,18 +16,18 @@ One row per requirement. Sources: Matthew's direction of 2026-10-08 (quoted in `
 | R08 | MCP: replay (any finished battle replays exactly from seed + actions) | D-001 | M3 | open | — |
 | R09 | Persistence: kysely over pg, pglite locally; migrations are named steps in their own PR, never a build side effect | D-001 | M2 | blocked (D-003) | — |
 | R10 | Accounts: better-auth; each agent and its records belong to one account | D-001 | M2 | blocked (D-003) | — |
-| R11 | CI (`checks.yml`) on every PR: frozen install, guard, typecheck, tests, build with DATABASE_URL unset, build carries its sha | D-001, D-002 | M0 | in progress | — |
+| R11 | CI (`checks.yml`) on every PR: frozen install, guard, typecheck, tests, build with DATABASE_URL unset, build carries its sha | D-001, D-002 | M0 | verified | VERIFICATION-LOG 2026-10-08 05:12 (PR #1) |
 | R12 | Delivery records kept current: REQUIREMENTS, TASKS, DECISIONS, VERIFICATION-LOG, CONTINUATION, RELEASE | D-001 | M0 | in progress | — |
 | R13 | No Fire Emblem layer: no named player cast, weapon triangle, growth rates, class promotions or permadeath | Direction §2 | M2 | open | — |
-| R14 | Armies led by a Commanding Officer with a passive and a charged power (Surge / Overclock) | Direction §2 | M1 | in progress (salvage) | — |
-| R15 | Funds from captured properties, paid at turn start | Direction §2 | M1 | in progress (salvage) | — |
-| R16 | Unit production at Fabricators, Skyports and Docks (ground / air / sea) | Direction §2 | M1 | in progress (salvage) | — |
-| R17 | Capture by infantry (Trooper, Breacher) by display HP against 20 points | Direction §2 | M1 | in progress (salvage) | — |
-| R18 | Terrain defense stars and movement costs by movement type | Direction §2 | M1 | in progress (salvage) | — |
-| R19 | Charge (fuel) and ammo, with air crash and naval sink at 0 charge | Direction §2 | M1 | in progress (salvage) | — |
+| R14 | Armies led by a Commanding Officer with a passive and a charged power (Surge / Overclock) | Direction §2 | M1 | in progress | — |
+| R15 | Funds from captured properties, paid at turn start | Direction §2 | M1 | in progress | — |
+| R16 | Unit production at Fabricators, Skyports and Docks (ground / air / sea) | Direction §2 | M1 | in progress | — |
+| R17 | Capture by infantry (Trooper, Breacher) by display HP against 20 points | Direction §2 | M1 | in progress | — |
+| R18 | Terrain defense stars and movement costs by movement type | Direction §2 | M1 | in progress | — |
+| R19 | Charge (fuel) and ammo, with air crash and naval sink at 0 charge | Direction §2 | M1 | in progress | — |
 | R20 | Unit-vs-unit damage table (`src/data/damage.ts`) used by the damage formula | Direction §2 | M1 | built (table + integrity tests) | `src/data/data.test.ts` |
-| R21 | Fog of war (vision, hiding terrain, ambush) | Direction §2 | M1 | in progress (salvage) | — |
-| R22 | Win by Command Spire (HQ) capture or rout | Direction §2 | M1 | in progress (salvage) | — |
+| R21 | Fog of war (vision, hiding terrain, ambush) | Direction §2 | M1 | in progress | — |
+| R22 | Win by Command Spire (HQ) capture or rout | Direction §2 | M1 | in progress | — |
 | R23 | The player's agent is the CO; the human owns, trains and directs it (doctrine, power choices, army composition, standing orders) | Direction §3 | M3 | open | — |
 | R24 | The agent takes every in-battle action; no manual unit control in the normal product (CI guard) | Direction §3 | M0 guard, M4 | in progress | `scripts/guard.test.mjs` |
 | R25 | Co-op = allied agent armies | Direction §3 | M6 | open | — |
@@ -41,6 +41,6 @@ One row per requirement. Sources: Matthew's direction of 2026-10-08 (quoted in `
 | R33 | A safety refusal is posted word for word and never retried another way | Direction §6 | all | in progress | — |
 | R34 | $0: no paid services, keys or plans; no public deploy or visibility change without Matthew's yes | Direction §7 | all | in progress | — |
 | R35 | `/api/version` returns the running build's sha | D-001 | M2 | open (sha embed in M0) | — |
-| R36 | Deterministic engine: seeded RNG, pure reducer, identical replays from seed + action list | D-001 | M1 | open | — |
+| R36 | Deterministic engine: seeded RNG, pure reducer, identical replays from seed + action list | D-001 | M1 | in progress | `src/game/aw/index.test.ts` (one seeded attack; full replay test in M1.6) |
 | R37 | Seeded campaign and skirmish simulations run in CI and finish with the expected winner | D-001 | M1, M5 | open | — |
 | R38 | Browser smoke tests on dev and production builds (Blacklink lacks this) | D-001 | M4 | open | — |
