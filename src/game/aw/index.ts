@@ -16,20 +16,21 @@ import type { Ctx } from './state';
 import { advanceTurn, endTurn, startTurn } from './turn';
 import { checkGameOver, checkRout, defeatPlayer } from './victory';
 import type {
-  Action, ApplyResult, CommanderId, Coord, FactionId, GameState, Objective, Player, Then, Tile, Unit, Weather,
+  Action, ApplyResult, CommanderId, Coord, Deadline, FactionId, GameState, Objective, Player, Then, Tile, Unit, Weather,
 } from './types';
 
 export * from './types';
 export { IllegalActionError } from './errors';
 export { attackRangeTiles, attackTargets, forecast } from './combat';
 export { canCaptureHere } from './capture';
-export { visibility } from './fog';
+export { canSeeUnit, visibility } from './fog';
 export { effectiveMove, effectiveRange, effectiveVision, resetCommanderRegistry, setCommanderRegistry } from './modifiers';
 export { reachable } from './movement';
 export type { ReachEntry } from './movement';
 export { POWER_STAR, canActivatePower, powerCost, powerStars } from './power';
-export { buildOptions } from './production';
-export { scoreCard } from './score';
+export { MAX_UNITS_PER_PLAYER, buildOptions } from './production';
+export type { BuildOption } from './production';
+export { DEFAULT_PAR, scoreCard } from './score';
 export { CAPTURE_POINTS, MAX_HP, displayHp, terrainAt, tileAt, unitAt, unitById } from './state';
 export { incomeOf, propertyCount } from './turn';
 
@@ -50,7 +51,8 @@ export interface CreateGameOptions {
   fog?: boolean;
   weather?: Weather;
   objective?: Objective;
-  turnLimit?: number;
+  turnLimit?: number;      // versus day limit: standings decide the winner when this cycle ends (D-013)
+  deadline?: Deadline;     // campaign "win by cycle N or `team` loses" (D-013); independent of turnLimit
   seed?: number;
   startFunds?: number;
   incomePerProperty?: number;
@@ -64,6 +66,12 @@ export function createGame(opts: CreateGameOptions): GameState {
   if (!width || !height) throw new Error(`map ${map.id}: empty`);
   if (players.length < 2) throw new Error(`map ${map.id}: needs at least 2 players`);
   if (map.owners.length !== height) throw new Error(`map ${map.id}: owners has ${map.owners.length} rows, terrain has ${height}`);
+  // A deadline that names no team, or fires at cycle 0 or 1.5, would silently never behave as written: refuse it.
+  const dl = opts.deadline;
+  if (dl) {
+    if (!Number.isInteger(dl.cycles) || dl.cycles < 1) throw new Error(`map ${map.id}: deadline.cycles must be a whole number >= 1, got ${dl.cycles}`);
+    if (!players.some((p) => p.team === dl.team)) throw new Error(`map ${map.id}: deadline.team ${dl.team} is not a team in this game`);
+  }
 
   const tiles: Tile[][] = map.terrain.map((row, y) => {
     if (row.length !== width) throw new Error(`map ${map.id}: row ${y} is ${row.length} wide, expected ${width}`);
@@ -115,6 +123,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     terrainOverrides: [], nextUnitId, rng: seedRng(opts.seed ?? 1), winnerTeam: null,
     objective: opts.objective ?? { kind: 'rout' },
     ...(opts.turnLimit !== undefined ? { turnLimit: opts.turnLimit } : {}),
+    ...(dl ? { deadline: { team: dl.team, cycles: dl.cycles } } : {}),
     ...(opts.incomePerProperty !== undefined ? { incomePerProperty: opts.incomePerProperty } : {}),
   };
   const ctx = draft(state);
