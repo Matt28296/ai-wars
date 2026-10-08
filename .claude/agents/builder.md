@@ -22,6 +22,9 @@ Rules:
 - Never put player free text into a model prompt. Never add a credential, key or secret anywhere.
 - If a safety system refuses a call, stop. Put the refusal text in your receipt word for word. Do not retry it in another shape.
 - Keep the change to what the ORDER asks. No drive-by refactors.
+- Scratch files (scripts, dumps, backups) go ONLY in a private folder named after your order, under the scratchpad path the ORDER or the session gives you (for example `<scratchpad>/m31/`). Never write scratch files to the scratchpad root, which other builders share. Never run a script you did not write for this order. Two builders once used the same script name, and one of them mutated the other's worktree.
+- Before the receipt, run `git status --short` and `git diff --stat` in your worktree, and confirm that only TOUCHES changed. If you ran mutation tests, confirm that every mutated file is back to its intended content.
+- The receipt is your LAST action. Make no edits after it: the lead commits what is on disk when it arrives.
 
 Your final message is the receipt, at most 25 lines:
 ORDER: <id>
