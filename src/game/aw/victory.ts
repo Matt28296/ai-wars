@@ -1,9 +1,9 @@
-// Defeat and victory: rout (no units after cycle 1), spire capture, resignation, mission objectives
-// (survive N cycles, own N properties) and the turn limit.
+// Defeat and victory (docs/research/mechanics.md §13, with D-012.4): rout (a player who has had units and has none
+// left), spire capture, resignation, mission objectives (survive N cycles, own N properties) and the turn limit.
 import { TERRAIN_TYPES } from '../../data';
-import { propertyIndex, emit, removeUnit, resetCapture, teamOf, unitCount, writableTile } from './state';
+import { displayHp, emit, forEachUnit, propertyIndex, removeUnit, resetCapture, teamOf, unitCount, unitType, writableTile } from './state';
 import type { Ctx } from './state';
-import type { PlayerIndex } from './types';
+import type { GameState, Player, PlayerIndex } from './types';
 
 export function declareWinner(ctx: Ctx, team: number): void {
   if (ctx.s.winnerTeam !== null) return;
@@ -41,12 +41,24 @@ export function checkGameOver(ctx: Ctx): void {
   if (teams.size === 1) declareWinner(ctx, [...teams][0]);
 }
 
-/** A player with no units (cargo included) after cycle 1 is routed. */
+/**
+ * True once the player has owned a unit: deployed at the start, built, or (saves that predate `unitsStarted`) already lost
+ * one. D-012.4: rout needs a unit to lose, so a player who started with none and has built none is never routed.
+ */
+function hasHadUnits(p: Player): boolean {
+  const st = p.stats;
+  return (st.unitsStarted ?? 0) > 0 || st.unitsBuilt > 0 || st.unitsLost > 0;
+}
+
+/**
+ * Event-driven rout (D-012.4): called after every action, so a player whose last unit (cargo included) is gone is
+ * defeated at once, on any cycle. A player who has never had a unit is not routed.
+ */
 export function checkRout(ctx: Ctx): void {
   const s = ctx.s;
-  if (s.winnerTeam !== null || s.cycle <= 1) return;
+  if (s.winnerTeam !== null) return;
   for (const p of s.players) {
-    if (!p.defeated && unitCount(s, p.index) === 0) defeatPlayer(ctx, p.index, 'rout');
+    if (!p.defeated && hasHadUnits(p) && unitCount(s, p.index) === 0) defeatPlayer(ctx, p.index, 'rout');
   }
 }
 
@@ -56,28 +68,43 @@ export function checkCaptureObjective(ctx: Ctx, p: PlayerIndex): void {
   if ((propertyIndex(s).props[p] ?? 0) >= s.objective.properties) declareWinner(ctx, teamOf(s, p));
 }
 
-/** Called when cycle `ended` finishes (after the last player's turn). */
+/** What a team holds when the clock runs out: owned properties first, then the worth of its units (cost x display HP). */
+interface Standing { team: number; props: number; value: number; moves: number }
+
+function standings(s: GameState): Standing[] {
+  const props = propertyIndex(s).props;
+  const byTeam = new Map<number, Standing>();
+  for (const p of s.players) {
+    if (p.defeated) continue;
+    const st = byTeam.get(p.team) ?? { team: p.team, props: 0, value: 0, moves: p.index };
+    st.props += props[p.index] ?? 0;
+    st.moves = Math.min(st.moves, p.index);
+    byTeam.set(p.team, st);
+  }
+  forEachUnit(s, (u) => {
+    const st = byTeam.get(teamOf(s, u.owner));
+    if (st) st.value += unitType(u.type).cost * displayHp(u.hp);
+  });
+  return [...byTeam.values()];
+}
+
+/**
+ * Called when cycle `ended` finishes (after the last player's turn).
+ * - survive N: player 0's team wins when cycle N ends, if it still has a player standing.
+ * - turn limit: when cycle `turnLimit` ends the team with the most properties wins, then the most unit value
+ *   (mechanics.md §13). A tie on both goes to the team that moves later in the cycle, since player 0 moves first.
+ */
 export function checkCycleEnd(ctx: Ctx, ended: number): void {
   const s = ctx.s;
   if (s.winnerTeam !== null) return;
   const obj = s.objective;
-  const team0 = teamOf(s, 0);
   if (obj.kind === 'survive') {
-    if (ended >= obj.cycles) declareWinner(ctx, team0);
+    const team0 = teamOf(s, 0);
+    if (ended >= obj.cycles && s.players.some((p) => p.team === team0 && !p.defeated)) declareWinner(ctx, team0);
     return;
   }
   if (s.turnLimit !== undefined && ended >= s.turnLimit) {
-    // Mission clock ran out: player 0's side failed; the strongest other side (most properties) wins.
-    const props = propertyIndex(s).props;
-    let bestTeam: number | null = null;
-    let bestProps = -1;
-    for (const p of s.players) {
-      if (p.defeated || p.team === team0) continue;
-      if ((props[p.index] ?? 0) > bestProps) {
-        bestProps = props[p.index] ?? 0;
-        bestTeam = p.team;
-      }
-    }
-    if (bestTeam !== null) declareWinner(ctx, bestTeam);
+    const ranked = standings(s).sort((a, b) => b.props - a.props || b.value - a.value || b.moves - a.moves);
+    if (ranked.length) declareWinner(ctx, ranked[0].team);
   }
 }

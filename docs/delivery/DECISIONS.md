@@ -65,3 +65,8 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
   6. Repair is +2 display HP for 10% of the unit's cost per HP; when funds are short, it repairs 1 HP if that is affordable.
   7. Treads and walkers keep paying **2** on shoals — an intentional twist (sand is hover terrain). This differs from the GBA games on purpose.
 - **Reversible:** yes; each is one rule in one module.
+
+### D-013: a turn limit is a head-to-head day limit; campaign deadlines get their own field (2026-10-08, DECIDED)
+- **Decided:** `GameState.turnLimit` means a versus-style day limit (mechanics.md §13): when it ends, the team with the most properties wins, then the most unit value (cost × display HP), then the team that moves later. A campaign "win within N cycles or fail" condition is a different rule and gets an explicit deadline field on the mission objective in M1.6, so the two can never be confused from state alone.
+- **Why:** the salvage made any turn limit an automatic loss for player 0, which is wrong for versus play; the M1.5 builder found the ambiguity and asked.
+- **Reversible:** yes.
