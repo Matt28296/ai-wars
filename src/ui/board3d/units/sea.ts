@@ -1,5 +1,6 @@
 // The three ships: picket, dreadnought, barge. Origin at the waterline; hulls sit a little below it.
 import type { FactionId } from '../../../game/aw';
+import type { UnitViewOptions } from '../contract';
 import { cab, dress } from './factions';
 import type { Anchors } from './factions';
 import { Kit } from './kit';
@@ -9,7 +10,7 @@ import type { Recipe } from './recipe';
 const SIDES = [-1, 1] as const;
 
 /** Picket: an escort cruiser. A long sharp hull, one forward gun, a bridge with a radar mast and a missile deck aft. */
-export function picket(f: FactionId): Recipe {
+export function picket(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   k.hull('paint', [
     [0.4, 0.09, 0], [0.36, -0.03, 0], [0.2, -0.04, 0.08], [0.2, -0.04, -0.08], [0.2, 0.09, 0.115], [0.2, 0.09, -0.115],
@@ -40,7 +41,7 @@ export function picket(f: FactionId): Recipe {
     scale: 0.8,
     reach: 0.05,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const gun = new Kit();
   gun.chamfer('paint', [0.12, 0.05, 0.11], 0.015, [0, 0.025, 0]);
   gun.barrel('dark', 0.015, 0.012, 0.04, 0.18, 0.03, 0, 5);
@@ -58,7 +59,7 @@ export function picket(f: FactionId): Recipe {
 }
 
 /** Dreadnought: a rail battleship. A long, broad-shouldered hull, a stepped command tower set back from three twin-barrel rail turrets with glowing coils. */
-export function dreadnought(f: FactionId): Recipe {
+export function dreadnought(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   k.hull('paint', [
     [0.385, 0.12, 0], [0.35, -0.03, 0], [0.2, -0.05, 0.1], [0.2, -0.05, -0.1], [0.2, 0.12, 0.15], [0.2, 0.12, -0.15],
@@ -90,7 +91,7 @@ export function dreadnought(f: FactionId): Recipe {
     scale: 1.1,
     reach: 0.07,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const rig = new Rig();
   rig.node('body', null, [0, 0, 0], [0, 0, 0], k);
   // the three turrets are one node, so the main battery recoils together (and costs one set of meshes)
@@ -117,7 +118,7 @@ export function dreadnought(f: FactionId): Recipe {
 }
 
 /** Barge: a landing craft. An open cargo well between two walls, a raised bow ramp with chevrons, a stern wheelhouse and stacked crates. */
-export function barge(f: FactionId): Recipe {
+export function barge(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   k.hull('dark', [[0.3, -0.03, 0.16], [0.3, -0.03, -0.16], [-0.36, -0.03, 0.16], [-0.36, -0.03, -0.16], [0.34, 0.03, 0.18], [0.34, 0.03, -0.18], [-0.36, 0.03, 0.2], [-0.36, 0.03, -0.2]]);
   k.box('dark', [0.64, 0.03, 0.34], [-0.02, 0.045, 0]);
@@ -145,7 +146,7 @@ export function barge(f: FactionId): Recipe {
     scale: 0.9,
     reach: 0.06,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const ramp = new Kit();
   ramp.box('paint', [0.12, 0.016, 0.3], [0.06, 0, 0]);
   ramp.box('trim', [0.014, 0.019, 0.24], [0.04, 0, 0]);

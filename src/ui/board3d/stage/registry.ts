@@ -6,12 +6,22 @@
 import type { FactionId, UnitTypeId } from '../../../game/aw';
 import type { CreateUnitView, UnitLook, UnitPose, UnitView } from '../contract';
 
-export interface Wanted { id: number; type: UnitTypeId; faction: FactionId }
+export interface Wanted {
+  id: number;
+  type: UnitTypeId;
+  faction: FactionId;
+  /** The owner's nation is not named in this mission (G15's masked seat): the view is made without a nation sigil. */
+  unmarked?: boolean;
+}
+
+/** A unit view that can hold its idle motion still (units/view.ts UnitKit). The contract's UnitView has no such method, so it is asked for by typeof. */
+type Motional = UnitView & { setMotion?: (on: boolean) => void };
 
 interface Entry {
   view: UnitView;
   type: UnitTypeId;
   faction: FactionId;
+  unmarked: boolean;
   /** The heading the unit is turning toward, and the one it shows now (they differ while it turns). */
   goal: number;
   shown: number;
@@ -40,6 +50,8 @@ const sameLook = (a: UnitLook, b: UnitLook): boolean =>
 
 export class UnitRegistry {
   private readonly entries = new Map<number, Entry>();
+  /** Whether unit idle motion runs (false under reduced motion). Views made later are told it as they are made. */
+  private motion = true;
 
   constructor(private readonly create: CreateUnitView) {}
 
@@ -52,7 +64,23 @@ export class UnitRegistry {
   ids(): number[] { return [...this.entries.keys()]; }
 
   /**
-   * Makes the views match `wanted`: builds a view for each new id, rebuilds one whose type or faction changed, and disposes every view
+   * Reduced motion for every unit: off holds each view's idle motion still (a view without setMotion is not asked), on lets it carry on from
+   * where it stopped. Told again only when the value changes, and told to every view made afterwards, so a unit that appears under reduced
+   * motion never starts moving.
+   */
+  setMotion(on: boolean): void {
+    if (this.motion === on) return;
+    this.motion = on;
+    for (const e of this.entries.values()) this.tell(e.view);
+  }
+
+  private tell(view: UnitView): void {
+    const v = view as Motional;
+    if (typeof v.setMotion === 'function') v.setMotion(this.motion);
+  }
+
+  /**
+   * Makes the views match `wanted`: builds a view for each new id, rebuilds one whose type, faction or marking changed, and disposes every view
    * that is no longer wanted. `homeHeading` is the facing a brand-new view starts with.
    */
   sync(wanted: readonly Wanted[], homeHeading: (id: number) => number, onAdd?: (view: UnitView) => void, onRemove?: (view: UnitView) => void): { created: number[]; removed: number[] } {
@@ -62,15 +90,17 @@ export class UnitRegistry {
     for (const w of wanted) {
       keep.add(w.id);
       const have = this.entries.get(w.id);
-      if (have && have.type === w.type && have.faction === w.faction) continue;
+      const unmarked = w.unmarked === true;
+      if (have && have.type === w.type && have.faction === w.faction && have.unmarked === unmarked) continue;
       if (have) {
         onRemove?.(have.view);
         have.view.dispose();
         removed.push(w.id);
       }
-      const view = this.create(w.type, w.faction);
+      const view = unmarked ? this.create(w.type, w.faction, { unmarked: true }) : this.create(w.type, w.faction);
+      if (!this.motion) this.tell(view);
       const home = homeHeading(w.id);
-      this.entries.set(w.id, { view, type: w.type, faction: w.faction, goal: home, shown: home, look: null, pose: null, poseT: 0 });
+      this.entries.set(w.id, { view, type: w.type, faction: w.faction, unmarked, goal: home, shown: home, look: null, pose: null, poseT: 0 });
       onAdd?.(view);
       created.push(w.id);
     }

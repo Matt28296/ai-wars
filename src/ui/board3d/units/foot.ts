@@ -1,6 +1,7 @@
 // The two foot units. Each recipe describes ONE figure; the view makes three and shows 1-3 of them by HP.
 import { OctahedronGeometry } from 'three';
 import type { FactionId } from '../../../game/aw';
+import type { UnitViewOptions } from '../contract';
 import { dress } from './factions';
 import type { Anchors } from './factions';
 import { Kit } from './kit';
@@ -10,7 +11,7 @@ import type { Recipe } from './recipe';
 const SIDES = [-1, 1] as const;
 
 /** Trooper: an exo-rifle squad member. Slim exo-suit, backpack, helmet visor and a long rifle. */
-export function trooper(f: FactionId): Recipe {
+export function trooper(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   for (const s of SIDES) {
     k.limb('paint', [0, 0.19, s * 0.035], [0.02, 0.105, s * 0.04], 0.021, 0.018, 6);
@@ -42,7 +43,7 @@ export function trooper(f: FactionId): Recipe {
     scale: 0.4,
     reach: 0.03,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const rifle = new Kit();
   rifle.box('dark', [0.14, 0.04, 0.035], [0.07, 0, 0]);
   rifle.barrel('dark', 0.011, 0.009, 0.14, 0.22, 0.005, 0, 5);
@@ -54,7 +55,7 @@ export function trooper(f: FactionId): Recipe {
 }
 
 /** Breacher: a heavy exo with a shoulder-mounted rail launcher. Broad armour, small forward head, one long glowing tube. */
-export function breacher(f: FactionId): Recipe {
+export function breacher(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   for (const s of SIDES) {
     k.limb('paint', [0, 0.23, s * 0.055], [0.025, 0.125, s * 0.06], 0.03, 0.026, 6);
@@ -89,7 +90,7 @@ export function breacher(f: FactionId): Recipe {
     scale: 0.5,
     reach: 0.035,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const tube = new Kit();
   tube.box('dark', [0.1, 0.07, 0.07], [0, 0, 0]);
   tube.barrel('dark', 0.034, 0.03, 0.04, 0.33, 0, 0, 6);

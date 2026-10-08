@@ -1,6 +1,7 @@
 // The three aircraft: wasp, raptor, anvil. They hover above their tile (the terrain's height is the ground below them);
 // Model space: y = 0 is the ground, so every part sits at an altitude.
 import type { FactionId } from '../../../game/aw';
+import type { UnitViewOptions } from '../contract';
 import { cab, dress } from './factions';
 import type { Anchors } from './factions';
 import { Kit } from './kit';
@@ -12,7 +13,7 @@ import type { Recipe } from './recipe';
 const SIDES = [-1, 1] as const;
 
 /** Wasp: a gunship drone. A small pod slung under four spinning rotors on diagonal arms, with a chin gun and missile pods. */
-export function wasp(f: FactionId): Recipe {
+export function wasp(f: FactionId, o?: UnitViewOptions): Recipe {
   const Y = 0.36;
   const k = new Kit();
   k.hull('paint', [
@@ -44,7 +45,7 @@ export function wasp(f: FactionId): Recipe {
     scale: 0.6,
     reach: 0.0,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   for (const sx of SIDES) for (const sz of SIDES) rotorBlur(k, 0.1, [sx * 0.2, Y + 0.083, sz * 0.215]);
   const gun = new Kit();
   gun.box('dark', [0.05, 0.035, 0.04], [0.01, 0, 0]);
@@ -67,7 +68,7 @@ export function wasp(f: FactionId): Recipe {
 }
 
 /** Raptor: air superiority. A dart fuselage, swept wings, twin canted tails, a hot exhaust and a ducted lift fan on each wingtip. */
-export function raptor(f: FactionId): Recipe {
+export function raptor(f: FactionId, o?: UnitViewOptions): Recipe {
   const Y = 0.42;
   const k = new Kit();
   k.hull('paint', [
@@ -99,7 +100,7 @@ export function raptor(f: FactionId): Recipe {
     scale: 0.6,
     reach: 0.09,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const gun = new Kit();
   gun.barrel('dark', 0.012, 0.01, 0, 0.09, 0, 0, 5);
   const rig = new Rig();
@@ -116,7 +117,7 @@ export function raptor(f: FactionId): Recipe {
 }
 
 /** Anvil: a strike bomber. A broad flying wing with a fat fuselage, two big lift rotors, wing missile pods and twin chin cannons. */
-export function anvil(f: FactionId): Recipe {
+export function anvil(f: FactionId, o?: UnitViewOptions): Recipe {
   const Y = 0.38;
   const k = new Kit();
   k.hull('paint', [
@@ -150,7 +151,7 @@ export function anvil(f: FactionId): Recipe {
     scale: 0.7,
     reach: 0.07,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   for (const s of SIDES) rotorBlur(k, 0.12, [-0.02, Y + 0.103, s * 0.245]);
   const gun = new Kit();
   gun.box('dark', [0.05, 0.04, 0.1], [0.005, 0, 0]);

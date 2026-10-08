@@ -14,6 +14,8 @@
 // the shake) all give way to the viewer: none runs under reduced motion, and none of the attack camera once the viewer has taken the
 // camera by zooming or dragging.
 // G12 added the ambient occlusion (ao.ts), the quality tiers (quality.ts) and the terrain's motion freeze (setMotion).
+// G16 added the unit views' two switches: units of a masked owner (the mission names no nation for that seat) are made without a sigil,
+// and reduced motion holds every unit's idle motion still, as it already held the terrain's and the effects kit's.
 import {
   ACESFilmicToneMapping, Color, DirectionalLight, Group, HemisphereLight, PCFShadowMap,
   PerspectiveCamera, SRGBColorSpace, Scene, Vector2, Vector3, WebGLRenderer,
@@ -26,7 +28,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
-import type { Weather } from '../../../game/aw';
+import type { PlayerIndex, Weather } from '../../../game/aw';
 import { sampleTransition } from '../../watch/transition';
 import type { BannerSample, CutInSample, TransitionPlan, TransitionSample } from '../../watch/transition';
 import { homeFacings } from '../../watch/unitview';
@@ -82,6 +84,11 @@ export interface StageView {
   step: number;
   plan: TransitionPlan | null;
   reducedMotion: boolean;
+  /**
+   * The players whose nation the mission does not name (G15's masked seats). Their units are drawn without a nation sigil; their paint and
+   * trim keep their colours, because a colour is not a name. Absent or empty: every unit wears its nation's sigil, as ever.
+   */
+  maskedOwners?: readonly PlayerIndex[];
 }
 
 export interface StageModules {
@@ -388,6 +395,7 @@ export class StageRuntime {
       this.planDone = false;
     }
     this.followReducedMotion(view.reducedMotion);
+    this.registry.setMotion(!view.reducedMotion);
     const jumped = !prev || prev.step !== view.step || prev.timeline !== view.timeline;
     if (jumped && !(view.plan && view.plan.durationMs > 0)) this.occupiedSnap = true;
     const intro = introAction({
@@ -604,9 +612,10 @@ export class StageRuntime {
   private syncUnits(state: StageState, dt: number, smooth: boolean): void {
     const owners = new Map<number, number>();
     for (const u of state.units) owners.set(u.id, u.unit.owner);
+    const masked = this.view?.maskedOwners;
     const g = this.unitsGroup;
     this.registry.sync(
-      state.units.map((u) => ({ id: u.id, type: u.unit.type, faction: u.faction })),
+      state.units.map((u) => ({ id: u.id, type: u.unit.type, faction: u.faction, unmarked: masked?.includes(u.unit.owner) === true })),
       (id) => facingHeading(this.homes[owners.get(id) ?? 0] ?? 'right'),
       (v) => g.add(v.object),
       (v) => g.remove(v.object),
