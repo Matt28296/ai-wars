@@ -21,7 +21,7 @@ import { missionScene } from './missionScene';
 const NARROW = '(max-width: 640px)';
 
 /** True on a phone-width screen, where the portrait is smaller. The server and the first paint assume the wide layout. */
-function useNarrow(): boolean {
+export function useNarrow(): boolean {
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(NARROW).matches);
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return undefined;
@@ -41,10 +41,14 @@ export interface DialogueBoxProps {
   index: number;
   total: number;
   narrow?: boolean;
+  /** The smaller box that slides up over a battle (G13): a shorter panel and a smaller portrait. The same markup otherwise. */
+  compact?: boolean;
+  /** When given, a Skip button sits in the footer (the briefing has its own, in its header; the battle's dialogue puts it here). */
+  onSkip?: () => void;
 }
 
 /** One line of dialogue: portrait on its side, nameplate, channel, text typed so far. Pure markup from props, so tests can render it. */
-export function DialogueBox({ view, shown, index, total, narrow = false }: DialogueBoxProps): ReactElement {
+export function DialogueBox({ view, shown, index, total, narrow = false, compact = false, onSkip }: DialogueBoxProps): ReactElement {
   const p = view.person;
   const typed = revealed(view.text, shown);
   const rest = view.text.slice(typed.length);
@@ -52,7 +56,7 @@ export function DialogueBox({ view, shown, index, total, narrow = false }: Dialo
   const panelNameStyle = p.faction ? { color: inkOf(p.faction) } : p.kind === 'commander' || p.kind === 'agent' ? { color: 'var(--signal)' } : undefined;
   return (
     <div
-      className={view.side ? 'awf-dlg' : 'awf-dlg awf-dlg--narrator'}
+      className={`${view.side ? 'awf-dlg' : 'awf-dlg awf-dlg--narrator'}${compact ? ' awf-dlg--compact' : ''}`}
       data-side={view.side ?? 'none'}
       data-mood={view.mood}
       data-speaker={p.name}
@@ -60,7 +64,7 @@ export function DialogueBox({ view, shown, index, total, narrow = false }: Dialo
     >
       {view.side && (
         <div className="awf-dlg-portrait" key={`${p.name}|${view.side}`}>
-          <Portrait person={p} mood={view.mood} size={narrow ? 88 : 196} />
+          <Portrait person={p} mood={view.mood} size={compact ? (narrow ? 72 : 124) : narrow ? 88 : 196} />
         </div>
       )}
       <div className="awf-dlg-panel awf-cut">
@@ -77,6 +81,11 @@ export function DialogueBox({ view, shown, index, total, narrow = false }: Dialo
         </p>
         <div className="awf-dlg-foot">
           <span className="awf-dlg-count stat-sm" aria-label={`Line ${index + 1} of ${total}`}>{pad2(index + 1)}/{pad2(total)}</span>
+          {onSkip && (
+            <button type="button" className="awf-dlg-skip aw-btn aw-btn--ghost aw-btn--sm label" onClick={onSkip} data-action="skip-lines">
+              <span className="aw-btn-label">Skip all</span>
+            </button>
+          )}
           <span className="awf-dlg-hint caption" aria-hidden>{complete ? 'Next' : 'Skip text'}<kbd className="aw-key">Space</kbd></span>
         </div>
         {complete && <span className="awf-dlg-more" aria-hidden />}

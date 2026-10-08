@@ -284,3 +284,10 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
   .aww-bob { animation: none; }
   .aww-log-line, .aww-track-tip { transition: none; }
 }
+
+/* ---- the overlay slot (G13): a mission's dialogue over the bottom of the board. Only drawn when a view is given an `overlay`; without
+   one the stage sits straight in the page grid, as it always did. The box takes the stage's grid cell and anchors the overlay to the
+   board's bottom edge; the overlay itself lets pointer events through, and what it holds takes them back. ---- */
+.aww-stagebox { grid-area: stage; min-width: 0; position: relative; }
+.aww-overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; pointer-events: none; }
+.aww-overlay > * { pointer-events: auto; }

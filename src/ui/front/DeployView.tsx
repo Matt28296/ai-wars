@@ -1,6 +1,6 @@
 // Deploy (G9): the mission is played with Doctrine (local rules) on every side, and the watch view opens on the recorded battle with
-// the campaign's player 0 as the viewer. The player never gets the units (D-001, D-007): they watch. Ending the watch is not this
-// screen's job (there is no debrief yet), so the only way out is a link back to the briefing.
+// the campaign's player 0 as the viewer. The player never gets the units (D-001, D-007): they watch. G13 lays the mission's story over
+// that watch (MissionWatch): its authored lines as the battle reaches them, and the debrief with its result card at the end.
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
 import type { Mission } from '../../content/types';
@@ -13,9 +13,8 @@ import { hrefs } from './router';
 import { missionScene } from './missionScene';
 import { startDeploy } from './deployClient';
 import type { DeployResult } from './deploy';
-import type { Viewer } from '../watch/timeline';
 
-const WatchView = lazy(() => import('../watch').then((m) => ({ default: m.WatchView })));
+const MissionWatch = lazy(() => import('./MissionWatch').then((m) => ({ default: m.MissionWatch })));
 
 type DeployState =
   | { phase: 'running'; cycle: number }
@@ -50,13 +49,12 @@ export interface DeployViewProps {
 
 export function DeployView({ mission, webgl2 }: DeployViewProps): ReactElement {
   const [state, setState] = useState<DeployState>({ phase: 'running', cycle: 0 });
-  const [viewer, setViewer] = useState<Viewer>(0);
   const scene = useMemo(() => missionScene(mission), [mission]);
   useDocumentTitle(`${mission.title} · Ascendant Wars`);
 
-  // The watch view's chunk loads while the battle is being fought, so it is ready the moment the recording is.
+  // The watch view's chunk (and the story over it) loads while the battle is being fought, so it is ready the moment the recording is.
   useEffect(() => {
-    void import('../watch');
+    void import('./MissionWatch');
   }, []);
 
   useEffect(() => {
@@ -78,7 +76,7 @@ export function DeployView({ mission, webgl2 }: DeployViewProps): ReactElement {
           <span className="awf-pill caption">Doctrine (local rules) on every side</span>
         </div>
         <Suspense fallback={<div className="awf-loading label">Opening the watch view</div>}>
-          <WatchView setup={state.result.setup} actions={state.result.actions} viewer={viewer} onViewerChange={setViewer} autoPlay />
+          <MissionWatch mission={mission} result={state.result} />
         </Suspense>
       </div>
     );
