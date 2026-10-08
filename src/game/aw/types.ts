@@ -27,6 +27,7 @@ export interface UnitType {
   cost: number;
   vision: number;
   charge: number;           // fuel
+  drain?: number;           // charge burned at the start of each of its owner's turns (air and sea; ground units burn none)
   ammo: number | null;      // null = no primary weapon (may still have a secondary — see damage.ts)
   range: [number, number] | null; // null = cannot attack; [1,1] = direct; min > 1 = indirect
   captures?: boolean;

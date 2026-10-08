@@ -20,6 +20,12 @@ describe('units', () => {
       if (u.range) expect(u.range[0], u.id).toBeLessThanOrEqual(u.range[1]);
     }
   });
+  it('burns charge each turn for air and naval units only', () => {
+    for (const u of UNIT_LIST) {
+      if (u.domain === 'ground') expect(u.drain ?? 0, u.id).toBe(0);
+      else expect(u.drain, u.id).toBeGreaterThan(0);
+    }
+  });
   it('lets only foot and exo units capture', () => {
     const capturers = UNIT_LIST.filter((u) => u.captures).map((u) => u.moveType);
     expect(new Set(capturers)).toEqual(new Set(['foot', 'exo']));

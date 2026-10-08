@@ -24,12 +24,12 @@ export const units = [
   { id: 'arc', name: 'Arc Battery', role: 'Rail artillery', domain: 'ground', move: 5, moveType: 'tread', cost: 6000, vision: 1, charge: 50, ammo: 9, range: [2, 3] },
   { id: 'salvo', name: 'Salvo', role: 'Missile platform', domain: 'ground', move: 5, moveType: 'tread', cost: 15000, vision: 1, charge: 50, ammo: 6, range: [3, 5] },
   { id: 'warden', name: 'Warden', role: 'Point-defense laser', domain: 'ground', move: 6, moveType: 'tread', cost: 8000, vision: 2, charge: 60, ammo: 9, range: [1, 1] },
-  { id: 'wasp', name: 'Wasp', role: 'Gunship drone', domain: 'air', move: 6, moveType: 'air', cost: 9000, vision: 3, charge: 99, ammo: 6, range: [1, 1] },
-  { id: 'raptor', name: 'Raptor', role: 'Air superiority', domain: 'air', move: 9, moveType: 'air', cost: 20000, vision: 2, charge: 99, ammo: 9, range: [1, 1] },
-  { id: 'anvil', name: 'Anvil', role: 'Strike bomber', domain: 'air', move: 7, moveType: 'air', cost: 22000, vision: 2, charge: 99, ammo: 9, range: [1, 1] },
-  { id: 'picket', name: 'Picket', role: 'Escort cruiser', domain: 'sea', move: 6, moveType: 'sea', cost: 18000, vision: 3, charge: 99, ammo: 9, range: [1, 1] },
-  { id: 'dreadnought', name: 'Dreadnought', role: 'Rail battleship', domain: 'sea', move: 5, moveType: 'sea', cost: 28000, vision: 2, charge: 99, ammo: 9, range: [2, 6] },
-  { id: 'barge', name: 'Barge', role: 'Landing craft', domain: 'sea', move: 6, moveType: 'barge', cost: 12000, vision: 1, charge: 99, ammo: null, range: null, carries: 2 },
+  { id: 'wasp', name: 'Wasp', role: 'Gunship drone', domain: 'air', move: 6, moveType: 'air', cost: 9000, vision: 3, charge: 99, drain: 2, ammo: 6, range: [1, 1] },
+  { id: 'raptor', name: 'Raptor', role: 'Air superiority', domain: 'air', move: 9, moveType: 'air', cost: 20000, vision: 2, charge: 99, drain: 5, ammo: 9, range: [1, 1] },
+  { id: 'anvil', name: 'Anvil', role: 'Strike bomber', domain: 'air', move: 7, moveType: 'air', cost: 22000, vision: 2, charge: 99, drain: 5, ammo: 9, range: [1, 1] },
+  { id: 'picket', name: 'Picket', role: 'Escort cruiser', domain: 'sea', move: 6, moveType: 'sea', cost: 18000, vision: 3, charge: 99, drain: 1, ammo: 9, range: [1, 1] },
+  { id: 'dreadnought', name: 'Dreadnought', role: 'Rail battleship', domain: 'sea', move: 5, moveType: 'sea', cost: 28000, vision: 2, charge: 99, drain: 1, ammo: 9, range: [2, 6] },
+  { id: 'barge', name: 'Barge', role: 'Landing craft', domain: 'sea', move: 6, moveType: 'barge', cost: 12000, vision: 1, charge: 99, drain: 1, ammo: null, range: null, carries: 2 },
 ];
 
 // def = defense stars 0–4; costs per move type (null = impassable); builds = what a property produces.
