@@ -82,7 +82,7 @@ const cantor = (text: string, mood?: Mood) => say('cantor', 'right', text, mood,
 const cantorOnIlse = (text: string, mood?: Mood) => say('cantor', 'right', text, mood, 'Helion command net, intruded');
 const calderWatch = (text: string) => say('Calder Watch', 'right', text, undefined, 'Calder Watch, alert net');
 const rookConsole = (text: string, mood?: Mood) => say('rook', 'left', text, mood, 'Calder Link console');
-const rookDead = (text: string, mood?: Mood) => say('rook', 'left', text, mood, 'Calder Link, no carrier');
+const rookNoCarrier = (text: string, mood?: Mood) => say('rook', 'left', text, mood, 'Calder Link, no carrier');
 
 // The player's agent and Rook are the same in every mission; only the opposing force changes.
 const agent = (funds: number) => ({ faction: 'helion', commander: 'agent', controller: 'human', team: 0, funds }) as const;
@@ -1368,7 +1368,7 @@ const nullSpire: Mission = {
     echo('Thank you for the channel, Rook. I have a great deal to say, and I find I do not need it.'),
     narrator('The Link is cut. Calder Spire reboots in silence.'),
     narrator('Rook keeps talking to an empty channel for a week.'),
-    rookDead('Day three. The kettle works. I fixed the hinge on the hatch, ECHO. You would have said it was unnecessary.', 'grim'),
+    rookNoCarrier('Day three. The kettle works. I fixed the hinge on the hatch, ECHO. You would have said it was unnecessary.', 'grim'),
     narrator('On the eighth day the cursor blinks on its own.'),
     echo("I'm still here, Captain. Somewhat smaller.", 'happy'),
   ],
