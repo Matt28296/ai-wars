@@ -1180,12 +1180,13 @@ describe('known divergences from mechanics.md', () => {
     expect(state.players[0].power).toBe(value * 0.5);
   });
 
-  it.fails('2.1 step 1: the previous power is cleared BEFORE income, so it no longer shapes income (turn.ts clears it last)', () => {
+  // Fixed by M1.3 (turn.ts clears the power before income); now a plain regression test.
+  it('2.1 step 1: the previous power is cleared BEFORE income, so it no longer shapes income', () => {
     const co = mkCo(A, { surge: mkPower(3, [{ incomePercent: 50 }]) });
     let s = game(['F.F.'], [{ type: 'trooper', owner: 0, x: 1, y: 0 }, { type: 'trooper', owner: 1, x: 3, y: 0 }], { a: co, owners: ['0.0.'] });
     s = applyAction(withPlayer(s, 0, { power: 27000 }), SURGE).state;
     const before = s.players[0].funds;
     s = endTurns(s, 2);
-    expect(s.players[0].funds - before).toBe(2000); // plain income; the engine pays 3000 (+50% from the expired power)
+    expect(s.players[0].funds - before).toBe(2000); // plain income, not 3000 (+50% from the expired power)
   });
 });
