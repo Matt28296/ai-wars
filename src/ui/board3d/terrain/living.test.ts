@@ -525,7 +525,9 @@ describe('cost: no new draw calls, meshes, triangles, geometries, materials or t
   it('two real maps keep their measured draw-call counts too', () => {
     const BEFORE: Record<string, { meshes: number; drawCalls: number; triangles: number }> = {
       'calder-fields': { meshes: 8, drawCalls: 13, triangles: 44972 },
-      'saltglass-bay': { meshes: 9, drawCalls: 14, triangles: 70544 },
+      // M3.3 gave saltglass-bay a south causeway and two islet arcologies (32 -> 34 properties): 70544 -> 72808 triangles. Measured on the
+      // kit from before G11 with the new map, so the change is the map's, not the living board's.
+      'saltglass-bay': { meshes: 9, drawCalls: 14, triangles: 72808 },
     };
     for (const [id, want] of Object.entries(BEFORE)) {
       const m = MAPS[id];

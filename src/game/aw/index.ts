@@ -72,6 +72,13 @@ export const DEFAULT_FIRST_MOVER_RULE: FirstMoverRule = 'noFirstIncome';
 export function defaultFirstMoverRule(playerCount: number): FirstMoverRule {
   return playerCount <= 2 ? DEFAULT_FIRST_MOVER_RULE : 'gradedFirstIncome';
 }
+/**
+ * The setup with its first-mover rule written in: the one it names, or the default for its player count. A recorded match keeps this
+ * form (D-019), so it replays under the rule it was played under even after the default changes, as it did in M3.3 for 3+ players.
+ */
+export function resolvedSetup(setup: CreateGameOptions): CreateGameOptions {
+  return { ...setup, firstMoverRule: setup.firstMoverRule ?? defaultFirstMoverRule(setup.players.length) };
+}
 /** Under 'gradedFirstIncome', the share of player 0's first income that is paid in an n-player game: (n - 2) / (n - 1). */
 export function gradedFirstIncomeShare(playerCount: number): number {
   return playerCount < 2 ? 1 : (playerCount - 2) / (playerCount - 1);

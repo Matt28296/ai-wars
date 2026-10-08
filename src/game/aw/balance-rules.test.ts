@@ -12,7 +12,7 @@ import { TERRAIN_TYPES } from '../../data';
 import { DAMAGE } from '../../data/damage';
 import {
   DEFAULT_FIRST_MOVER_RULE, FIRST_MOVER_RULES, SECOND_BONUS_PER_SEAT, applyAction, canSeeUnit, createGame, defaultFirstMoverRule, forecast,
-  gradedFirstIncomeShare, resetCommanderRegistry, setCommanderRegistry,
+  gradedFirstIncomeShare, resetCommanderRegistry, resolvedSetup, setCommanderRegistry,
 } from './index';
 import type { CreateGameOptions, FirstMoverRule, PlayerSetup } from './index';
 import { observe, observedState } from './observe';
@@ -309,6 +309,23 @@ describe('createGame firstMoverRule', () => {
       ...(rule ? { firstMoverRule: rule } : {}), ...extra,
     });
   };
+
+  it('resolvedSetup writes the rule a game is played under into its setup, so a recorded match replays the same after the default changes (D-019)', () => {
+    const base = (n: number): CreateGameOptions => ({
+      map: fixtureMap(['FFF' + 'F'.repeat(n - 1), '.'.repeat(n + 2)], [], ['000' + Array.from({ length: n - 1 }, (_, i) => String(i + 1)).join(''), '.'.repeat(n + 2)]),
+      players: players(n), seed: 1, startFunds: START,
+    });
+    for (const n of [2, 3, 4]) {
+      const s = base(n);
+      const r = resolvedSetup(s);
+      expect(r.firstMoverRule, `${n} players`).toBe(defaultFirstMoverRule(n));
+      expect(s.firstMoverRule, 'the input is left alone').toBeUndefined();
+      expect(funds(createGame(r)), `${n} players: the same game as the setup without the rule`).toEqual(funds(createGame(s)));
+    }
+    expect(resolvedSetup({ ...base(3), firstMoverRule: 'none' }).firstMoverRule, 'a named rule is kept').toBe('none');
+    // known-bad twin: the rule changes the game, so a record that left it out would replay differently once the default moved
+    expect(funds(createGame({ ...base(3), firstMoverRule: 'none' }))).not.toEqual(funds(createGame(resolvedSetup(base(3)))));
+  });
 
   it("'gradedFirstIncome': player 0 collects (n - 2) / (n - 1) of its first income -- none with two players, half with three, two thirds with four", () => {
     const income = 3 * FAB;
