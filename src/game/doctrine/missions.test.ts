@@ -74,7 +74,7 @@ const kindOf = (a: Action): string => (a.kind === 'move' ? `move/${a.then.kind}`
 
 const CAP = 6;
 
-describe('(a) legality fuzz: Act I missions', () => {
+describe('(a) legality fuzz: every campaign mission', () => {
   const tally = newTally();
 
   for (const mission of MISSIONS) {
@@ -95,8 +95,10 @@ describe('(a) legality fuzz: Act I missions', () => {
 
   it('together the runs fought, captured and built', () => {
     console.log(`(a) missions: ${tally.games} games, ${tally.actions} decisions; actions ${JSON.stringify(tally.kinds)}; events ${JSON.stringify(tally.events)}`);
-    expect(tally.games).toBe(8);
-    expect(tally.finished).toBe(8);
+    // Two games per mission (fog as authored, and flipped), counted from the campaign itself so a new act is covered
+    // without editing this test.
+    expect(tally.games).toBe(MISSIONS.length * 2);
+    expect(tally.finished).toBe(MISSIONS.length * 2);
     expect(tally.events.attacked ?? 0, 'attacks').toBeGreaterThanOrEqual(10);
     expect(tally.events.built ?? 0, 'builds').toBeGreaterThanOrEqual(5);
     expect(tally.kinds.endTurn ?? 0, 'turns ended').toBeGreaterThanOrEqual(20);
