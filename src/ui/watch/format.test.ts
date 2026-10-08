@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { COMMANDERS } from '../../content/commanders';
 import type { GameEvent } from '../../game/aw';
 import { UNSEEN_UNIT } from '../../game/aw/view-events';
-import { buildLog, formatEvent, makeFormatContext, powerNameOf } from './format';
+import { article, buildLog, formatEvent, makeFormatContext, powerNameOf } from './format';
 import type { FormatContext } from './format';
 import { recordMatch, viewTimeline } from './timeline';
 import { endTurn, fieldSetup, pt, walk } from './testing';
@@ -99,7 +99,7 @@ describe('formatEvent: one plain sentence per event kind', () => {
   it('says the right thing at the edges: one tile, no move, a neutral property, a clear sky, other defeat reasons', () => {
     expect(say({ ...SAMPLES.moved, path: [pt(2), pt(3)] })).toBe('Helion Lancer moves 1 tile');
     expect(say({ ...SAMPLES.moved, path: [pt(2)] })).toBe('Helion Lancer holds position');
-    expect(say({ ...SAMPLES.captured, from: null })).toBe('Helion takes the Arcology from no one');
+    expect(say({ ...SAMPLES.captured, from: null })).toBe('Helion claims the unowned Arcology');
     expect(say({ ...SAMPLES.weather, weather: 'clear', turns: 0 })).toBe('The weather clears');
     expect(say({ ...SAMPLES.playerDefeated, reason: 'hq' })).toBe('Tidewell is defeated: Command Spire captured');
     expect(say({ ...SAMPLES.supplied, unitIds: [1] })).toBe('Helion Mule resupplies 1 unit');
@@ -180,5 +180,13 @@ describe('the log a fogged match produces', () => {
     expect(c.playerName(1)).toBe('Tidewell');
     expect(c.terrainName(pt(3))).toBe('Flats');
     expect(c.teamName(0)).toBe('Helion');
+  });
+});
+
+describe('articles', () => {
+  it('uses "an" before a vowel and "a" before a consonant', () => {
+    expect(article('Arc Battery')).toBe('an');
+    expect(article('Lancer')).toBe('a');
+    expect(article('Obsidian Drone')).toBe('an');
   });
 });

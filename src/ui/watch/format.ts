@@ -38,6 +38,11 @@ export const pad2 = (n: number): string => String(n).padStart(2, '0');
 const UNSEEN_START = 'An unseen unit';
 const UNSEEN_MID = 'an unseen unit';
 
+/** 'a' or 'an' by the first letter's sound (unit names are plain English words). */
+export function article(word: string): 'a' | 'an' {
+  return /^[aeiou]/i.test(word) ? 'an' : 'a';
+}
+
 export function factionShort(frame: ViewFrame, p: PlayerIndex): string {
   const f = frame.players[p]?.faction;
   return f ? FACTIONS[f].short : `Player ${p + 1}`;
@@ -120,7 +125,9 @@ export function formatEvent(e: GameEvent, ctx: FormatContext, step = 0): LogLine
     case 'captureProgress':
       return line(`${name(e.unitId)} captures ${ctx.terrainName(e.at)}: ${e.remaining} of 20 left`, 'info');
     case 'captured':
-      return line(`${ctx.playerName(e.by)} takes the ${ctx.terrainName(e.at)} from ${e.from === null ? 'no one' : ctx.playerName(e.from)}`, 'info');
+      return line(e.from === null
+        ? `${ctx.playerName(e.by)} claims the unowned ${ctx.terrainName(e.at)}`
+        : `${ctx.playerName(e.by)} takes the ${ctx.terrainName(e.at)} from ${ctx.playerName(e.from)}`, 'info');
     case 'loaded':
       return line(`${name(e.unitId)} boards ${name(e.transportId, false)}`, 'info');
     case 'unloaded':
@@ -130,7 +137,7 @@ export function formatEvent(e: GameEvent, ctx: FormatContext, step = 0): LogLine
     case 'supplied':
       return line(`${name(e.byId)} resupplies ${plural(e.unitIds.length, 'unit')}`, 'info');
     case 'built':
-      return line(`${ctx.playerName(e.owner)} builds a ${UNIT_TYPES[e.type].name}: ${credits(e.cost)}`, 'economy');
+      return line(`${ctx.playerName(e.owner)} builds ${article(UNIT_TYPES[e.type].name)} ${UNIT_TYPES[e.type].name}: ${credits(e.cost)}`, 'economy');
     case 'powerActivated': {
       const cmd = commanderNameOf(e.commander);
       return line(`${cmd} activates ${powerNameOf(e.commander, e.level)} (${e.level === 'surge' ? 'Surge' : 'Overclock'})`, 'power');
