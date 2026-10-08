@@ -3,6 +3,9 @@
 //
 //   decide(state, player, orders) -> the one action the agent takes next.
 //
+// The orders can be refined per kind of unit (M3.4: StandingOrders.groups and .types in orders.ts): each unit is told the orders of its own
+// type, else of its group, else the army-wide ones, a missing field falling through, so orders with no groups or types play as before.
+//
 // It is called again with the new state until it returns `endTurn`. It reads ONLY what the player may know (D-016):
 //   observe(state, player)       the fog-filtered observation (also what the tie-break seed is hashed from),
 //   observedState(state, player) the same knowledge as a GameState, for engine queries (forecast, reachable, attackRangeTiles ...),
@@ -41,7 +44,8 @@ function makePicker(seed: () => number): (n: number) => number {
   };
 }
 
-/** The seed: a hash of what the player sees plus the orders. Nothing hidden is in it (not rng, nextUnitId or enemy stats). */
+/** The seed: a hash of what the player sees plus the orders (the per-group and per-type orders of M3.4 too, when there are any: a set of
+ *  orders with none hashes as it did before). Nothing hidden is in it (not rng, nextUnitId or enemy stats). */
 function seedFrom(ctx: Ctx): number {
   const o = ctx.obs;
   const digest = {
