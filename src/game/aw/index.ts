@@ -134,7 +134,7 @@ export function createGame(opts: CreateGameOptions): GameState {
 // ---------------------------------------------------------------- queries
 
 /** A view of the state with one unit standing at `dest` — what the command menu and targeting see after a move. */
-function withUnitAt(state: GameState, unitId: number, dest: Coord): GameState {
+export function withUnitAt(state: GameState, unitId: number, dest: Coord): GameState {
   return { ...state, units: state.units.map((u) => (u.id === unitId ? { ...u, x: dest.x, y: dest.y } : u)) };
 }
 
@@ -211,6 +211,9 @@ function sameTile(a: Coord, b: Coord): boolean {
 function afterAction(ctx: Ctx): void {
   checkRout(ctx);
   checkGameOver(ctx);
+  // A player routed on their own turn (their last unit died to a counter-attack) cannot act: pass the turn on, the
+  // same as the resign path and the turn-start path (D-015.5). Found by the seeded simulations (BUG-1).
+  if (ctx.s.winnerTeam === null && ctx.s.players[ctx.s.current]?.defeated) advanceTurn(ctx);
 }
 
 function refill(u: Unit): boolean {

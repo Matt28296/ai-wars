@@ -423,9 +423,9 @@ describe('engine bugs found by the simulations', () => {
   // dies to a counter-attack on their own turn is defeated at once (checkRout in applyAction's afterAction), but the turn
   // does not pass. `current` stays on the defeated player until someone sends endTurn for them, and 'turnEnded' is
   // emitted for a defeated player. The resign path (applyAction) and the turn-start path (D-015.5) both pass the turn on.
-  // Two-player games are not affected: the other player wins on the spot. This test passes while the bug exists and goes
-  // red when it is fixed; then change it.fails to it.
-  it.fails('BUG-1: a player routed on their own turn keeps the turn in a three-player game', () => {
+  // Two-player games are not affected: the other player wins on the spot. Fixed in index.ts afterAction (the turn passes
+  // on, as for resign); this is now a plain regression test.
+  it('BUG-1 (fixed): a player routed on their own turn passes the turn on in a three-player game', () => {
     const players: PlayerSetup[] = [
       { faction: 'helion', commander: 'none', controller: 'ai', team: 0 },
       { faction: 'tidewell', commander: 'none', controller: 'ai', team: 1 },
@@ -445,7 +445,7 @@ describe('engine bugs found by the simulations', () => {
     s = applyAction(s, { kind: 'move', unitId: 2, path: [{ x: 2, y: 0 }], then: { kind: 'attack', target: { x: 3, y: 0 } } }).state;
     expect(s.players[2].defeated).toBe(true);
     expect(s.winnerTeam).toBeNull();
-    // Expected: play has passed to the next undefeated player. Actual: current is still 2.
+    // Play has passed to the next undefeated player.
     expect(s.players[s.current].defeated, `it is player ${s.current}'s turn and they are defeated`).toBe(false);
   });
 });

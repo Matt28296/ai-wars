@@ -8,7 +8,7 @@
 // mover on the tile before it. Such an action is legal, and it is listed (the player cannot see the enemy, so it is a
 // real option). A tile that holds a hidden enemy has no then-options, so it is not listed as a stopping place.
 import {
-  attackTargets, buildOptions, canActivatePower, reachable, thenOptions, unloadTargets,
+  attackTargets, buildOptions, canActivatePower, reachable, thenOptions, unloadTargets, withUnitAt,
 } from './index';
 import type { ReachEntry } from './index';
 import type { Action, Coord, GameState, Then, Unit } from './types';
@@ -21,12 +21,6 @@ export interface LegalOptions {
 type Drop = { cargoIndex: number; to: Coord };
 
 const sameCoord = (a: Coord, b: Coord) => a.x === b.x && a.y === b.y;
-
-/** A view of the state with one unit standing at `dest`: what the unload menu sees if the transport ends its move there.
- *  (index.ts keeps its own copy private; this mirrors it so unloadTargets answers for the destination.) */
-function withUnitAt(state: GameState, unitId: number, dest: Coord): GameState {
-  return { ...state, units: state.units.map((u) => (u.id === unitId ? { ...u, x: dest.x, y: dest.y } : u)) };
-}
 
 /** Every legal set of drops for a transport ending its move at `dest`: one cargo unit anywhere it fits, or two
  *  different cargo units onto two different tiles (a transport carries at most two). */

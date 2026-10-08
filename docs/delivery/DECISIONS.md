@@ -83,3 +83,12 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
   4. A transport that is **carrying cargo cannot board another transport**. A Mule with a trooper inside cannot load into a Barge. Destroying a transport still destroys everything inside it, nested or not, as a defence.
   5. If the player whose turn is starting loses their last unit during turn start (crash or sink), they are defeated at once. Play passes straight to the next undefeated player, and victory is checked after every turn-start loss. This holds in games of 3 or more players too.
 - **Reversible:** yes; each is one rule in one module.
+
+### D-016: under fog, the agent only ever sees what its player can see (2026-10-08, DECIDED)
+- **Found by M1.6b:** `legalActions` reads the true state. Attack targets are already limited to visible enemies (M1.6a). But a tile holding a hidden enemy has no follow-up options, so it is missing from the list of places to stop, and that absence tells a fogged player something is there.
+- **Decided, for M3:**
+  1. The agent (the Doctrine brain and any MCP client) receives a fog-filtered observation, never the raw state.
+  2. Its action list comes from a fog-honest wrapper over `legalActions`.
+  3. A move whose destination holds a hidden enemy is accepted and resolves as an ambush on the tile before it, as a move through one already does. That is an engine change in M3.0, with its own tests.
+  4. A test plants a hidden enemy and checks that the fogged player's observation and action list are identical with and without it.
+- **Reversible:** yes, until the MCP tools ship.
