@@ -1,6 +1,6 @@
 // The unit miniatures. Node environment: there is no DOM, so the chips use their flat fallback texture and nothing here needs a canvas.
 // Every expected value is computed here (from the data, the palette, or geometry), never copied out of the implementation.
-import { Box3, BoxGeometry, Color, Group, Mesh, Vector3 } from 'three';
+import { Box3, BoxGeometry, Color, Group, Mesh, ShaderLib, Vector3 } from 'three';
 import type { Material, Object3D, Sprite } from 'three';
 import { describe, expect, it } from 'vitest';
 import { UNIT_LIST, UNIT_TYPES } from '../../../data';
@@ -9,8 +9,8 @@ import type { UnitLook, UnitView } from '../contract';
 import { FACTION_ACCENT, FACTION_COLOR } from '../palette';
 import { FACTION_IDS, UNIT_IDS, createUnitView, createUnitViewWithPhase, recoilCurve, resourceStats, squadSize } from './index';
 import {
-  GRID, bitmapDistance, fitsTile, footprint, geometrySignature, isSpentLook, modelOf, resourcesOf, saturation, silhouette, slotMaterials,
-  visibleDrawCalls, visibleFigures, visibleTriangles,
+  GRID, bitmapDistance, boneFootprint, fitsTile, footprint, geometrySignature, modelOf, paintMaterial, resourcesOf, saturation, silhouette, skinMeshes,
+  vertexRows, visibleDrawCalls, visibleFigures, visibleTriangles,
 } from './measure';
 
 /** Two types closer than this (plan plus side outline, 0 = identical, 2 = nothing shared) would blur together at 64 px. */
@@ -159,17 +159,22 @@ describe('the sixteen types', () => {
     }
   });
 
-  it('paint is the faction colour, trim glows in the faction accent, and the secondary is dark', () => {
+  it('paint is the faction colour, trim glows in the faction accent, and the secondary is dark (the paint is in the vertices)', () => {
     for (const faction of FACTION_IDS) {
       const v = build('lancer', faction);
-      const paint = slotMaterials(v, 'paint');
-      const trim = slotMaterials(v, 'trim');
-      const dark = slotMaterials(v, 'dark');
-      expect(paint.length).toBeGreaterThan(0);
-      expect(paint[0].color.getHex()).toBe(FACTION_COLOR[faction]);
-      expect(trim[0].emissive.getHex()).toBe(FACTION_ACCENT[faction]);
-      expect(trim[0].emissiveIntensity).toBeGreaterThan(0.5);
-      expect(new Color(dark[0].color).getHSL({ h: 0, s: 0, l: 0 }).l).toBeLessThan(0.45);
+      const colors = vertexRows(skinMeshes(v)[0].geometry, 'color').map((r) => new Color().fromArray(r));
+      const has = (hex: number) => colors.some((c) => c.getHex() === hex);
+      expect(has(FACTION_COLOR[faction]), `${faction} paint`).toBe(true);
+      // the secondary: gunmetal, one step lighter for the Choir (written out here, not read from the kit)
+      const steel = faction === 'choir' ? 0x5b6379 : 0x3a414d;
+      expect(has(steel), `${faction} gunmetal`).toBe(true);
+      expect(new Color(steel).getHSL({ h: 0, s: 0, l: 0 }).l).toBeLessThan(0.45);
+      // the trim's base colour is a dim accent; its glow is the material's emissive
+      const trim = new Color(FACTION_ACCENT[faction]).multiplyScalar(0.12);
+      expect(colors.some((c) => Math.abs(c.r - trim.r) + Math.abs(c.g - trim.g) + Math.abs(c.b - trim.b) < 1e-6), `${faction} trim`).toBe(true);
+      const material = paintMaterial(v);
+      expect(material.emissive.getHex()).toBe(FACTION_ACCENT[faction]);
+      expect(material.emissiveIntensity).toBeGreaterThan(0.5);
       v.dispose();
     }
   });
@@ -218,26 +223,42 @@ describe('foot squads', () => {
 });
 
 describe('spent', () => {
+  /** What the patched shader gets: the real three.js template, run through the material's own patch. */
+  const compile = (m: Material) => {
+    const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: ShaderLib.physical.vertexShader, fragmentShader: ShaderLib.physical.fragmentShader };
+    m.onBeforeCompile(shader as never, {} as never);
+    return shader;
+  };
+
   it('desaturates the paint to about 40% and dims the trim to 30%, and never hides the unit', () => {
     for (const faction of FACTION_IDS) {
       for (const type of ['lancer', 'wasp', 'dreadnought', 'trooper'] as const) {
         const v = build(type, faction);
-        const [paint] = slotMaterials(v, 'paint');
-        const [trim] = slotMaterials(v, 'trim');
-        const sat = saturation(paint.color);
-        const trimGlow = trim.emissiveIntensity;
+        const normal = paintMaterial(v);
+        const geo = skinMeshes(v)[0].geometry;
+        const base = vertexRows(geo, 'color').map((r) => new Color().fromArray(r));
+        const dim = vertexRows(geo, 'aSpent').map((r) => new Color().fromArray(r));
+        const sat = saturation(new Color(FACTION_COLOR[faction]));
+        const paint = base.map((c, i) => (c.getHex() === FACTION_COLOR[faction] ? i : -1)).filter((i) => i >= 0);
+        expect(paint.length, `${type}/${faction} has paint`).toBeGreaterThan(0);
+        for (const i of paint) {
+          if (sat > 0.2) expect(saturation(dim[i]) / sat, `${type}/${faction} paint`).toBeCloseTo(0.4, 1);
+          else expect(saturation(dim[i])).toBeLessThanOrEqual(sat + 1e-6);
+        }
         v.setLook(look({ spent: true }));
-        const [spentPaint] = slotMaterials(v, 'paint');
-        const [spentTrim] = slotMaterials(v, 'trim');
-        expect(isSpentLook(paint, spentPaint, trim, spentTrim), `${type}/${faction}`).toBe(true);
-        if (sat > 0.2) expect(saturation(spentPaint.color) / sat).toBeCloseTo(0.4, 1);
-        expect(spentTrim.emissiveIntensity / trimGlow).toBeCloseTo(0.3, 5);
+        const spentMaterial = paintMaterial(v);
+        expect(spentMaterial, `${type}/${faction} a variant of its own`).not.toBe(normal);
+        // the spent variant reads the dimmed albedo, and shows 30% of the trim glow
+        expect((compile(spentMaterial).uniforms.uSpent as { value: number }).value).toBe(1);
+        expect((compile(normal).uniforms.uSpent as { value: number }).value).toBe(0);
+        expect(spentMaterial.emissiveIntensity / normal.emissiveIntensity).toBeCloseTo(0.3, 5);
+        expect(spentMaterial.emissive.getHex()).toBe(normal.emissive.getHex());
         let hidden = 0;
         modelOf(v).traverse((o) => { if (o instanceof Mesh && !o.visible) hidden += 1; });
         expect(hidden, `${type} nothing hidden`).toBe(0);
         // and back
         v.setLook(look({ spent: false }));
-        expect(slotMaterials(v, 'paint')[0]).toBe(paint);
+        expect(paintMaterial(v)).toBe(normal);
         v.dispose();
       }
     }
@@ -246,19 +267,22 @@ describe('spent', () => {
   it('the shared materials are never mutated: a spent unit does not grey its neighbour', () => {
     const a = build('lancer', 'kestrel');
     const b = build('lancer', 'kestrel');
-    const before = slotMaterials(b, 'paint')[0].color.getHex();
+    const before = paintMaterial(b);
+    const snapshot = JSON.stringify([before.color, before.emissive, before.emissiveIntensity, before.userData.uniforms]);
     a.setLook(look({ spent: true }));
-    expect(slotMaterials(b, 'paint')[0].color.getHex()).toBe(before);
-    expect(slotMaterials(a, 'paint')[0]).not.toBe(slotMaterials(b, 'paint')[0]);
+    expect(paintMaterial(b)).toBe(before);
+    expect(JSON.stringify([before.color, before.emissive, before.emissiveIntensity, before.userData.uniforms])).toBe(snapshot);
+    expect(paintMaterial(a)).not.toBe(paintMaterial(b));
     a.dispose();
     b.dispose();
   });
 
-  it('known-bad: a unit that is not spent fails the spent check', () => {
+  it('known-bad: a unit that is not spent is not told apart as spent', () => {
     const v = build('lancer', 'helion');
-    const [paint] = slotMaterials(v, 'paint');
-    const [trim] = slotMaterials(v, 'trim');
-    expect(isSpentLook(paint, paint, trim, trim)).toBe(false);
+    const m = paintMaterial(v);
+    // not spent: albedo from `color` (uSpent 0), the full trim glow
+    expect((compile(m).uniforms.uSpent as { value: number }).value).toBe(0);
+    expect(m.emissiveIntensity).toBeCloseTo(1, 9);
     v.dispose();
   });
 });
@@ -277,7 +301,7 @@ describe('the muzzle', () => {
       // on the weapon: the muzzle marker is a child of the weapon part, and sits at that part's forward end
       const weapon = v.object.getObjectByName('muzzle')?.parent;
       expect(weapon, `${type} has a weapon part`).toBeTruthy();
-      const wbox = footprintOf(weapon as Object3D);
+      const wbox = boneFootprint(weapon as Object3D);
       expect(wbox.clone().expandByScalar(0.012).containsPoint(m), `${type} muzzle on its weapon`).toBe(true);
       expect(m.x, `${type} at the tip`).toBeGreaterThanOrEqual(wbox.max.x - 0.04);
       v.dispose();
@@ -324,7 +348,7 @@ describe('the muzzle', () => {
     mark.position.set(-0.3, 0.05, 0.2);
     const m = muzzleOf(v);
     const weapon = mark.parent as Object3D;
-    expect(footprintOf(weapon).clone().expandByScalar(0.012).containsPoint(m)).toBe(false);
+    expect(boneFootprint(weapon).clone().expandByScalar(0.012).containsPoint(m)).toBe(false);
     v.dispose();
   });
 });
@@ -624,8 +648,8 @@ describe('dispose and sharing', () => {
     // eslint-disable-next-line no-console
     console.info(`[units] 40 units: ${meshes} meshes and ${drawCalls} draw calls share ${geos.size} geometries, ${mats.size} materials and ${texs.size} chip textures (${stats.looks} distinct looks); ${tris} triangles on screen`);
     expect(geos.size).toBeLessThan(meshes / 2);
-    // 40 units, two factions: 6 materials each plus 3 shared plus the 2 ring materials (every unit's own sprites share the chip materials)
-    expect(mats.size).toBeLessThanOrEqual(2 * 6 + 3 + 2 + texs.size + 0);
+    // 40 units, two factions: a material and its spent variant each, the one shared rotor blur, the 2 ring materials, and the shared chip materials
+    expect(mats.size).toBeLessThanOrEqual(2 * 2 + 1 + 2 + texs.size);
     expect(texs.size).toBeLessThanOrEqual(10 + 2);
     expect(stats.geometries).toBeLessThanOrEqual(geos.size);
     for (const v of views) v.dispose();
@@ -638,10 +662,4 @@ describe('dispose and sharing', () => {
 function footprintOfGroup(g: Object3D): Box3 {
   g.updateMatrixWorld(true);
   return new Box3().setFromObject(g, true);
-}
-function footprintOf(o: Object3D): Box3 {
-  let root: Object3D = o;
-  while (root.parent) root = root.parent;
-  root.updateMatrixWorld(true);
-  return new Box3().setFromObject(o, true);
 }

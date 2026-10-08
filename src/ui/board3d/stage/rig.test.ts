@@ -3,9 +3,10 @@
 import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { MAPS } from '../../../content/maps';
+import { MISSION_MAPS } from '../../../content/mission-maps';
 import {
-  CameraRig, FIT_MARGIN, NARROW_CANVAS_PX, defaultZoomLevel, FOV_DEG, MAX_ZOOM_LEVEL, PITCH_DEG, ZOOM_STEPS, clampTarget, easeToward, fitCorners, fitDistance, groundFootprint, panDelta, poseFor,
-  stageAspect, stepZoom, wheelToSteps,
+  CameraRig, FILL, FIT_FLOOR, FIT_HEIGHT, FIT_INSET, NARROW_CANVAS_PX, defaultZoomLevel, FOV_DEG, MAX_ZOOM_LEVEL, PITCH_DEG, REST_FRAMING, ZOOM_STEPS, clampTarget, easeToward, fitCorners,
+  fitDistance, groundFootprint, panDelta, poseFor, stageAspect, stepZoom, wheelToSteps,
 } from './rig';
 import type { Board, CameraPose } from './rig';
 
@@ -23,6 +24,8 @@ const inside = (v: Vector3, eps = 1e-6): boolean => Math.abs(v.x) <= 1 + eps && 
 
 /** Every skirmish map the game ships, by its own dimensions. */
 const BOARDS: { id: string; board: Board }[] = Object.values(MAPS).map((m) => ({ id: m.id, board: { width: m.terrain[0].length, height: m.terrain.length } }));
+/** Skirmish and mission maps together (the missions run up to 28x14 and 25x19): the fit must hold on every board the stage can be shown. */
+const ALL_BOARDS: { id: string; board: Board }[] = [...BOARDS, ...Object.values(MISSION_MAPS).map((m) => ({ id: m.id, board: { width: m.terrain[0].length, height: m.terrain.length } }))];
 
 // Stage sizes the canvas takes: a phone, a laptop and a wide desktop.
 const ASPECTS = [358 / 280, 860 / 540, 1280 / 720, 2.2];
@@ -34,24 +37,69 @@ describe('the skirmish maps the camera must fit', () => {
   });
 });
 
+/** Where a world point lands on screen (NDC) for a camera at `distance` looking at the board's centre. */
+const ndcAt = (board: Board, aspect: number, distance: number, p: { x: number; y: number; z: number }): Vector3 => {
+  const cam = cameraAt(poseFor({ x: board.width / 2, y: 0, z: board.height / 2 }, distance, board), aspect);
+  return ndc(cam, p);
+};
+/** The widest on-screen extent (|x| or |y|) of a set of points: how much of the limiting dimension of the picture they use. */
+const fillOf = (board: Board, aspect: number, distance: number, pts: { x: number; y: number; z: number }[]): number =>
+  Math.max(...pts.map((p) => { const v = ndcAt(board, aspect, distance, p); return Math.max(Math.abs(v.x), Math.abs(v.y)); }));
+const groundCorners = (b: Board) => [[0, 0], [b.width, 0], [0, b.height], [b.width, b.height]].map(([x, z]) => ({ x, y: 0, z }));
+
 describe('fitting the whole map at the widest zoom', () => {
-  for (const { id, board } of BOARDS) {
+  for (const { id, board } of ALL_BOARDS) {
     for (const aspect of ASPECTS) {
-      it(`${id} (${board.width}x${board.height}) at aspect ${aspect.toFixed(2)}: every corner of the board is in the picture, and the fit is tight`, () => {
+      it(`${id} (${board.width}x${board.height}) at aspect ${aspect.toFixed(2)}: the board is in the picture, fills ${FILL * 100}% of its limiting dimension, and no more`, () => {
         const d = fitDistance(board, aspect);
         const target = { x: board.width / 2, y: 0, z: board.height / 2 };
         const cam = cameraAt(poseFor(target, d, board), aspect);
-        for (const c of fitCorners(board)) expect(inside(ndc(cam, c)), `corner ${JSON.stringify(c)}`).toBe(true);
-        // the board's own four corners at the water line, too
-        for (const [x, z] of [[0, 0], [board.width, 0], [0, board.height], [board.width, board.height]]) {
-          expect(inside(ndc(cam, { x, y: 0, z }))).toBe(true);
+        // everything that must fit is inside the picture, and inside the fill
+        for (const c of fitCorners(board)) {
+          const v = ndc(cam, c);
+          expect(inside(v), `corner ${JSON.stringify(c)}`).toBe(true);
+          expect(Math.max(Math.abs(v.x), Math.abs(v.y)), `corner ${JSON.stringify(c)} within the fill`).toBeLessThanOrEqual(FILL + 1e-9);
         }
-        // known-bad: a camera 4% closer loses a corner, so the fit is not just "far away"
+        // the tightest corner touches the fill: the fit is not just "far away"
+        expect(fillOf(board, aspect, d, fitCorners(board))).toBeCloseTo(FILL, 6);
+        // the board's own four corners at ground level are inside the fill, too
+        expect(fillOf(board, aspect, d, groundCorners(board))).toBeLessThanOrEqual(FILL + 1e-9);
+        // known-bad: a camera 4% closer overshoots the fill, and one 10% closer loses a corner out of the picture altogether
         const closer = cameraAt(poseFor(target, d * 0.96, board), aspect);
-        expect(fitCorners(board).some((c) => !inside(ndc(closer, c)))).toBe(true);
+        expect(fitCorners(board).some((c) => { const v = ndc(closer, c); return Math.max(Math.abs(v.x), Math.abs(v.y)) > FILL + 1e-6; })).toBe(true);
+        const way = cameraAt(poseFor(target, d * 0.9, board), aspect);
+        expect(fitCorners(board).some((c) => !inside(ndc(way, c)))).toBe(true);
       });
     }
   }
+
+  // The G8b claim: on calder-fields (14x10) the board's own width fills about 92% of the picture. Its near edge is the widest part on screen.
+  const calder = BOARDS.find((b) => b.id === 'calder-fields')!.board;
+  it('calder-fields: the board\'s near edge fills 91-93% of the canvas width at the two stage shapes the page has (1280x800 and 390x844)', () => {
+    for (const aspect of [904 / 590, 358 / 280]) {
+      const d = fitDistance(calder, aspect);
+      const nearLeft = ndcAt(calder, aspect, d, { x: 0, y: 0, z: calder.height });
+      const nearRight = ndcAt(calder, aspect, d, { x: calder.width, y: 0, z: calder.height });
+      expect((nearRight.x - nearLeft.x) / 2, `aspect ${aspect.toFixed(2)}`).toBeGreaterThan(0.91);
+      expect((nearRight.x - nearLeft.x) / 2).toBeLessThan(0.93);
+    }
+  });
+
+  it('known-bad: the old fitting rule (a 0.7-tile margin all round and no fill) left the same board at about 84% of the width', () => {
+    // the previous closed form, written out independently: the eight corners of the board plus a 0.7-tile margin, up to 1.5 high
+    const aspect = 904 / 590;
+    const tanH = Math.tan((FOV_DEG * Math.PI) / 360);
+    const sin = Math.sin((PITCH_DEG * Math.PI) / 180);
+    const cos = Math.cos((PITCH_DEG * Math.PI) / 180);
+    let d = 0;
+    for (const x of [-0.7, calder.width + 0.7]) for (const y of [-0.3, 1.5]) for (const z of [-0.7, calder.height + 0.7]) {
+      const dx = x - calder.width / 2; const dz = z - calder.height / 2;
+      d = Math.max(d, Math.max(Math.abs(dx) / (tanH * aspect), Math.abs(y * cos - dz * sin) / tanH) + y * sin + dz * cos);
+    }
+    const w = (ndcAt(calder, aspect, d, { x: calder.width, y: 0, z: calder.height }).x - ndcAt(calder, aspect, d, { x: 0, y: 0, z: calder.height }).x) / 2;
+    expect(w).toBeLessThan(0.86);
+    expect(fitDistance(calder, aspect)).toBeLessThan(d * 0.95); // and the new fit stands at least 5% closer
+  });
 
   it('looks 55 degrees down with a 30 degree field of view, from the south, with yaw 0 (rows stay horizontal)', () => {
     expect(FOV_DEG).toBe(30);
@@ -86,11 +134,21 @@ describe('fitting the whole map at the widest zoom', () => {
     expect(fitDistance(board, 1.2)).toBeGreaterThan(fitDistance(board, 1.2) * 0.5);
   });
 
-  it('keeps the margin it promises', () => {
-    expect(FIT_MARGIN).toBeGreaterThan(0);
+  it('fits the box it promises: the board down to the water line and up to the tallest thing, which stands inside the board', () => {
+    expect(FILL).toBeGreaterThan(0.85);
+    expect(FILL).toBeLessThan(1);
     const corners = fitCorners({ width: 10, height: 10 });
-    expect(Math.min(...corners.map((c) => c.x))).toBe(-FIT_MARGIN);
-    expect(Math.max(...corners.map((c) => c.x))).toBe(10 + FIT_MARGIN);
+    expect(corners).toHaveLength(12);
+    expect(Math.min(...corners.map((c) => c.x))).toBe(0);
+    expect(Math.max(...corners.map((c) => c.x))).toBe(10);
+    expect(Math.min(...corners.map((c) => c.y))).toBe(FIT_FLOOR);
+    expect(Math.max(...corners.map((c) => c.y))).toBe(FIT_HEIGHT);
+    // the tall corners are inset, so a tower can never be asked to stand off the board
+    const tall = corners.filter((c) => c.y === FIT_HEIGHT);
+    expect(tall).toHaveLength(4);
+    for (const c of tall) { expect(c.x === FIT_INSET || c.x === 10 - FIT_INSET).toBe(true); expect(c.z === FIT_INSET || c.z === 10 - FIT_INSET).toBe(true); }
+    // a board narrower than twice the inset stays on the board
+    for (const c of fitCorners({ width: 0.5, height: 0.5 })) { expect(c.x).toBeGreaterThanOrEqual(0); expect(c.x).toBeLessThanOrEqual(0.5); }
   });
 });
 
@@ -100,6 +158,17 @@ describe('zoom steps', () => {
     expect(ZOOM_STEPS[0]).toBe(1);
     expect([...ZOOM_STEPS].sort((a, b) => a - b)).toEqual([...ZOOM_STEPS]);
     expect(MAX_ZOOM_LEVEL).toBe(2);
+  });
+
+  it('were scaled with the tighter fit: on calder-fields the two closer steps stand where they stood before (13.3 and 7.75 away)', () => {
+    // before G8b: fit 23.25 with steps 1.75 and 3 -> 13.29 and 7.75, worked out by hand from the old closed form
+    const fit = fitDistance({ width: 14, height: 10 }, 904 / 590);
+    expect(fit / ZOOM_STEPS[1]).toBeGreaterThan(13.29 * 0.97);
+    expect(fit / ZOOM_STEPS[1]).toBeLessThan(13.29 * 1.03);
+    expect(fit / ZOOM_STEPS[2]).toBeGreaterThan(7.75 * 0.97);
+    expect(fit / ZOOM_STEPS[2]).toBeLessThan(7.75 * 1.03);
+    // known-bad: the old multipliers on the new fit would have stood about 7% closer than before
+    expect(fit / 1.75).toBeLessThan(13.29 * 0.97);
   });
 
   it('clamp at both ends of the ladder', () => {
@@ -138,6 +207,24 @@ describe('zoom steps', () => {
       rig.update(0, false);
       expect(rig.pose().distance).toBeCloseTo(wide / ZOOM_STEPS[level], 9);
     }
+  });
+
+  it('pulls back and lowers for a framing (the intro) and returns to the resting pose with the resting framing', () => {
+    const rig = new CameraRig();
+    rig.setBoard({ width: 14, height: 10 });
+    rig.setAspect(1.6);
+    rig.update(0, false);
+    const rest = rig.pose();
+    expect(rig.pose(0, REST_FRAMING)).toEqual(rest);
+    const far = rig.pose(0, { distanceScale: 1.35, pitchDeg: 32 });
+    expect(far.distance).toBeCloseTo(rest.distance * 1.35, 9);
+    const pitch = (p: CameraPose): number => Math.atan2(p.position.y - p.target.y, Math.hypot(p.position.x - p.target.x, p.position.z - p.target.z)) * (180 / Math.PI);
+    expect(pitch(rest)).toBeCloseTo(55, 9);
+    expect(pitch(far)).toBeCloseTo(32, 9);
+    expect(far.position.y).toBeLessThan(rest.position.y); // lower in the air, too
+    expect(far.target).toEqual(rest.target); // the same point looked at
+    // known-bad: a framing can never move the camera IN (a scale under 1 is refused) so the resting fit always holds
+    expect(rig.pose(0, { distanceScale: 0.5, pitchDeg: 55 }).distance).toBeCloseTo(rest.distance, 9);
   });
 });
 
