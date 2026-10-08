@@ -62,6 +62,16 @@ describe('a mission\'s own board', () => {
       map.owners.forEach((row, y) => [...row].forEach((ch, x) => expect(s.owners[y][x], `${m.id} ${x},${y}`).toBe(ch === '.' ? null : Number(ch))));
     }
   });
+  it('draws a side the mission does not name unmarked: mission 1\'s drones, and no other unit in the campaign (G16)', () => {
+    const unmarked = MISSIONS.flatMap((m) => missionScene(m).units.filter((u) => u.unmarked).map((u) => `${m.id}:${u.faction}`));
+    expect(unmarked.length).toBeGreaterThan(0);
+    expect(new Set(unmarked)).toEqual(new Set(['first-light:choir']));
+    const fl = MISSIONS.find((m) => m.id === 'first-light')!;
+    expect(missionScene(fl).units.filter((u) => u.faction === 'choir').every((u) => u.unmarked), 'every drone').toBe(true);
+    // known-bad twin: the same map without the mask marks every unit
+    const map = MISSION_MAPS[fl.mapId];
+    expect(sceneFromMap(map, fl.players.map((p) => p.faction)).units.some((u) => u.unmarked)).toBe(false);
+  });
   it('leaves out a unit whose owner has no faction, and refuses a code it does not know', () => {
     const map = MAPS['calder-fields'];
     expect(sceneFromMap(map, ['helion', null]).units.every((u) => u.faction === 'helion')).toBe(true);

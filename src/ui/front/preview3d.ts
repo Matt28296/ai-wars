@@ -140,7 +140,7 @@ export class PreviewRuntime {
     const unitsGroup = new Group();
     unitsGroup.name = 'units';
     for (const u of scene.units) {
-      const view = createUnitView(u.type, u.faction);
+      const view = createUnitView(u.type, u.faction, u.unmarked ? { unmarked: true } : undefined);
       view.object.position.set(u.x + 0.5, this.terrain.heightAt(u.x, u.y), u.y + 0.5);
       view.setLook({ hp: 10, spent: false, heading: u.heading, status: null, focused: false });
       view.setPose('idle', 0);
