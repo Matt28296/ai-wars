@@ -1,0 +1,48 @@
+<!-- @dsCard group="Showcase" height=640 page subtitle="the components together on a battlefield" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Skirmish — preview</title>
+<style>body{margin:0;background:var(--void);color:var(--ink);font-family:var(--font-sans)}</style>
+</head>
+<body>
+<div id="root" class="aw-stage"></div>
+<script>
+  var A = window.Ascendant, h = React.createElement;
+
+  var rows = [
+    '..f.=....~~',
+    '.Ff.=.^^.~~',
+    '...f=.^C.s~',
+    'rrr#rrr..s~',
+    '..C.=..f.Ds',
+    '.U..=..fF..',
+    '....=......'];
+  var owners = {'1,1': 'helion', '8,5': 'tidewell', '7,2': 'tidewell', '9,4': 'tidewell', '2,4': 'helion'};
+  var codes = { '.': 'flats', f: 'canopy', '^': 'ridge', '=': 'maglev', '#': 'span', r: 'river', '~': 'sea', s: 'shoal', C: 'arcology', F: 'fabricator', D: 'dock', U: 'uplink' };
+  var units = { '4,2': ['lancer', 'helion', 10], '2,2': ['trooper', 'helion', 7], '6,4': ['arc', 'helion', 10, true], '7,1': ['trooper', 'tidewell', 6], '8,4': ['warden', 'tidewell', 9], '10,1': ['picket', 'tidewell', 10] };
+  var move = ['4,1', '4,0', '5,2', '4,3', '3,2', '5,1', '5,3', '3,1', '6,2', '4,4', '5,0'];
+  var attack = ['7,1', '6,1', '7,2'];
+  function Board() {
+    var grid = rows.map(function (r, y) {
+      return h('div', { key: y, style: { display: 'flex' } }, r.split('').map(function (ch, x) {
+        var k = x + ',' + y, u = units[k];
+        return h(A.MapTile, { key: k, terrain: codes[ch], owner: owners[k], overlay: move.indexOf(k) > -1 ? 'move' : attack.indexOf(k) > -1 ? 'attack' : undefined, cursor: k === '6,1' ? 'select' : undefined },
+          u && h(A.UnitToken, { unit: u[0], faction: u[1], hp: u[2], spent: u[3], selected: k === '4,2', facing: u[1] === 'tidewell' ? 'left' : 'right' }));
+      }));
+    });
+    return h('div', { style: { position: 'relative', width: 528 + 8 + 360, display: 'flex', gap: 16, alignItems: 'flex-start' } },
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
+        h(A.PlayerHud, { commander: { name: 'Ren Okafor', faction: 'helion', initials: 'RO' }, funds: 12400, cycle: 4, power: { value: 2.3, surge: 3, max: 6 } }),
+        h('div', { style: { boxShadow: '0 0 0 1px var(--line-strong)' } }, grid),
+        h(A.DialogueBox, { speaker: { name: 'ECHO', faction: null, initials: 'E' }, channel: 'Tactical channel' }, 'Lancer in range of the Trooper on the ridge. Ridge is four stars. Expect less than you hope.')),
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
+        h(A.CommandMenu, { title: 'Lancer', activeId: 'fire', items: [{ id: 'fire', label: 'Fire' }, { id: 'wait', label: 'Wait' }] }),
+        h(A.BattleForecast, { attacker: { unit: 'lancer', faction: 'helion', hp: 10 }, defender: { unit: 'trooper', faction: 'tidewell', hp: 6 }, damage: [27, 31], counter: [2, 3] }),
+        h(A.TerrainCard, { terrain: 'ridge' })));
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h(Board));
+</script>
+</body>
+</html>

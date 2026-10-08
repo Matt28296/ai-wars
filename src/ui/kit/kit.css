@@ -1,0 +1,201 @@
+/* Ascendant Wars UI kit — port of design-system/project/components/bundle.css (+ kit additions at the end). */
+
+/* ---- frame: the chamfered panel (top-left + bottom-right cut, 1px line-strong edge) ---- */
+.aw-frame {
+  --aw-cut: var(--chamfer);
+  position: relative;
+  isolation: isolate;
+  display: inline-block;
+  box-sizing: border-box;
+  padding: 1px;
+}
+/* Kit note: bundle.css clips .aw-frame itself, which also clips .aw-float's drop-shadow (filter runs before
+   clip-path). The edge is drawn on ::before instead so floating panels keep their shadow. Same look. */
+.aw-frame::before {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  background: var(--line-strong);
+  clip-path: polygon(var(--aw-cut) 0, 100% 0, 100% calc(100% - var(--aw-cut)), calc(100% - var(--aw-cut)) 100%, 0 100%, 0 var(--aw-cut));
+}
+.aw-frame--sm { --aw-cut: var(--chamfer-sm); }
+.aw-frame-in {
+  --aw-cut-in: calc(var(--aw-cut) - 0.6px);
+  position: relative;
+  box-sizing: border-box;
+  height: 100%;
+  background: var(--panel);
+  color: var(--ink);
+  clip-path: polygon(var(--aw-cut-in) 0, 100% 0, 100% calc(100% - var(--aw-cut-in)), calc(100% - var(--aw-cut-in)) 100%, 0 100%, 0 var(--aw-cut-in));
+}
+.aw-frame--raised > .aw-frame-in { background: var(--panel-raised); }
+.aw-float { filter: drop-shadow(var(--shadow-panel)); }
+.aw-muted { color: var(--ink-muted); }
+.aw-grow { flex: 1; }
+
+/* ---- type helpers on top of the token classes ---- */
+.aw-kicker, .aw-btn, .aw-row-label, .aw-power-state, .aw-banner .label, .aw-portrait-band { text-transform: uppercase; }
+
+/* ---- button ---- */
+.aw-btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: 36px; padding: 0 var(--space-4);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+  background: var(--panel-raised); color: var(--ink);
+  cursor: pointer;
+}
+.aw-btn:hover { background: var(--signal-soft); }
+.aw-btn:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
+.aw-btn:disabled { opacity: .45; cursor: not-allowed; }
+.aw-btn--primary { background: var(--signal); border-color: var(--signal); color: var(--on-signal); }
+.aw-btn--primary:hover { background: var(--signal); filter: brightness(1.08); }
+.aw-btn--danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+.aw-btn--ghost { background: transparent; border-color: transparent; color: var(--ink-muted); }
+.aw-btn--ghost:hover { color: var(--ink); }
+.aw-btn--sm { height: 28px; padding: 0 var(--space-3); }
+.aw-key {
+  font-family: var(--font-mono); font-size: 11px; line-height: 16px; min-width: 16px; padding: 0 4px;
+  border: 1px solid currentColor; border-radius: var(--radius-xs); text-align: center; opacity: .8;
+}
+
+/* ---- menus (command menu, build menu) ---- */
+.aw-menu .aw-frame-in, .aw-build .aw-frame-in { padding: var(--space-2) 0; }
+.aw-menu { min-width: 176px; }
+.aw-menu-title { padding: 0 var(--space-4) var(--space-1); color: var(--ink-muted); }
+.aw-row {
+  position: relative; display: flex; align-items: center; gap: var(--space-2); width: 100%;
+  min-height: 36px; padding: 0 var(--space-4) 0 var(--space-6); box-sizing: border-box;
+  border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; font: inherit;
+}
+.aw-row:hover { background: var(--signal-soft); }
+.aw-row:focus-visible { outline: 2px solid transparent; box-shadow: inset 0 0 0 2px var(--signal); }
+.aw-row:disabled, .aw-row--short { color: var(--ink-muted); cursor: not-allowed; }
+.aw-row--active { background: var(--signal-soft); color: var(--signal); }
+.aw-row-cursor { position: absolute; left: var(--space-2); top: 50%; width: 0; height: 0; margin-top: -5px; border: 5px solid transparent; border-left: 7px solid var(--signal); opacity: 0; }
+.aw-row--active .aw-row-cursor { opacity: 1; }
+.aw-row-label { flex: 1; }
+.aw-row-hint { color: var(--ink-muted); }
+.aw-row--active .aw-row-hint { color: var(--signal); }
+.aw-build { min-width: 248px; }
+.aw-build-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); padding: var(--space-1) var(--space-4) var(--space-2); border-bottom: 1px solid var(--line); margin-bottom: var(--space-1); }
+.aw-build-row { min-height: 44px; }
+.aw-build-name { flex: 1; display: flex; flex-direction: column; }
+.aw-unit-cr { color: var(--ink-muted); }
+
+/* ---- status chip ---- */
+.aw-chip {
+  display: inline-flex; align-items: center; gap: var(--space-1); height: 22px; padding: 0 var(--space-2); box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink-muted); white-space: nowrap;
+}
+.aw-chip--signal { border-color: var(--signal); color: var(--signal); background: var(--signal-soft); }
+.aw-chip--warn { border-color: var(--warn); color: var(--warn); }
+.aw-chip--danger { border-color: var(--danger); color: var(--danger); }
+.aw-icon, .aw-sigil { flex: none; display: inline-block; vertical-align: middle; }
+
+/* ---- unit token ---- */
+.aw-unit { display: block; overflow: visible; }
+.aw-unit-hp { font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+.aw-unit--spent .aw-unit-body { filter: grayscale(1) brightness(.62); }
+.aw-unit--selected .aw-unit-body { filter: drop-shadow(0 0 4px var(--signal)); }
+.aw-unit-ring { fill: none; stroke: var(--signal); stroke-width: 2; }
+
+/* ---- map tile ---- */
+.aw-tile { position: relative; flex: none; }
+.aw-tile-art { display: block; }
+.aw-tile-grid { fill: none; stroke: var(--map-shade); stroke-opacity: .22; stroke-width: .5; }
+.aw-tile-overlay, .aw-tile-fog { position: absolute; inset: 0; pointer-events: none; }
+.aw-tile-overlay--move { background: var(--overlay-move); box-shadow: inset 0 0 0 1px var(--signal); }
+.aw-tile-overlay--attack { background: repeating-linear-gradient(135deg, var(--overlay-attack) 0 5px, transparent 5px 8px); box-shadow: inset 0 0 0 1px var(--danger); }
+.aw-tile-fog { background: var(--overlay-fog); }
+.aw-tile-unit { position: absolute; inset: 0; display: grid; place-items: center; }
+.aw-tile-unit > .aw-unit { width: 100%; height: 100%; }
+.aw-cursor { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; overflow: visible; }
+.aw-cursor path { fill: none; stroke: var(--signal); stroke-width: 3.5; stroke-linecap: square; filter: drop-shadow(0 0 3px var(--signal)); }
+.aw-cursor--target path { stroke: var(--danger); filter: drop-shadow(0 0 3px var(--danger)); }
+
+/* ---- cards ---- */
+.aw-card { min-width: 208px; }
+.aw-card > .aw-frame-in, .aw-forecast > .aw-frame-in { padding: var(--space-3) var(--space-4) var(--space-4); }
+.aw-kicker { color: var(--ink-muted); margin-bottom: var(--space-2); }
+.aw-card-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.aw-card-title { margin: 0; }
+.aw-stat-row { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; }
+.aw-stat-row > .label { width: 64px; flex: none; }
+.aw-stat-row > .stat-sm { min-width: 28px; text-align: right; }
+.aw-diamonds { display: inline-flex; gap: var(--space-1); flex: 1; }
+.aw-diamond { width: 9px; height: 9px; transform: rotate(45deg); border: 1.5px solid var(--line-strong); box-sizing: border-box; }
+.aw-diamond--on { background: var(--signal); border-color: var(--signal); }
+.aw-meter { flex: 1; height: 6px; background: var(--line); border-radius: var(--radius-xs); overflow: hidden; }
+.aw-meter > span { display: block; height: 100%; background: var(--ink); }
+.aw-meter--warn > span { background: var(--warn); }
+.aw-hpbar { flex: 1; display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+.aw-hpbar > span { height: 8px; background: var(--line); border-radius: 1px; }
+.aw-hpbar > span.on { background: var(--ink); }
+.aw-hpbar--crit > span.on { background: var(--danger); }
+.aw-chips { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+
+/* ---- battle forecast ---- */
+.aw-forecast { min-width: 340px; }
+.aw-fc-sides { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.aw-fc-side { display: flex; align-items: center; gap: var(--space-2); }
+.aw-fc-side--end { flex-direction: row-reverse; text-align: right; }
+.aw-fc-nums { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin: var(--space-3) 0; padding: var(--space-3) 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.aw-fc-foot { display: flex; }
+
+/* ---- commanders ---- */
+.aw-portrait { position: relative; flex: none; display: grid; place-items: center; overflow: hidden; }
+.aw-portrait-mark { position: absolute; right: -14%; bottom: -14%; opacity: .2; line-height: 0; }
+.aw-portrait-initials { position: relative; font-family: var(--font-display); font-weight: 700; letter-spacing: .02em; line-height: 1; }
+.aw-portrait-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.aw-portrait-band { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 0; text-align: center; background: var(--map-shade); color: var(--map-ink); }
+.aw-power { display: inline-flex; align-items: center; gap: var(--space-2); }
+.aw-power svg { display: block; overflow: visible; }
+.aw-pip { fill: none; stroke: var(--line-strong); stroke-width: 1.5; }
+.aw-pip-fill { fill: var(--signal); }
+.aw-power-state { color: var(--ink-muted); }
+.aw-power-state--ready { color: var(--signal); }
+.aw-hud > .aw-frame-in { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-2) var(--space-4) var(--space-2) var(--space-2); }
+.aw-hud-body { display: flex; flex-direction: column; gap: 2px; }
+.aw-hud-top { display: flex; align-items: baseline; gap: var(--space-3); }
+.aw-hud-funds { display: flex; align-items: baseline; gap: var(--space-1); }
+
+/* ---- story ---- */
+.aw-dialogue { width: 100%; max-width: 720px; }
+.aw-dialogue > .aw-frame-in { position: relative; display: flex; gap: var(--space-4); padding: var(--space-4) var(--space-6) var(--space-4) var(--space-4); }
+.aw-dialogue--right > .aw-frame-in { flex-direction: row-reverse; padding: var(--space-4) var(--space-4) var(--space-4) var(--space-6); }
+.aw-dialogue-body { flex: 1; min-width: 0; }
+.aw-dialogue-who { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.aw-dialogue-channel { margin-top: 2px; }
+.aw-dialogue-text { margin: var(--space-2) 0 0; color: var(--ink); }
+.aw-dialogue-more { position: absolute; right: var(--space-4); bottom: var(--space-3); width: 0; height: 0; border: 6px solid transparent; border-top: 8px solid var(--signal); border-bottom: 0; }
+.aw-banner {
+  position: relative; display: flex; align-items: center; gap: var(--space-4); min-height: 72px; padding: 0 var(--space-6); overflow: hidden;
+  clip-path: polygon(var(--chamfer) 0, 100% 0, 100% calc(100% - var(--chamfer)), calc(100% - var(--chamfer)) 100%, 0 100%, 0 var(--chamfer));
+}
+.aw-banner--choir { box-shadow: inset 0 0 0 2px var(--on-choir); }
+.aw-banner-cycle { display: flex; flex-direction: column; line-height: 1; }
+.aw-banner-cycle .headline { font-size: 36px; line-height: 36px; }
+.aw-banner-rule { width: 2px; align-self: stretch; margin: var(--space-3) 0; background: currentColor; opacity: .5; }
+.aw-banner-who { display: flex; flex-direction: column; }
+.aw-banner-mark { position: absolute; right: var(--space-4); top: 50%; transform: translateY(-50%); opacity: .35; line-height: 0; }
+
+/* ---- preview stage (cards only) ---- */
+.aw-stage { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-4); padding: var(--space-4); }
+
+/* ======================= kit additions (not in bundle.css) ======================= */
+.aw-frame { color: var(--ink); }
+.aw-card-art { display: inline-grid; place-items: center; flex: none; line-height: 0; }
+.aw-card-art > svg { display: block; }
+.aw-build-art { display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; line-height: 0; }
+.aw-build-art--short { filter: grayscale(1) brightness(.62); }
+.aw-build-list { max-height: min(60vh, 520px); overflow-y: auto; scrollbar-width: thin; }
+.aw-hud-top { align-items: center; }
+.aw-hud-top .aw-sigil { align-self: center; }
+.aw-portrait--art { display: block; }
+.aw-portrait--art > svg { display: block; width: 100%; height: 100%; }
+.aw-power--ready .aw-pip-fill { animation: aw-pip-glow 1.2s ease-in-out infinite alternate; }
+@keyframes aw-pip-glow { from { filter: none; } to { filter: drop-shadow(0 0 3px var(--signal)); } }
+.aw-row:disabled .aw-row-cursor { display: none; }
+.aw-menu-title { padding-top: 0; }
+.aw-kbd-hint { display: inline-flex; gap: var(--space-1); align-items: center; }
+@media (prefers-reduced-motion: reduce) {
+  .aw-power--ready .aw-pip-fill { animation: none; }
+}

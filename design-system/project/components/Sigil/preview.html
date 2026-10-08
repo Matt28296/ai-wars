@@ -1,0 +1,22 @@
+<!-- @dsCard group="Status" height=96 subtitle="five nations and ECHO" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sigil — preview</title>
+<style>body{margin:0;background:var(--void);color:var(--ink);font-family:var(--font-sans)}.aw-stage{gap:28px}</style>
+</head>
+<body>
+<div id="root" class="aw-stage"></div>
+<script>
+  var A = window.Ascendant, h = React.createElement;
+
+  var row = ['helion', 'tidewell', 'verdant', 'kestrel', 'choir', null].map(function (f) {
+    return h('div', { key: f || 'echo', style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 } },
+      h(A.Sigil, { faction: f, size: 40, title: f || 'ECHO' }),
+      h('span', { className: 'caption aw-muted' }, f ? A.data.factions.find(function (x) { return x.id === f; }).short : 'ECHO'));
+  });
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null, row));
+</script>
+</body>
+</html>

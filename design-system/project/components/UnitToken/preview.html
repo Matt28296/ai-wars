@@ -1,0 +1,30 @@
+<!-- @dsCard group="Battlefield" height=200 subtitle="all 16 units; HP, status, acted and selected states" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UnitToken — preview</title>
+<style>body{margin:0;background:var(--void);color:var(--ink);font-family:var(--font-sans)}</style>
+</head>
+<body>
+<div id="root" class="aw-stage"></div>
+<script>
+  var A = window.Ascendant, h = React.createElement;
+
+  var ids = A.data.units.map(function (u) { return u.id; });
+  var fs = ['helion', 'tidewell', 'verdant', 'kestrel', 'choir'];
+  var units = ids.map(function (id, i) { return h(A.UnitToken, { key: id, unit: id, faction: fs[i % 5], facing: i % 2 ? 'left' : 'right' }); });
+  var states = [
+    h(A.UnitToken, { key: 'a', unit: 'lancer', faction: 'helion', hp: 7 }),
+    h(A.UnitToken, { key: 'b', unit: 'trooper', faction: 'tidewell', hp: 3, status: 'capturing' }),
+    h(A.UnitToken, { key: 'c', unit: 'wasp', faction: 'verdant', status: 'low-charge' }),
+    h(A.UnitToken, { key: 'd', unit: 'mule', faction: 'kestrel', status: 'loaded' }),
+    h(A.UnitToken, { key: 'e', unit: 'bastion', faction: 'choir', hp: 5, status: 'low-ammo' }),
+    h(A.UnitToken, { key: 'f', unit: 'arc', faction: 'helion', spent: true }),
+    h(A.UnitToken, { key: 'g', unit: 'raptor', faction: 'tidewell', selected: true })];
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
+    h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 4 } }, units),
+    h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 16 } }, states)));
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+<!-- @dsCard group="Intel" height=232 subtitle="damage and counter before you commit" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BattleForecast — preview</title>
+<style>body{margin:0;background:var(--void);color:var(--ink);font-family:var(--font-sans)}</style>
+</head>
+<body>
+<div id="root" class="aw-stage"></div>
+<script>
+  var A = window.Ascendant, h = React.createElement;
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+    h(A.BattleForecast, { attacker: { unit: 'lancer', faction: 'helion', hp: 10 }, defender: { unit: 'trooper', faction: 'tidewell', hp: 10 }, damage: [56, 64], counter: [4, 6] }),
+    h(A.BattleForecast, { attacker: { unit: 'arc', faction: 'helion', hp: 9 }, defender: { unit: 'warden', faction: 'choir', hp: 4 }, damage: [68, 76], counter: null })));
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<!-- @dsCard group="Intel" height=176 subtitle="defense stars and capture progress" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TerrainCard — preview</title>
+<style>body{margin:0;background:var(--void);color:var(--ink);font-family:var(--font-sans)}</style>
+</head>
+<body>
+<div id="root" class="aw-stage"></div>
+<script>
+  var A = window.Ascendant, h = React.createElement;
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+    h(A.TerrainCard, { terrain: 'ridge' }),
+    h(A.TerrainCard, { terrain: 'fabricator', owner: 'tidewell', capture: 12 }),
+    h(A.TerrainCard, { terrain: 'uplink' })));
+</script>
+</body>
+</html>

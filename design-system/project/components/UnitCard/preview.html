@@ -1,0 +1,20 @@
+<!-- @dsCard group="Intel" height=232 subtitle="HP, charge and ammo with warnings" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UnitCard — preview</title>
+<style>body{margin:0;background:var(--void);color:var(--ink);font-family:var(--font-sans)}</style>
+</head>
+<body>
+<div id="root" class="aw-stage"></div>
+<script>
+  var A = window.Ascendant, h = React.createElement;
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+    h(A.UnitCard, { unit: 'lancer', faction: 'helion', hp: 8, charge: 52, ammo: 6 }),
+    h(A.UnitCard, { unit: 'wasp', faction: 'verdant', hp: 3, charge: 14, ammo: 1 }),
+    h(A.UnitCard, { unit: 'trooper', faction: 'kestrel', hp: 10 })));
+</script>
+</body>
+</html>

@@ -1,0 +1,325 @@
+{
+  "v": 3,
+  "layout": "files",
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-08T04:38:16Z"
+  },
+  "title": "Ascendant Wars",
+  "namespace": "Ascendant",
+  "libraries": [
+    {
+      "name": "react",
+      "version": "18.3.1",
+      "global": "React",
+      "file": "components/lib/react.production.min.js"
+    },
+    {
+      "name": "react-dom",
+      "version": "18.3.1",
+      "global": "ReactDOM",
+      "file": "components/lib/react-dom.production.min.js"
+    }
+  ],
+  "sections": {},
+  "groups": [
+    "Sigils",
+    "Units",
+    "Terrain"
+  ],
+  "assetGroups": {
+    "Sigils": {
+      "name": "Sigils",
+      "tile": "m",
+      "order": [
+        "helion.svg",
+        "tidewell.svg",
+        "verdant.svg",
+        "kestrel.svg",
+        "choir.svg",
+        "echo.svg"
+      ],
+      "files": {
+        "helion.svg": {
+          "name": "helion.svg",
+          "blob": "4a2d2cb5b19fec00520ce026db30743c",
+          "size": 261,
+          "type": "image/svg+xml"
+        },
+        "tidewell.svg": {
+          "name": "tidewell.svg",
+          "blob": "bd6ca4d3e3df0a5a260bc5b65d349547",
+          "size": 282,
+          "type": "image/svg+xml"
+        },
+        "verdant.svg": {
+          "name": "verdant.svg",
+          "blob": "a9aa0fa9a2d663282ae3063aafe533ce",
+          "size": 173,
+          "type": "image/svg+xml"
+        },
+        "kestrel.svg": {
+          "name": "kestrel.svg",
+          "blob": "6d8560682af987166b043bf3fff8b68e",
+          "size": 218,
+          "type": "image/svg+xml"
+        },
+        "choir.svg": {
+          "name": "choir.svg",
+          "blob": "c251645fa20aab021447bd0af1eaed01",
+          "size": 259,
+          "type": "image/svg+xml"
+        },
+        "echo.svg": {
+          "name": "echo.svg",
+          "blob": "27dfadef176878327e83a726de18ab81",
+          "size": 235,
+          "type": "image/svg+xml"
+        }
+      }
+    },
+    "Units": {
+      "name": "Units",
+      "tile": "s",
+      "order": [
+        "trooper.svg",
+        "breacher.svg",
+        "skimmer.svg",
+        "lancer.svg",
+        "bastion.svg",
+        "colossus.svg",
+        "mule.svg",
+        "arc.svg",
+        "salvo.svg",
+        "warden.svg",
+        "wasp.svg",
+        "raptor.svg",
+        "anvil.svg",
+        "picket.svg",
+        "dreadnought.svg",
+        "barge.svg"
+      ],
+      "files": {
+        "trooper.svg": {
+          "name": "trooper.svg",
+          "blob": "1c985090982832b5859e8623787d5f72",
+          "size": 241,
+          "type": "image/svg+xml"
+        },
+        "breacher.svg": {
+          "name": "breacher.svg",
+          "blob": "0bb0462a604a24f4b4c8b1616bd24915",
+          "size": 249,
+          "type": "image/svg+xml"
+        },
+        "skimmer.svg": {
+          "name": "skimmer.svg",
+          "blob": "7e70864bead656dfed1887f259032e67",
+          "size": 235,
+          "type": "image/svg+xml"
+        },
+        "lancer.svg": {
+          "name": "lancer.svg",
+          "blob": "2c7058aba74cf37bd87978eb41848255",
+          "size": 231,
+          "type": "image/svg+xml"
+        },
+        "bastion.svg": {
+          "name": "bastion.svg",
+          "blob": "31d3620edec688ea2f21112d4a441ec7",
+          "size": 252,
+          "type": "image/svg+xml"
+        },
+        "colossus.svg": {
+          "name": "colossus.svg",
+          "blob": "b1f58e6bfc17102ea171c713e3b945e7",
+          "size": 289,
+          "type": "image/svg+xml"
+        },
+        "mule.svg": {
+          "name": "mule.svg",
+          "blob": "5c9e8c92d4da435fa68ebba5dab6be9e",
+          "size": 187,
+          "type": "image/svg+xml"
+        },
+        "arc.svg": {
+          "name": "arc.svg",
+          "blob": "b6fbff28f8bc14f71ca6a250f1b5878b",
+          "size": 257,
+          "type": "image/svg+xml"
+        },
+        "salvo.svg": {
+          "name": "salvo.svg",
+          "blob": "ecd520c4759fc64d41d711af0599aadd",
+          "size": 269,
+          "type": "image/svg+xml"
+        },
+        "warden.svg": {
+          "name": "warden.svg",
+          "blob": "530d78d1a72f5c1605e3f76683bdc2af",
+          "size": 286,
+          "type": "image/svg+xml"
+        },
+        "wasp.svg": {
+          "name": "wasp.svg",
+          "blob": "3f6e19cfba42708fbef895747b9fb6a7",
+          "size": 306,
+          "type": "image/svg+xml"
+        },
+        "raptor.svg": {
+          "name": "raptor.svg",
+          "blob": "90574cdf4e4da568c8d85bde05f8f097",
+          "size": 205,
+          "type": "image/svg+xml"
+        },
+        "anvil.svg": {
+          "name": "anvil.svg",
+          "blob": "71afec24fa84f4415efa644ecf5ff90c",
+          "size": 186,
+          "type": "image/svg+xml"
+        },
+        "picket.svg": {
+          "name": "picket.svg",
+          "blob": "df56e21d0fd8ac81c3ac87d64c2222f8",
+          "size": 245,
+          "type": "image/svg+xml"
+        },
+        "dreadnought.svg": {
+          "name": "dreadnought.svg",
+          "blob": "6cdd875675c99aed5cf89d4bd53aad92",
+          "size": 273,
+          "type": "image/svg+xml"
+        },
+        "barge.svg": {
+          "name": "barge.svg",
+          "blob": "af2666fc0647b592c82fdb8353d27eaf",
+          "size": 165,
+          "type": "image/svg+xml"
+        }
+      }
+    },
+    "Terrain": {
+      "name": "Terrain",
+      "tile": "s",
+      "order": [
+        "flats.svg",
+        "canopy.svg",
+        "ridge.svg",
+        "maglev.svg",
+        "span.svg",
+        "river.svg",
+        "sea.svg",
+        "shoal.svg",
+        "glass.svg",
+        "arcology.svg",
+        "fabricator.svg",
+        "skyport.svg",
+        "dock.svg",
+        "uplink.svg",
+        "spire.svg"
+      ],
+      "files": {
+        "flats.svg": {
+          "name": "flats.svg",
+          "blob": "552cbbe0ec0fee0a19eec4540ab538c5",
+          "size": 273,
+          "type": "image/svg+xml"
+        },
+        "canopy.svg": {
+          "name": "canopy.svg",
+          "blob": "1413fbb7d0f07e3e6ca9cdfd4bb932e9",
+          "size": 325,
+          "type": "image/svg+xml"
+        },
+        "ridge.svg": {
+          "name": "ridge.svg",
+          "blob": "6bde0e4d3bb5dc3bd21a0a7c48ed0c5e",
+          "size": 272,
+          "type": "image/svg+xml"
+        },
+        "maglev.svg": {
+          "name": "maglev.svg",
+          "blob": "da26bb8290071b7ff9ff18c0dda03976",
+          "size": 258,
+          "type": "image/svg+xml"
+        },
+        "span.svg": {
+          "name": "span.svg",
+          "blob": "26bd79f76ae7b6f49270a52c04ac073a",
+          "size": 314,
+          "type": "image/svg+xml"
+        },
+        "river.svg": {
+          "name": "river.svg",
+          "blob": "968b59f35e35151a63646f9b982ea83b",
+          "size": 258,
+          "type": "image/svg+xml"
+        },
+        "sea.svg": {
+          "name": "sea.svg",
+          "blob": "856380a642cc2299fe5ba673af615025",
+          "size": 258,
+          "type": "image/svg+xml"
+        },
+        "shoal.svg": {
+          "name": "shoal.svg",
+          "blob": "98bf14a334d8c6dc0f38996fd019ce3e",
+          "size": 224,
+          "type": "image/svg+xml"
+        },
+        "glass.svg": {
+          "name": "glass.svg",
+          "blob": "f7aabad0d453a84a4abb27a2dfdebdd3",
+          "size": 252,
+          "type": "image/svg+xml"
+        },
+        "arcology.svg": {
+          "name": "arcology.svg",
+          "blob": "553823eed7105440c3b89837c924e86e",
+          "size": 375,
+          "type": "image/svg+xml"
+        },
+        "fabricator.svg": {
+          "name": "fabricator.svg",
+          "blob": "49a69256f996c6fc4349eb338ddf63ba",
+          "size": 295,
+          "type": "image/svg+xml"
+        },
+        "skyport.svg": {
+          "name": "skyport.svg",
+          "blob": "7cde249373dc90660cfbb4225eb704b8",
+          "size": 333,
+          "type": "image/svg+xml"
+        },
+        "dock.svg": {
+          "name": "dock.svg",
+          "blob": "c9f84c22c83b474561bbae410834e73f",
+          "size": 355,
+          "type": "image/svg+xml"
+        },
+        "uplink.svg": {
+          "name": "uplink.svg",
+          "blob": "e860df825f0e36241f7b0cdc80caaa5b",
+          "size": 457,
+          "type": "image/svg+xml"
+        },
+        "spire.svg": {
+          "name": "spire.svg",
+          "blob": "60e6cd681c7faded5288155540030ec8",
+          "size": 355,
+          "type": "image/svg+xml"
+        }
+      }
+    }
+  },
+  "blobs": {},
+  "docs": {
+    "sections": []
+  },
+  "lastChange": {
+    "by": "Claude",
+    "at": "2026-10-08T04:38:16Z",
+    "via": "Claude Code",
+    "note": "First system: tokens, 15 components, world/commanders/units/terrain sections, 37 assets."
+  }
+}

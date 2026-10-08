@@ -1,0 +1,25 @@
+<!-- @dsCard group="Actions" height=240 subtitle="the after-move menu" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CommandMenu — preview</title>
+<style>body{margin:0;background:var(--void);color:var(--ink);font-family:var(--font-sans)}</style>
+</head>
+<body>
+<div id="root" class="aw-stage"></div>
+<script>
+  var A = window.Ascendant, h = React.createElement;
+
+  function Demo() {
+    var s = React.useState('fire');
+    return h(React.Fragment, null,
+      h(A.CommandMenu, { title: 'Lancer', activeId: s[0], onSelect: s[1], items: [
+        { id: 'fire', label: 'Fire', hint: '3' }, { id: 'capture', label: 'Capture' }, { id: 'wait', label: 'Wait' }] }),
+      h(A.CommandMenu, { activeId: 'end', items: [
+        { id: 'end', label: 'End turn', hint: 'R' }, { id: 'co', label: 'CO', hint: 'C' }, { id: 'intel', label: 'Intel' }, { id: 'opts', label: 'Options' }, { id: 'suspend', label: 'Suspend' }] }));
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h(Demo));
+</script>
+</body>
+</html>

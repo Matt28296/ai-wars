@@ -1,0 +1,60 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ascendant Wars</title>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--void); color:var(--ink); font-family:var(--font-display); overflow:hidden; }
+  .cover { position:relative; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .helion { fill:var(--helion); }
+  .tidewell { fill:var(--tidewell); }
+  .verdant { fill:var(--verdant); }
+  .kestrel { fill:var(--kestrel); }
+  .move { fill:var(--overlay-move); stroke:var(--signal); stroke-width:1; }
+  .cur { fill:none; stroke:var(--signal); stroke-width:3.5; stroke-linecap:square; }
+  .words { position:absolute; left:var(--space-8); bottom:var(--space-6); max-width:440px; }
+  .name { margin:0; font-size:80px; line-height:.95; font-weight:700; letter-spacing:-.01em; color:var(--ink); }
+  .tag { margin:var(--space-3) 0 0 2px; font-family:var(--font-sans); font-size:14px; line-height:20px; font-weight:500; color:var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      helion 144×288 slab bled top and bottom (the protagonist nation, largest) · verdant 192×144 bled off the right · tidewell 144×144 bled off the bottom · kestrel 96×48 once — ≈ 30% of 960×288
+  arrangement a flush modular grid on the tile pitch: every side a multiple of the 48 px tile, blocks touching, each corner cut by the chamfer token so notches appear where they meet
+  pattern     "Read it in one glance": a unit's diamond movement range — 13 tiles in the overlay-move wash with signal edges — with the cursor's four corner brackets on its centre
+  scales      pitch = tile (48); range tiles inset 2 px; corner cuts = chamfer (12); cursor stroke 3.5 as on the battlefield
+-->
+<polygon class="helion" points="12,0 144,0 144,276 132,288 0,288 0,12"/>
+<polygon class="tidewell" points="156,144 288,144 288,276 276,288 144,288 144,156"/>
+<polygon class="verdant" points="300,48 480,48 480,180 468,192 288,192 288,60"/>
+<polygon class="kestrel" points="300,192 384,192 384,228 372,240 288,240 288,204"/>
+<rect class="move" x="194" y="2" width="44" height="44"/>
+<rect class="move" x="146" y="50" width="44" height="44"/>
+<rect class="move" x="194" y="50" width="44" height="44"/>
+<rect class="move" x="242" y="50" width="44" height="44"/>
+<rect class="move" x="98" y="98" width="44" height="44"/>
+<rect class="move" x="146" y="98" width="44" height="44"/>
+<rect class="move" x="194" y="98" width="44" height="44"/>
+<rect class="move" x="242" y="98" width="44" height="44"/>
+<rect class="move" x="290" y="98" width="44" height="44"/>
+<rect class="move" x="146" y="146" width="44" height="44"/>
+<rect class="move" x="194" y="146" width="44" height="44"/>
+<rect class="move" x="242" y="146" width="44" height="44"/>
+<rect class="move" x="194" y="194" width="44" height="44"/>
+<path class="cur" d="M190 107V94h13M229 94h13v13M242 133v13h-13M203 146h-13v-13"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">Ascendant<br>Wars</h1>
+<p class="tag">Turn-based tactics for the war after the Long Silence.</p>
+</div>
+</div>
+</body>
+</html>

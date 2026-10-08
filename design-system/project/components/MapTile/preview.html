@@ -1,0 +1,27 @@
+<!-- @dsCard group="Battlefield" height=232 subtitle="15 terrains, owned properties, ranges, cursor, fog" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MapTile — preview</title>
+<style>body{margin:0;background:var(--void);color:var(--ink);font-family:var(--font-sans)}</style>
+</head>
+<body>
+<div id="root" class="aw-stage"></div>
+<script>
+  var A = window.Ascendant, h = React.createElement;
+
+  var t = A.data.terrain.map(function (x) { return h(A.MapTile, { key: x.id, terrain: x.id }); });
+  var owned = ['helion', 'tidewell', 'verdant', 'kestrel', 'choir'].map(function (f, i) { return h(A.MapTile, { key: f, terrain: ['fabricator', 'arcology', 'skyport', 'spire', 'uplink'][i], owner: f }); });
+  var states = [
+    h(A.MapTile, { key: 'm', terrain: 'flats', overlay: 'move' }),
+    h(A.MapTile, { key: 'm2', terrain: 'canopy', overlay: 'move', cursor: 'select' }, h(A.UnitToken, { unit: 'lancer', faction: 'helion', selected: true })),
+    h(A.MapTile, { key: 'a', terrain: 'flats', overlay: 'attack' }),
+    h(A.MapTile, { key: 'a2', terrain: 'ridge', overlay: 'attack', cursor: 'target' }, h(A.UnitToken, { unit: 'trooper', faction: 'tidewell', hp: 6, facing: 'left' })),
+    h(A.MapTile, { key: 'f', terrain: 'canopy', fog: true })];
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
+    h('div', { style: { display: 'flex', flexWrap: 'wrap' } }, t),
+    h('div', { style: { display: 'flex', gap: 12, marginTop: 16 } }, h('div', { style: { display: 'flex' } }, owned), h('div', { style: { display: 'flex', gap: 6 } }, states))));
+</script>
+</body>
+</html>
