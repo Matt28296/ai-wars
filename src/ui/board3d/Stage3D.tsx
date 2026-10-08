@@ -12,6 +12,7 @@ import { commanderNameOf } from '../watch/format';
 import type { StageProps } from '../watch/Stage';
 import { StageRuntime } from './stage/runtime';
 import type { Overlay } from './stage/runtime';
+import type { QualityTier } from './stage/quality';
 import { MAX_ZOOM_LEVEL, stageAspect } from './stage/rig';
 
 export interface Stage3DProps extends StageProps {
@@ -27,6 +28,9 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
   const [overlay, setOverlay] = useState<Overlay | null>(null);
   const [zoom, setZoom] = useState(0);
   const [failed, setFailed] = useState<string | null>(null);
+  // The quality tier in force (high, medium, low): the runtime picks it from the machine, `?quality=` forces it, and a slow stretch lowers it.
+  // It is shown as data-quality for the viewer's report and the tests; nothing in the page reads it back.
+  const [quality, setQuality] = useState<QualityTier | null>(null);
 
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
@@ -44,6 +48,7 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
         onDone: (p) => onDoneRef.current(p),
         onOverlay: setOverlay,
         onZoom: setZoom,
+        onQuality: setQuality,
         onFail: (reason) => {
           setFailed(reason);
           onFailRef.current?.(reason);
@@ -97,6 +102,7 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
           role="img"
           aria-label={`Battlefield in 3D, cycle ${frame.cycle}, ${factionShort(bannerFaction)} turn`}
           data-step={step}
+          data-quality={quality ?? undefined}
           style={{ ['--aww-3d-ratio' as string]: stageAspect({ width: frame.width, height: frame.height }).toFixed(3) }}
         >
           {failed !== null && <div className="aww-stage3d-fail label">The 3D view is unavailable here. Switch to the flat board.</div>}

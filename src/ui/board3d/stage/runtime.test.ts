@@ -4,7 +4,12 @@
 // So these tests check the WIRING of G8b: what the terrain is told about occupancy, what the effects kit is told about reduced motion,
 // when the match intro runs, and what the storm and the table do.
 import { Group, Object3D, Vector2 } from 'three';
-import type { WebGLRenderer } from 'three';
+import type { Scene, WebGLRenderer, WebGLRenderTarget } from 'three';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Coord, GameEvent } from '../../../game/aw';
 import { fixtureMap } from '../../../game/aw/testing';
@@ -25,6 +30,8 @@ import { OCCUPIED_SNAP_DT_SEC } from './occupancy';
 import { fitDistance, PITCH_DEG } from './rig';
 import { StageRuntime } from './runtime';
 import type { StageHooks, StageModules, StageView } from './runtime';
+import { TIER_ORDER, passNames } from './quality';
+import type { QualitySignals, QualityTier } from './quality';
 import { stormCount } from './storm';
 import { fieldFrame, idOf } from './testing';
 
@@ -32,6 +39,9 @@ import { fieldFrame, idOf } from './testing';
 
 const CANVAS_W = 1000;
 const CANVAS_H = 600;
+
+/** A strong desktop GPU: the start tier is 'high' whatever machine runs the tests (the real signals come from the host's navigator). */
+const STRONG: QualitySignals = { renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)', maxTextureSize: 16384, hardwareConcurrency: 16, devicePixelRatio: 1 };
 
 interface Page { advance(ms: number): void; frames(count: number, ms?: number): void; now(): number; pendingFrames(): number }
 
@@ -171,7 +181,7 @@ interface Rig {
   page: Page;
   terrain: TerrainLog;
   views: ReturnType<typeof unitViews>;
-  hooks: { done: number; failed: string[] };
+  hooks: { done: number; failed: string[]; quality: string[] };
   view(partial: Partial<StageView> & Pick<StageView, 'timeline'>): void;
 }
 
@@ -179,10 +189,13 @@ function build(modules: Partial<StageModules> = {}): Rig {
   const page = installPage();
   const t = recordingTerrain();
   const views = unitViews();
-  const hooks = { done: 0, failed: [] as string[] };
-  const h: StageHooks = { onDone: () => { hooks.done++; }, onOverlay: () => undefined, onFail: (r) => { hooks.failed.push(r); } };
+  const hooks = { done: 0, failed: [] as string[], quality: [] as string[] };
+  const h: StageHooks = {
+    onDone: () => { hooks.done++; }, onOverlay: () => undefined, onFail: (r) => { hooks.failed.push(r); },
+    onQuality: (tier, pinned) => { hooks.quality.push(`${tier}${pinned ? ' (forced)' : ''}`); },
+  };
   const rt = new StageRuntime({ ...(el()) } as unknown as HTMLElement, h, {
-    createRenderer: () => fakeRenderer(), createTerrain: t.create, createUnitView: views.create, createFx: plainFx, ...modules,
+    createRenderer: () => fakeRenderer(), createTerrain: t.create, createUnitView: views.create, createFx: plainFx, search: '', signals: STRONG, ...modules,
   });
   return {
     rt, page, terrain: t.log, views, hooks,
@@ -1093,7 +1106,7 @@ describe('the whole stage with the real kits (terrain, units, effects) in node',
     const page = installPage();
     const hooks = { failed: [] as string[], done: 0 };
     const rt = new StageRuntime(el() as unknown as HTMLElement, { onDone: () => { hooks.done++; }, onOverlay: () => undefined, onFail: (r) => { hooks.failed.push(r); } }, {
-      createRenderer: () => fakeRenderer(),
+      createRenderer: () => fakeRenderer(), search: '', signals: STRONG,
     });
     rig = { rt, page } as unknown as Rig;
     rt.setView({ timeline, step: 0, plan: null, reducedMotion: false });
@@ -1103,5 +1116,336 @@ describe('the whole stage with the real kits (terrain, units, effects) in node',
     expect(hooks.failed).toEqual([]);
     expect(hooks.done).toBe(1);
     expect(rt.debug().table!.drawCalls).toBe(3);
+  });
+});
+
+
+// ---------------------------------------------------------------- G12: the terrain's motion freeze
+
+describe('the terrain follows reduced motion (setMotion)', () => {
+  /** A recording terrain that HAS setMotion (the living board of G11), logging every call. */
+  function motionTerrain(): { create: CreateTerrain; calls: boolean[]; made: () => number } {
+    const calls: boolean[] = [];
+    let made = 0;
+    const create: CreateTerrain = () => {
+      made++;
+      const v = {
+        group: new Group(), heightAt: () => 0, setOwners: () => undefined, setCapture: () => undefined, setOccupied: () => undefined,
+        setVisible: () => undefined, setWeather: () => undefined, update: () => undefined, dispose: () => undefined,
+        setMotion: (on: boolean) => { calls.push(on); },
+      };
+      return v as TerrainView;
+    };
+    return { create, calls, made: () => made };
+  }
+  const timeline = timelineOf([frame0, moved(frame0, LANCER, 2, 0), moved(frame0, LANCER, 2, 2)]);
+
+  it('is told motion ON on the first view and OFF when reduced motion comes on, and back; never twice in a row for one value', () => {
+    const t = motionTerrain();
+    const r = make({ createTerrain: t.create });
+    r.view({ timeline, step: 0, reducedMotion: false });
+    expect(t.calls).toEqual([true]);
+    r.view({ timeline, step: 1, reducedMotion: false }); // another step, the same setting
+    expect(t.calls).toEqual([true]);
+    r.view({ timeline, step: 1, reducedMotion: true });
+    expect(t.calls).toEqual([true, false]); // reduced motion = motion off
+    r.view({ timeline, step: 2, reducedMotion: true });
+    expect(t.calls).toEqual([true, false]);
+    r.view({ timeline, step: 2, reducedMotion: false });
+    expect(t.calls).toEqual([true, false, true]);
+  });
+
+  it('starts frozen when the page starts reduced', () => {
+    const t = motionTerrain();
+    const r = make({ createTerrain: t.create });
+    r.view({ timeline, reducedMotion: true });
+    expect(t.calls).toEqual([false]);
+  });
+
+  it('a new terrain (another map) is told the current setting, so a rebuilt board never wakes up under reduced motion', () => {
+    const t = motionTerrain();
+    const r = make({ createTerrain: t.create });
+    r.view({ timeline, reducedMotion: true });
+    expect(t.calls).toEqual([false]);
+    const other = viewTimeline(recordMatch({
+      ...fieldSetup([], { fog: false }), map: fixtureMap(['.....', '.....'], [{ type: 'lancer', owner: 0, x: 1, y: 0 }, { type: 'trooper', owner: 1, x: 4, y: 1 }], undefined, 'another-map'),
+    }, []), 'all');
+    r.view({ timeline: other, reducedMotion: true });
+    expect(t.made()).toBe(2);
+    expect(t.calls).toEqual([false, false]); // once per terrain, each told off
+  });
+
+  it('is skipped when the terrain has no setMotion (the kit before G11, or a stand-in), without a throw', () => {
+    const r = make(); // the recording terrain of this file has no setMotion
+    expect(() => {
+      r.view({ timeline, reducedMotion: true });
+      r.view({ timeline, reducedMotion: false });
+      r.page.frames(3);
+    }).not.toThrow();
+    expect(r.hooks.failed).toEqual([]);
+  });
+
+  it('a setMotion that is not a function is skipped as well (the guard is typeof, not truthiness)', () => {
+    const create: CreateTerrain = () => ({ ...recordingTerrain().create({} as never), setMotion: 'yes' }) as unknown as TerrainView;
+    const r = make({ createTerrain: create });
+    expect(() => r.view({ timeline, reducedMotion: true })).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------- G12: quality tiers
+
+describe('quality tiers: each tier builds exactly its passes', () => {
+  type Internals = { composer: { passes: object[] }; sun: { shadow: { mapSize: { x: number; y: number } } }; ao: unknown };
+  const peek = (r: Rig): Internals => r.rt as unknown as Internals;
+
+  it('high has the occlusion, medium has not, low has no bloom either; the shadow map is 2048, 1024, 1024', () => {
+    const wantCount: Record<QualityTier, number> = { high: 6, medium: 5, low: 4 }; // written by hand: scene, [AO], [bloom], output, FXAA, vignette
+    for (const tier of TIER_ORDER) {
+      const r = make({ search: `?quality=${tier}`, signals: { renderer: 'SwiftShader' } }); // the forcing beats the software guess
+      r.view({ timeline: timelineOf([frame0]) });
+      r.page.frames(3);
+      const passes = peek(r).composer.passes;
+      expect(passes, tier).toHaveLength(wantCount[tier]);
+      const count = (k: abstract new (...a: never[]) => object): number => passes.filter((p) => p instanceof k).length;
+      expect(count(RenderPass), tier).toBe(1);
+      expect(count(GTAOPass), tier).toBe(tier === 'high' ? 1 : 0);
+      expect(count(UnrealBloomPass), tier).toBe(tier === 'low' ? 0 : 1);
+      expect(count(OutputPass), tier).toBe(1);
+      expect(count(ShaderPass), tier).toBe(2); // FXAA and the vignette, on every tier
+      expect(r.rt.debug().quality.passes, tier).toEqual(passNames(tier));
+      expect(peek(r).sun.shadow.mapSize.x, tier).toBe({ high: 2048, medium: 1024, low: 1024 }[tier]);
+      expect(peek(r).sun.shadow.mapSize.y, tier).toBe(peek(r).sun.shadow.mapSize.x);
+      expect(r.rt.debug().quality.shadowMapSize, tier).toBe(peek(r).sun.shadow.mapSize.x);
+      expect(r.rt.qualityTier).toBe(tier);
+      r.rt.dispose();
+    }
+  });
+
+  it('the pixel ratio is capped at 2 on high and medium and at 1 on low, on a 3x screen', () => {
+    const ratio = (tier: QualityTier, dpr: number): number => {
+      const r = make({ search: `?quality=${tier}` });
+      (window as unknown as { devicePixelRatio: number }).devicePixelRatio = dpr;
+      (r.rt as unknown as { resize(): void }).resize();
+      const got = r.rt.debug().quality.pixelRatio;
+      r.rt.dispose();
+      return got;
+    };
+    expect([ratio('high', 3), ratio('medium', 3), ratio('low', 3)]).toEqual([2, 2, 1]);
+    expect([ratio('high', 1), ratio('medium', 1), ratio('low', 1)]).toEqual([1, 1, 1]); // a cap, never a raise
+    expect(ratio('low', 1.5)).toBe(1);
+    expect(ratio('medium', 1.5)).toBe(1.5);
+  });
+
+  it('draws the scene twice per frame on high (the picture and the occlusion\'s depth+normal buffer, which uses an override material) and once on the others', () => {
+    for (const tier of TIER_ORDER) {
+      let scene: Scene | null = null;
+      const seen = { scene: 0, overridden: 0, all: 0 };
+      const counting = (): WebGLRenderer => {
+        const base = fakeRenderer();
+        return new Proxy(base, {
+          get: (t, k) => (k === 'render'
+            ? (what: unknown) => {
+              seen.all++;
+              if (what === scene) { seen.scene++; if ((what as Scene).overrideMaterial) seen.overridden++; }
+            }
+            : (t as unknown as Record<string | symbol, unknown>)[k]),
+        });
+      };
+      const r = make({ search: `?quality=${tier}`, createRenderer: counting });
+      scene = (r.rt as unknown as { scene: Scene }).scene;
+      r.view({ timeline: timelineOf([frame0]) });
+      r.page.frames(2);
+      Object.assign(seen, { scene: 0, overridden: 0, all: 0 });
+      r.page.frames(1); // exactly one composer frame
+      expect(seen.scene, tier).toBe(tier === 'high' ? 2 : 1);
+      expect(seen.overridden, tier).toBe(tier === 'high' ? 1 : 0);
+      // every other pass is a full-screen quad: the AO adds passes, and its extra scene draw is the one above
+      expect(seen.all, tier).toBeGreaterThan(seen.scene);
+      r.rt.dispose();
+    }
+  });
+});
+
+describe('quality tiers: the start tier', () => {
+  const SOFT: QualitySignals = { renderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)', maxTextureSize: 8192, hardwareConcurrency: 8, devicePixelRatio: 1 };
+
+  it('a software renderer starts at low, a strong GPU at high', () => {
+    const soft = make({ signals: SOFT });
+    expect(soft.rt.qualityTier).toBe('low');
+    expect(soft.rt.debug().quality).toMatchObject({ tier: 'low', pinned: false, passes: passNames('low') });
+    soft.rt.dispose();
+    const strong = make({ signals: STRONG });
+    expect(strong.rt.qualityTier).toBe('high');
+    expect(strong.rt.debug().quality).toMatchObject({ tier: 'high', pinned: false, passes: passNames('high') });
+  });
+
+  it('?quality= forces a tier over the guess, in both directions, and marks it forced', () => {
+    const up = make({ signals: SOFT, search: '?quality=high' });
+    expect(up.rt.qualityTier).toBe('high');
+    expect(up.rt.debug().quality.pinned).toBe(true);
+    up.rt.dispose();
+    const down = make({ signals: STRONG, search: '?quality=low' });
+    expect(down.rt.qualityTier).toBe('low');
+    expect(down.rt.debug().quality.pinned).toBe(true);
+    down.rt.dispose();
+    const junk = make({ signals: SOFT, search: '?quality=ultra' }); // not a tier: the guess stands
+    expect(junk.rt.qualityTier).toBe('low');
+    expect(junk.rt.debug().quality.pinned).toBe(false);
+  });
+
+  it('prefers-reduced-motion does not change the start tier', () => {
+    const tiers: QualityTier[] = [];
+    for (const reduced of [false, true]) {
+      const r = make({ signals: { ...STRONG, hardwareConcurrency: 4 } });
+      r.view({ timeline: timelineOf([frame0]), reducedMotion: reduced });
+      r.page.frames(2);
+      tiers.push(r.rt.qualityTier);
+      r.rt.dispose();
+    }
+    expect(tiers).toEqual(['medium', 'medium']);
+  });
+
+  it('tells the page the tier at the start, and on every change', () => {
+    const r = make({ signals: STRONG });
+    expect(r.hooks.quality).toEqual(['high']);
+    const forced = make({ signals: STRONG, search: '?quality=low' });
+    expect(forced.hooks.quality).toEqual(['low (forced)']);
+  });
+
+  it('reads the signals from the renderer and the page when none are injected: a software renderer string off the context starts low, a strong one high', () => {
+    vi.stubGlobal('navigator', { hardwareConcurrency: 16 }); // the host's own core count must not decide this test
+    const contextOf = (name: string): (() => WebGLRenderer) => () => new Proxy(fakeRenderer(), {
+      get: (t, k) => (k === 'getContext'
+        ? () => ({ MAX_TEXTURE_SIZE: 1, getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 2 }), getParameter: (p: number) => (p === 2 ? name : 16384) })
+        : (t as unknown as Record<string | symbol, unknown>)[k]),
+    });
+    const soft = make({ signals: null, createRenderer: contextOf('ANGLE (Mesa, llvmpipe (LLVM 15.0.7, 256 bits), OpenGL 4.5)') });
+    expect(soft.rt.qualityTier).toBe('low');
+    soft.rt.dispose();
+    const strong = make({ signals: null, createRenderer: contextOf('ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)') });
+    expect(strong.rt.qualityTier).toBe('high');
+    strong.rt.dispose();
+    // the page's own signals count too: two cores on a strong GPU is low
+    vi.stubGlobal('navigator', { hardwareConcurrency: 2 });
+    const weakCpu = make({ signals: null, createRenderer: contextOf('NVIDIA GeForce RTX 3070') });
+    expect(weakCpu.rt.qualityTier).toBe('low');
+  });
+});
+
+describe('quality tiers: the adaptive step in the stage', () => {
+  type Internals = { ao: { gtaoRenderTarget: WebGLRenderTarget; pdRenderTarget: WebGLRenderTarget; normalRenderTarget: WebGLRenderTarget } | null };
+  const timeline = timelineOf([frame0]);
+
+  it('drops one tier after a sustained slow stretch (high to medium to low), rebuilding the passes, the shadow map and the pixel ratio', () => {
+    const r = make({ signals: STRONG });
+    r.view({ timeline });
+    (window as unknown as { devicePixelRatio: number }).devicePixelRatio = 2;
+    (r.rt as unknown as { resize(): void }).resize();
+    r.page.frames(30, 16);
+    expect(r.rt.qualityTier).toBe('high'); // fast frames: nothing happens
+    expect(r.rt.debug().quality.pixelRatio).toBe(2);
+    r.page.frames(60, 40); // 40 ms frames for 2.4 s: a full window, once
+    expect(r.rt.qualityTier).toBe('medium');
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'medium', pinned: false, passes: passNames('medium'), shadowMapSize: 1024, pixelRatio: 2 });
+    r.page.frames(60, 40); // the second drop needs its own warm-up and its own full window
+    expect(r.rt.qualityTier).toBe('low');
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'low', passes: passNames('low'), shadowMapSize: 1024, pixelRatio: 1 });
+    expect(r.hooks.quality).toEqual(['high', 'medium', 'low']);
+    expect(r.hooks.failed).toEqual([]);
+  });
+
+  it('never climbs back: after the drop a long run of fast frames leaves the tier (and the passes) as they are', () => {
+    const r = make({ signals: STRONG });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    r.page.frames(60, 40);
+    expect(r.rt.qualityTier).toBe('medium');
+    r.page.frames(600, 16); // ten seconds at 60 fps
+    expect(r.rt.qualityTier).toBe('medium');
+    expect(r.rt.debug().quality.passes).toEqual(passNames('medium'));
+    expect(r.hooks.quality).toEqual(['high', 'medium']);
+  });
+
+  it('a single spike (a 600 ms frame) never drops it', () => {
+    const r = make({ signals: STRONG });
+    r.view({ timeline });
+    r.page.frames(60, 16);
+    r.page.advance(600);
+    r.page.frames(200, 16);
+    expect(r.rt.qualityTier).toBe('high');
+    expect(r.hooks.quality).toEqual(['high']);
+  });
+
+  it('a forced tier is never second-guessed: slow frames do nothing', () => {
+    const r = make({ signals: STRONG, search: '?quality=high' });
+    r.view({ timeline });
+    r.page.frames(300, 60);
+    expect(r.rt.qualityTier).toBe('high');
+    expect(r.rt.debug().quality.pinned).toBe(true);
+    expect(r.rt.debug().quality.frameMs).toBeNull();
+  });
+
+  it('a hidden tab is not a slow device: frames while the page is hidden are not counted', () => {
+    const r = make({ signals: STRONG });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    (document as unknown as { hidden: boolean }).hidden = true;
+    r.page.frames(300, 60);
+    expect(r.rt.qualityTier).toBe('high');
+    (document as unknown as { hidden: boolean }).hidden = false;
+    r.page.frames(120, 60); // and once it is back, a slow device is still caught
+    expect(r.rt.qualityTier).not.toBe('high');
+  });
+
+  it('frames with nothing to draw (no view yet) say nothing about the machine', () => {
+    const r = make({ signals: STRONG });
+    r.page.frames(300, 60); // no setView yet
+    r.view({ timeline });
+    r.page.frames(60, 16);
+    expect(r.rt.qualityTier).toBe('high');
+  });
+
+  it('setQuality forces a tier for good (up or down) and stops the adaptive step', () => {
+    const r = make({ signals: { renderer: 'llvmpipe' } });
+    r.view({ timeline });
+    expect(r.rt.qualityTier).toBe('low');
+    r.rt.setQuality('high');
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'high', pinned: true, passes: passNames('high'), shadowMapSize: 2048 });
+    r.page.frames(300, 60);
+    expect(r.rt.qualityTier).toBe('high');
+    r.rt.setQuality('high'); // the same tier again changes nothing
+    expect(r.hooks.quality).toEqual(['low', 'high (forced)']);
+  });
+
+  it('dropping a tier frees the occlusion pass\'s targets, and dispose frees whatever tier is left', () => {
+    const r = make({ signals: STRONG });
+    r.view({ timeline });
+    r.page.frames(3, 16);
+    const ao = (r.rt as unknown as Internals).ao!;
+    const freed = new Set<string>();
+    const watch = (name: string, t: WebGLRenderTarget): void => t.addEventListener('dispose', () => freed.add(name));
+    watch('ao', ao.gtaoRenderTarget);
+    watch('denoise', ao.pdRenderTarget);
+    watch('normal+depth', ao.normalRenderTarget);
+    expect(freed.size).toBe(0); // known-bad: nothing is freed while the pass is in use
+    r.page.frames(80, 40); // the drop to medium (20 warm-up frames, then a 2 s window)
+    expect(r.rt.qualityTier).toBe('medium');
+    expect([...freed].sort()).toEqual(['ao', 'denoise', 'normal+depth']);
+    expect((r.rt as unknown as Internals).ao).toBeNull();
+  });
+
+  it('dispose frees the occlusion pass\'s targets on a high stage', () => {
+    const r = make({ signals: STRONG, search: '?quality=high' });
+    r.view({ timeline });
+    r.page.frames(3, 16);
+    const ao = (r.rt as unknown as Internals).ao!;
+    const freed = new Set<string>();
+    ao.gtaoRenderTarget.addEventListener('dispose', () => freed.add('ao'));
+    ao.pdRenderTarget.addEventListener('dispose', () => freed.add('denoise'));
+    ao.normalRenderTarget.addEventListener('dispose', () => freed.add('normal+depth'));
+    expect(freed.size).toBe(0);
+    r.rt.dispose();
+    expect([...freed].sort()).toEqual(['ao', 'denoise', 'normal+depth']);
+    r.rt.dispose(); // twice is fine
   });
 });
