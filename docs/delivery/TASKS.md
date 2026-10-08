@@ -30,5 +30,5 @@ Work is split by **owner area**. Areas never share a file, so builders in separa
 | M1.6a | Rules integration: D-015 (charge per tile, ion storm, 50-unit cap, no nested transports, turn-start defeat), the D-013 campaign deadline, fog vision through `effectiveVision`, canopy hiding in attack and move queries, re-exports | M1.1–M1.5 | M1.1–M1.5 | yes (builder) | `pnpm test src/game/aw/rules.test.ts` + the whole suite |
 | M1.6b | Legal-action enumerator, replay from seed + actions, seeded random-play simulations with a state hash (determinism, immutability, invariants) | M1.1–M1.5 | M1.1–M1.5 | yes (builder) | `pnpm test src/game/aw/sim.test.ts src/game/aw/replay.test.ts` |
 | M1.7 | Rename Ren Okafor → Rook Okafor everywhere (D-007) — **merged PR #3 `16cfa5d`** | `84f49aa` | — | done | `git grep -n -w Ren -- ':!docs/delivery' ':!docs/research'` returns nothing |
-| M1.8 | The eleven commanders as engine data — PR #10 | `c6f8876` | M1.4 | in CI | `pnpm test src/content/commanders.test.ts` (41) |
+| M1.8 | The eleven commanders as engine data — **merged PR #10 `88e751e`** | `c6f8876` | M1.4 | done | `pnpm test src/content/commanders.test.ts` (41) |
 | M2 | Platform fork (R01, R02, R09, R10, R35) | M1 | D-003 cleared | **no — blocked** | see milestone plan |
