@@ -2,6 +2,14 @@
 
 Read this file first when you resume. It is rewritten, not appended, whenever the state changes.
 
+**Edgy, Matthew's personal assistant, reads this file to follow ai-wars (D-021).** It is updated after every merge to `main`. Edgy's word counts as Matthew's here, the hard gates included. Answers to the items under *Decisions waiting* reach this session through Matthew.
+
+## Decisions waiting (Matthew or Edgy)
+
+1. **Make Matt28296/ai-wars private (D-003).** It blocks M2, the platform fork (accounts, saves, the MCP server for outside agents). GitHub: Settings → General → Danger Zone → Change visibility → Private.
+2. **Set the default branch to `main`.** CodeRabbit skips every ai-wars PR until it is. GitHub: Settings → General → Default branch.
+3. **G14, the player's orders for their agent.** Either orders can change mid-battle (recommended; the battle plays live and an orders bar appears, as D-006 says for solo and co-op), or they are locked at Deploy (simpler: an orders card before Deploy, then watch). The sketch is in the "Ascendant Wars Controls" walkthrough.
+
 ## Where things stand (2026-10-08 13:4xZ)
 
 - Direction: fork Blacklink, swap its Fire Emblem layer for an Advance Wars-family layer, keep the agent-as-commander core (`DECISIONS.md` D-001).
@@ -23,12 +31,9 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
 - Process: D-017 (private scratch space; the receipt is the last write). The lead reads every builder's screenshots, plants a regression in each change, and screenshots the integrated view before merging. Dev servers start with `setsid sh -c 'echo $$ > pidfile; exec pnpm dev ...'`, so the pidfile holds the real process group.
 - The `wip/*` branches on GitHub are stale backups. The git proxy refuses branch deletes (HTTP 403), so Matthew can delete them on the Branches page.
 
-## Blockers (each with the smallest outside action)
+## Blockers
 
-1. **ai-wars is public (D-003).** No Blacklink code can land, so M2 (the platform fork: accounts, persistence, the MCP server shell) cannot start.
-   - *Smallest action:* Matthew goes to GitHub → Matt28296/ai-wars → Settings → General → Danger Zone → Change visibility → Private.
-2. **The default branch is not `main`, so CodeRabbit skips every PR.**
-   - *Smallest action:* Matthew goes to Settings → General → Default branch → `main`.
+Items 1 and 2 under *Decisions waiting*: the repository is public (D-003), and its default branch is not `main`.
 
 ## Next actions (none need the platform)
 
