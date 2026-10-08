@@ -1,10 +1,16 @@
 // Sentence formatting of every event kind, with literal expected sentences, plus the log a real fogged match produces.
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { COMMANDERS } from '../../content/commanders';
 import type { GameEvent } from '../../game/aw';
 import { UNSEEN_UNIT } from '../../game/aw/view-events';
-import { article, buildLog, formatEvent, makeFormatContext, powerNameOf } from './format';
-import type { FormatContext } from './format';
+import { buildDemoMatch } from './demo';
+import { EventLog } from './EventLog';
+import {
+  FOLLOW_SLACK_PX, LOG_ICONS, article, atBottom, buildLog, followAfterScroll, formatEvent, groupLog, logIconOf, logOpacity, makeFormatContext, powerNameOf, stripeCue,
+} from './format';
+import type { FormatContext, LogIcon, LogLine } from './format';
 import { recordMatch, viewTimeline } from './timeline';
 import { endTurn, fieldSetup, pt, walk } from './testing';
 
@@ -108,7 +114,7 @@ describe('formatEvent: one plain sentence per event kind', () => {
 
   it('fails soft on a kind it has never heard of, instead of throwing (known-bad input)', () => {
     const line = formatEvent({ kind: 'bogus' } as unknown as GameEvent, ctx, 5);
-    expect(line).toEqual({ step: 5, text: 'Something happens', tone: 'quiet' });
+    expect(line).toEqual({ step: 5, text: 'Something happens', tone: 'quiet', kind: 'unknown', icon: 'info', faction: null });
   });
 
   it('tags each line with a tone, so the log can quieten routine moves', () => {
@@ -188,5 +194,229 @@ describe('articles', () => {
     expect(article('Arc Battery')).toBe('an');
     expect(article('Lancer')).toBe('a');
     expect(article('Obsidian Drone')).toBe('an');
+  });
+});
+
+// ---------------------------------------------------------------- the log's icons, stripes, fade and follow
+
+// Written out by hand, one per kind, so that moving a kind to another icon in the table is a test failure and not a silent edit.
+const ICON_BY_KIND: Record<GameEvent['kind'], LogIcon> = {
+  moved: 'move', ambushed: 'alert', dropBlocked: 'alert', attacked: 'attack', destroyed: 'destroyed', captureProgress: 'capture',
+  captured: 'capture', loaded: 'cargo', unloaded: 'cargo', joined: 'repair', supplied: 'repair', built: 'build', powerActivated: 'power',
+  powerEffect: 'power', turnEnded: 'turn', turnStarted: 'turn', repaired: 'repair', crashed: 'destroyed', weather: 'weather',
+  playerDefeated: 'destroyed', victory: 'victory',
+};
+
+describe('log icons by kind of event', () => {
+  it('gives every event kind its icon, and carries it on the line formatEvent returns', () => {
+    for (const kind of Object.keys(SAMPLES) as GameEvent['kind'][]) {
+      expect(logIconOf(kind), kind).toBe(ICON_BY_KIND[kind]);
+      expect(LOG_ICONS[kind], kind).toBe(ICON_BY_KIND[kind]);
+      const line = formatEvent(SAMPLES[kind], ctx);
+      expect(line.icon, kind).toBe(ICON_BY_KIND[kind]);
+      expect(line.kind).toBe(kind);
+    }
+  });
+
+  it('has the seven kinds the order names, each told apart from the others', () => {
+    const seven: [GameEvent['kind'], LogIcon][] = [
+      ['attacked', 'attack'], ['destroyed', 'destroyed'], ['captured', 'capture'], ['built', 'build'],
+      ['powerActivated', 'power'], ['repaired', 'repair'], ['turnStarted', 'turn'],
+    ];
+    for (const [kind, icon] of seven) expect(logIconOf(kind)).toBe(icon);
+    expect(new Set(seven.map(([, i]) => i)).size).toBe(7);
+    // known-bad: an attack must not read as a destruction or a capture
+    expect(logIconOf('attacked')).not.toBe(logIconOf('destroyed'));
+    expect(logIconOf('attacked')).not.toBe(logIconOf('captured'));
+  });
+
+  it('gives a kind it has never heard of, or a prototype key, the plain dot (known-bad input)', () => {
+    for (const bad of ['bogus', '', '__proto__', 'toString', 'constructor', 'hasOwnProperty']) expect(logIconOf(bad), bad).toBe('info');
+  });
+});
+
+describe('the faction stripe and the sentence\'s side', () => {
+  const rec = recordMatch(
+    fieldSetup([{ type: 'trooper', owner: 0, x: 3, y: 1 }, { type: 'arc', owner: 1, x: 6, y: 1 }, { type: 'skimmer', owner: 1, x: 8, y: 1 }], { fog: true }),
+    [endTurn, walk(2, [6], { kind: 'attack', target: pt(3) })],
+  );
+  const shot = (viewer: 0 | 1 | 'all'): LogLine => buildLog(viewTimeline(rec, viewer).steps).find((l) => l.kind === 'attacked')!;
+
+  it('stripes a line with the side of its subject: the Tidewell arc\'s shot is Tidewell, to the side that sees who fired', () => {
+    for (const viewer of ['all', 1] as const) expect(shot(viewer), String(viewer)).toMatchObject({ faction: 'tidewell', icon: 'attack', tone: 'combat' });
+  });
+
+  it('gives NO stripe to a shot from a unit the viewer was never shown (known-bad: it must not say tidewell)', () => {
+    const hidden = shot(0);
+    expect(hidden.text).toMatch(/^An unseen unit hits/);
+    expect(hidden.faction).toBeNull();
+    expect(stripeCue(hidden)).toBe('none');
+  });
+
+  it('pairs the stripe with the faction name in the sentence, or with a sigil when the sentence has none', () => {
+    const demo = buildDemoMatch();
+    const log = buildLog(viewTimeline(recordMatch(demo.setup, demo.actions), 'all').steps);
+    const power = log.find((l) => l.kind === 'powerActivated')!;
+    expect(power.faction).not.toBeNull();
+    expect(power.text.includes('Helion') || power.text.includes('Tidewell')).toBe(false); // "Rook Okafor activates ..." names no faction
+    expect(stripeCue(power)).toBe('sigil');
+    expect(stripeCue(log.find((l) => l.kind === 'attacked')!)).toBe('name');
+    // every striped line in a whole match carries one cue or the other, and an unstriped line carries neither
+    for (const l of log) expect(stripeCue(l) === 'none', `${l.kind}: ${l.text}`).toBe(l.faction === null);
+  });
+
+  it('cues by the FACTION named, not by any faction named (known-bad: the other side\'s name does not count)', () => {
+    expect(stripeCue({ faction: 'helion', text: 'Tidewell Trooper is destroyed' })).toBe('sigil');
+    expect(stripeCue({ faction: 'helion', text: 'Helion Lancer hits Tidewell Trooper: 42%' })).toBe('name');
+    expect(stripeCue({ faction: null, text: 'Helion builds a Lancer: 7,000 CR' })).toBe('none');
+  });
+
+  it('turns a turn into a section header: "Cycle 03" over "Tidewell turn, income 4,000 CR", still one sentence in text', () => {
+    const line = formatEvent(SAMPLES.turnStarted, ctx);
+    expect(line.section).toEqual({ title: 'Cycle 03', detail: 'Tidewell turn, income 4,000 CR' });
+    expect(line.text).toBe('Cycle 03: Tidewell turn, income 4,000 CR');
+    expect(formatEvent(SAMPLES.turnEnded, ctx).section).toBeUndefined();
+    expect(formatEvent(SAMPLES.attacked, ctx).section).toBeUndefined();
+  });
+});
+
+describe('grouping the log by turn', () => {
+  const mk = (kind: GameEvent['kind'], text: string, section?: LogLine['section']): LogLine => ({ step: 1, text, tone: 'info', kind, icon: 'info', faction: null, ...(section ? { section } : {}) });
+  const head = (n: number): LogLine => mk('turnStarted', `Cycle ${n}`, { title: `Cycle ${n}`, detail: 'x' });
+
+  it('puts each line under the header before it, and lines before the first header in a header-less section', () => {
+    const a = mk('attacked', 'a');
+    const b = mk('built', 'b');
+    const c = mk('captured', 'c');
+    const groups = groupLog([a, head(1), b, c, head(2)]);
+    expect(groups.map((g) => [g.head?.text ?? null, g.lines.map((l) => l.text)])).toEqual([[null, ['a']], ['Cycle 1', ['b', 'c']], ['Cycle 2', []]]);
+  });
+
+  it('is empty for no lines, and keeps every line exactly once (known-bad: none lost or doubled)', () => {
+    expect(groupLog([])).toEqual([]);
+    const all = [head(1), mk('moved', '1'), mk('moved', '2'), head(2), head(3), mk('moved', '3')];
+    const g = groupLog(all);
+    expect(g.flatMap((s) => [...(s.head ? [s.head] : []), ...s.lines])).toEqual(all);
+    expect(g).toHaveLength(3);
+  });
+});
+
+describe('older lines fade, and the log follows the newest line until the viewer scrolls up', () => {
+  it('fades by age from full strength, never below 78%, and reads a bad age as the newest (known-bad input)', () => {
+    expect(logOpacity(0)).toBe(1);
+    expect(logOpacity(1)).toBe(0.96);
+    expect(logOpacity(2)).toBe(0.92);
+    expect(logOpacity(5)).toBe(0.8);
+    expect(logOpacity(100)).toBe(0.78);
+    for (let a = 1; a < 30; a++) expect(logOpacity(a)).toBeLessThanOrEqual(logOpacity(a - 1));
+    for (const bad of [-3, Number.NaN, Number.POSITIVE_INFINITY]) expect(logOpacity(bad), String(bad)).toBe(1);
+  });
+
+  const geom = (top: number, height = 1000, client = 200) => ({ top, height, client });
+
+  it('counts the end as within a few pixels of it, and nothing further', () => {
+    expect(atBottom(geom(800))).toBe(true);
+    expect(atBottom(geom(800 - FOLLOW_SLACK_PX))).toBe(true);
+    expect(atBottom(geom(800 - FOLLOW_SLACK_PX - 1))).toBe(false);
+  });
+
+  it('stops following the moment the viewer scrolls UP, and does not resume while they read', () => {
+    expect(followAfterScroll(true, geom(500), 800)).toBe(false); // scrolled up from the end
+    expect(followAfterScroll(false, geom(400), 500)).toBe(false); // still going up
+    expect(followAfterScroll(false, geom(400), 400)).toBe(false); // a scroll event that did not move (content grew below them)
+    expect(followAfterScroll(false, geom(450), 400)).toBe(false); // scrolling back down, not there yet: still reading
+  });
+
+  it('follows again once the viewer reaches the end, and holds through its own smooth scroll in flight', () => {
+    expect(followAfterScroll(false, geom(790), 600)).toBe(true); // back at the bottom
+    expect(followAfterScroll(true, geom(700), 650)).toBe(true); // our own smooth scroll, still on its way down
+    expect(followAfterScroll(true, geom(800), 800)).toBe(true);
+  });
+});
+
+describe('the event log\'s markup', () => {
+  const demo = buildDemoMatch();
+  const rec = recordMatch(demo.setup, demo.actions);
+  const lines = buildLog(viewTimeline(rec, 0).steps).filter((l) => l.step <= 76);
+  const html = renderToStaticMarkup(createElement(EventLog, { lines }));
+  // Every row (a line, or a turn header) opens with a tag whose class starts "aww-log-line ".
+  const items = html.split(/(?=<(?:li|div) class="aww-log-line )/).slice(1);
+  const shownLines = lines.filter((l) => l.tone !== 'quiet');
+
+  it('draws one row per kept line, with the icon of its kind, and hides the quiet moves until asked', () => {
+    expect(shownLines.length).toBeGreaterThan(20);
+    expect(items).toHaveLength(Math.min(120, shownLines.length));
+    const tail = shownLines.slice(-items.length);
+    items.forEach((li, i) => expect(li, `row ${i}`).toContain(`data-kind="${tail[i].kind}"`));
+    items.filter((li) => !li.includes('--turn')).forEach((li) => {
+      const kind = /data-kind="([^"]+)"/.exec(li)![1] as GameEvent['kind'];
+      expect(li).toContain(`data-icon="${ICON_BY_KIND[kind]}"`);
+    });
+    expect(html).not.toMatch(/holds position|moves \d+ tiles?/);
+  });
+
+  it('reads each turn as a heading with its cycle, and no other line is one', () => {
+    const turns = shownLines.filter((l) => l.kind === 'turnStarted');
+    expect(turns.length).toBeGreaterThan(3);
+    expect((html.match(/role="heading"/g) ?? []).length).toBe(turns.filter((t) => shownLines.slice(-items.length).includes(t)).length);
+    expect(html).toContain('aww-log-line--turn');
+    expect(html).toContain('Cycle 0');
+  });
+
+  it('lights exactly one line, the last, and fades the older ones toward the top', () => {
+    expect((html.match(/aria-current="true"/g) ?? []).length).toBe(1);
+    expect(items[items.length - 1]).toContain('aria-current="true"');
+    const fades = items.map((li) => Number(/--fade:([0-9.]+)/.exec(li)![1]));
+    expect(fades[fades.length - 1]).toBe(1);
+    expect(Math.min(...fades)).toBeGreaterThanOrEqual(0.78);
+    expect(Math.min(...fades)).toBeLessThan(1);
+    // older never stronger than newer, apart from the headers, which stay full so a pinned header never shows through
+    const bodyFades = items.map((li, i) => [li, fades[i]] as const).filter(([li]) => !li.includes('--turn')).map(([, f]) => f);
+    for (let i = 1; i < bodyFades.length; i++) expect(bodyFades[i]).toBeGreaterThanOrEqual(bodyFades[i - 1]);
+  });
+
+  it('stripes each line in its side\'s colour and draws a sigil only where the sentence names no faction', () => {
+    const startsWith = (kind: string, side: string): string => items.find((li) => li.includes(`data-kind="${kind}"`) && li.includes(`body-sm">${side} `))!;
+    const helion = startsWith('attacked', 'Helion');
+    expect(helion).toContain('--stripe:var(--helion)');
+    expect(helion).not.toContain('aw-sigil');
+    // the other side's shot is that side's colour, even though the sentence also names Helion (the stripe follows the subject)
+    const tidewell = startsWith('attacked', 'Tidewell');
+    expect(tidewell).toContain('--stripe:var(--tidewell)');
+    expect(tidewell).toContain('Helion');
+    const power = items.find((li) => li.includes('data-kind="powerActivated"'));
+    expect(power).toBeDefined();
+    expect(power).toContain('aw-sigil');
+    expect(power).toContain('--stripe:var(--');
+    const turn = items.find((li) => li.includes('--turn'))!;
+    expect(turn).toContain('aw-sigil');
+  });
+
+  it('pins each turn header inside its own section, so the next header pushes it out (no two pinned headers overlap)', () => {
+    const sections = html.split('<li class="aww-log-section">').slice(1);
+    expect(sections.length).toBeGreaterThan(3);
+    for (const [i, sec] of sections.entries()) {
+      const headers = sec.split('</li></ol></li>')[0].match(/aww-log-line--turn/g) ?? [];
+      expect(headers.length, `section ${i}`).toBeLessThanOrEqual(1);
+      if (i > 0) expect(sec.indexOf('aww-log-line--turn'), `section ${i} opens with its header`).toBeLessThan(sec.indexOf('<ol class="aww-log-rows">'));
+    }
+  });
+
+  it('draws a fogged viewer no stripe on a shot it cannot attribute (known-bad: the shooter\'s colour must not leak)', () => {
+    const fogRec = recordMatch(
+      fieldSetup([{ type: 'trooper', owner: 0, x: 3, y: 1 }, { type: 'arc', owner: 1, x: 6, y: 1 }, { type: 'skimmer', owner: 1, x: 8, y: 1 }], { fog: true }),
+      [endTurn, walk(2, [6], { kind: 'attack', target: pt(3) })],
+    );
+    const row = (viewer: 0 | 'all'): string => {
+      const out = renderToStaticMarkup(createElement(EventLog, { lines: buildLog(viewTimeline(fogRec, viewer).steps) }));
+      return out.split('<li ').find((li) => li.includes('data-kind="attacked"'))!;
+    };
+    expect(row(0)).toContain('--stripe:transparent');
+    expect(row(0)).not.toContain('--tidewell');
+    expect(row('all')).toContain('--stripe:var(--tidewell)');
+  });
+
+  it('is never blank: an empty log says nothing has happened yet', () => {
+    expect(renderToStaticMarkup(createElement(EventLog, { lines: [] }))).toContain('Nothing has happened yet.');
   });
 });

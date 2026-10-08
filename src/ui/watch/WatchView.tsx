@@ -11,6 +11,7 @@ import type { Action, CreateGameOptions } from '../../game/aw';
 import { Controls, ViewerToggle } from './Controls';
 import { EventLog } from './EventLog';
 import { Hud } from './Hud';
+import { IntelCard } from './IntelCard';
 import { Stage } from './Stage';
 import { RendererToggle } from '../board3d/stage/RendererToggle';
 import { chooseRenderer, detectWebGL2 } from '../board3d/stage/support';
@@ -166,10 +167,11 @@ export function WatchView({ setup, actions, viewer, onViewerChange, initialStep,
         )}
         <aside className="aww-side">
           <Hud step={step} />
+          <IntelCard timeline={timeline} step={step.index} />
           <EventLog lines={visibleLog} />
         </aside>
         <div className="aww-bottom">
-          <Controls state={pb} dispatch={dispatch} />
+          <Controls state={pb} dispatch={dispatch} timeline={timeline} />
         </div>
       </div>
     </div>

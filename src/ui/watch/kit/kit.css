@@ -1,7 +1,8 @@
 /* Ascendant Wars kit, as used by the watch-only battle viewer (M5.0).
    Ported verbatim from design-system/project/components/bundle.css (frame, button, status chip, unit token, map tile, commanders,
    power meter, player HUD, turn banner). Loaded after src/styles/tokens.css; every value is a token or derived from one.
-   Menus, cards, the battle forecast and dialogue are not part of a viewer and are not ported. */
+   Menus, the battle forecast and dialogue are not part of a viewer and are not ported. The intel gauges (kicker, stat row, defense diamonds,
+   meter, HP bar) are ported from the UnitCard and TerrainCard rules of the same bundle; rounds (ammo pips) are this viewer's addition. */
 
 /* ---- frame: the chamfered panel (top-left + bottom-right cut, 1px line-strong edge) ---- */
 .aw-frame {
@@ -97,8 +98,40 @@
 .aw-power-state--ready { color: var(--signal); }
 .aw-hud > .aw-frame-in { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-2) var(--space-4) var(--space-2) var(--space-2); }
 .aw-hud-body { display: flex; flex-direction: column; gap: 2px; }
-.aw-hud-top { display: flex; align-items: baseline; gap: var(--space-3); }
+.aw-hud-top { display: flex; align-items: center; gap: var(--space-3); min-height: 24px; }
+.aw-hud-badge { margin-left: auto; display: inline-flex; }
+.aw-hud-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
 .aw-hud-funds { display: flex; align-items: baseline; gap: var(--space-1); }
+
+/* A power you can afford glows in the one accent: the meter and its word. The pulse is dropped under reduced motion; the glow stays. */
+.aw-power--ready svg { filter: drop-shadow(0 0 3px var(--signal)); }
+@media (prefers-reduced-motion: no-preference) {
+  .aw-power--ready svg { animation: aw-power-glow 1800ms ease-in-out infinite; }
+}
+@keyframes aw-power-glow {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--signal)); }
+  50% { filter: drop-shadow(0 0 6px var(--signal)); }
+}
+
+/* ---- intel gauges (UnitCard, TerrainCard) ---- */
+.aw-kicker { color: var(--ink-muted); }
+.aw-stat-row { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; }
+.aw-stat-row > .label { width: 56px; flex: none; }
+.aw-stat-row > .stat-sm { min-width: 40px; text-align: right; }
+.aw-diamonds { display: inline-flex; gap: var(--space-1); }
+.aw-diamond { width: 9px; height: 9px; transform: rotate(45deg); border: 1.5px solid var(--line-strong); box-sizing: border-box; margin: 0 2px; }
+.aw-diamond--on { background: var(--signal); border-color: var(--signal); }
+.aw-meter { flex: 1; height: 6px; background: var(--line); border-radius: var(--radius-xs); overflow: hidden; }
+.aw-meter > span { display: block; height: 100%; background: var(--ink); }
+.aw-meter--warn > span { background: var(--warn); }
+.aw-hpbar { flex: 1; display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+.aw-hpbar > span { height: 8px; background: var(--line); border-radius: 1px; }
+.aw-hpbar > span.on { background: var(--ink); }
+.aw-hpbar--crit > span.on { background: var(--danger); }
+.aw-rounds { flex: 1; display: flex; flex-wrap: wrap; gap: 3px; }
+.aw-rounds > span { width: 5px; height: 12px; background: var(--line); border-radius: 1px 1px 0 0; }
+.aw-rounds > span.on { background: var(--ink); }
+.aw-rounds--low > span.on { background: var(--warn); }
 
 /* ---- turn banner ---- */
 .aw-banner {

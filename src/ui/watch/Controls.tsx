@@ -1,10 +1,12 @@
 // Playback controls and nothing else: play or pause, step back and forward, speed, a scrubber. There are no unit controls of any kind.
-import type { ChangeEvent, ReactElement, ReactNode } from 'react';
-import { Button, Sigil, cx, factionShort } from './kit';
+import { useMemo, useState } from 'react';
+import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
+import { Button, Sigil, cx, factionShort, markOf } from './kit';
 import { SPEEDS } from './timing';
 import type { Speed } from './timing';
+import { cycleOfStep, fractionOfStep, scrubTip, stepAtPointer, timelineMarks } from './controls';
 import type { PlaybackAction, PlaybackState } from './controls';
-import type { ViewFrame, Viewer } from './timeline';
+import type { Timeline, ViewFrame, Viewer } from './timeline';
 
 const ICON = {
   back: 'M9 1 3 6l6 5V1zM2 1h1.5v10H2z',
@@ -24,10 +26,24 @@ function Glyph({ name }: { name: keyof typeof ICON }): ReactElement {
 export interface ControlsProps {
   state: PlaybackState;
   dispatch: (a: PlaybackAction) => void;
+  /** The viewer's timeline: with it the scrubber shows its cycle ticks and power markers; without it, a plain slider. */
+  timeline?: Timeline;
 }
 
-export function Controls({ state, dispatch }: ControlsProps): ReactElement {
+/** The slider thumb's width in px (watch.css --aww-thumb): the marks and the tooltip are placed with the same figure. */
+const THUMB_PX = 16;
+const at = (p: number): CSSProperties => ({ '--p': p }) as CSSProperties;
+
+export function Controls({ state, dispatch, timeline }: ControlsProps): ReactElement {
   const { step, last, playing, speed } = state;
+  const marks = useMemo(() => (timeline ? timelineMarks(timeline.steps) : null), [timeline]);
+  const [hover, setHover] = useState<number | null>(null);
+  // The tooltip names the cycle under the pointer while it is over the track, and the cycle under the thumb otherwise (keyboard focus).
+  const tipStep = hover ?? step;
+  const onMove = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setHover(stepAtPointer(e.clientX, r, THUMB_PX, last));
+  };
   return (
     <div className="aww-controls" role="group" aria-label="Playback controls">
       <div className="aww-transport">
@@ -62,21 +78,44 @@ export function Controls({ state, dispatch }: ControlsProps): ReactElement {
           </Button>
         ))}
       </div>
-      <label className="aww-scrub">
+      <div className="aww-scrub">
         <span className="label aww-muted aww-scrub-label">Step</span>
-        <input
-          type="range"
-          min={0}
-          max={last}
-          value={step}
-          aria-label="Scrub through the match"
-          aria-valuetext={`Step ${step} of ${last}`}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => dispatch({ type: 'seek', step: Number(e.target.value) })}
-        />
+        <div className="aww-track" onPointerMove={onMove} onPointerLeave={() => setHover(null)} onPointerCancel={() => setHover(null)}>
+          {marks && (
+            <div className="aww-marks" aria-hidden>
+              {marks.cycles.map((t) => (
+                <span key={`c${t.step}`} className={cx('aww-tick', t.major && 'aww-tick--major')} style={at(fractionOfStep(t.step, last))} data-cycle={t.cycle} />
+              ))}
+              {marks.powers.map((p) => (
+                <span
+                  key={`p${p.step}-${p.player}`}
+                  className={cx('aww-pmark', `aww-pmark--${p.level}`)}
+                  style={{ ...at(fractionOfStep(p.step, last)), '--pmark': markOf(p.faction) } as CSSProperties}
+                  data-power={p.level}
+                />
+              ))}
+            </div>
+          )}
+          <input
+            type="range"
+            min={0}
+            max={last}
+            value={step}
+            style={at(fractionOfStep(step, last))}
+            aria-label="Scrub through the match"
+            aria-valuetext={marks ? `Step ${step} of ${last}, cycle ${cycleOfStep(marks, step)}` : `Step ${step} of ${last}`}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => dispatch({ type: 'seek', step: Number(e.target.value) })}
+          />
+          {marks && (
+            <div className="aww-track-tip caption" style={{ '--tp': fractionOfStep(tipStep, last) } as CSSProperties} role="presentation">
+              {scrubTip(marks, tipStep)}
+            </div>
+          )}
+        </div>
         <span className="stat-sm aww-scrub-count">
           {step}/{last}
         </span>
-      </label>
+      </div>
     </div>
   );
 }
