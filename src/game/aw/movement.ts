@@ -193,6 +193,7 @@ export function reachable(state: GameState, unitId: number): Map<string, ReachEn
 }
 
 export interface PathCheck {
+  /** move points of the whole submitted path (checked against the unit's move); an ambushed unit stops at `stop` and is charged only for those steps */
   cost: number;
   /** index of the last path tile the unit actually reaches (path.length - 1 unless ambushed) */
   stop: number;
@@ -202,7 +203,8 @@ export interface PathCheck {
 /** Validates an explicit path from the mover's point of view (throws IllegalActionError). */
 export function checkPath(state: GameState, unit: Unit, path: Coord[]): PathCheck {
   if (!Array.isArray(path) || path.length === 0) illegal('path must contain at least the starting tile');
-  if (path[0].x !== unit.x || path[0].y !== unit.y) illegal('path must start at the unit');
+  // A hole in the path (null from a malformed action) must be an illegal action, not a TypeError that escapes isLegal.
+  if (!path[0] || path[0].x !== unit.x || path[0].y !== unit.y) illegal('path must start at the unit');
   const mt = unitType(unit.type).moveType;
   const ignore = ignoredMoveCosts(state, unit);
   const grid = fogActive(state) ? visionGrid(state, unit.owner) : null;
