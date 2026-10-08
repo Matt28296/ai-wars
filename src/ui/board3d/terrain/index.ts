@@ -1,55 +1,324 @@
-// PLACEHOLDER terrain (lead, D-018): one flat-coloured box per tile, so the renderer core can be built and tested before
-// the real terrain kit lands. The terrain builder replaces this file's internals; the export and the TerrainView contract
-// stay as they are.
-import { BoxGeometry, Color, Group, Mesh, MeshStandardMaterial } from 'three';
-import type { CreateTerrain, TerrainView } from '../contract';
-import { tileCenter } from '../contract';
-import { FACTION_COLOR, NEUTRAL_COLOR, TERRAIN_COLOR, terrainFamily } from '../palette';
+// The 3D terrain kit (D-018, art-direction.md "Terrain kit"): `createTerrain` builds the whole board as a handful of merged or instanced
+// meshes (about a dozen draw calls on the largest map), so the renderer core can spend its budget on units and effects.
+//
+//   ground    bevelled tiles with baked vertex-colour noise, height steps, ridge facets, river banks and shoal dips   (ground.ts)
+//   water     sea / river / shoal / under-span water: waves, glints, shore foam, a current in rivers                  (water.ts)
+//   trees     3-5 instanced, swaying trees per canopy tile, two species                                              (flora.ts)
+//   props     boulders, pebbles, glass shards, maglev track and bridges, the six property models                     (flora.ts, track.ts, buildings.ts)
+//   rings     capture rings, one mesh, progress read from a texture                                                  (capture.ts)
+// Fog of war and the ion-storm grade are applied inside every material (shading.ts), so one texture write changes what is dimmed.
+import {
+  BufferAttribute, Color, Group, InstancedMesh, Mesh, NearestFilter,
+  type BufferGeometry, type Material, type Texture,
+} from 'three';
+import type { FactionId, Weather } from '../../../game/aw';
+import type { CreateTerrain, TerrainInput, TerrainView } from '../contract';
+import { FACTION_ACCENT, FACTION_COLOR, NEUTRAL_COLOR } from '../palette';
+import { addProperty, NEUTRAL_ACCENT } from './buildings';
+import { buildRings, createRingMaterial } from './capture';
+import { addDecor, broadleafGeometry, pineGeometry, planTrees } from './flora';
+import { PartSet, type Bucket, type PartRecord } from './geo';
+import { buildGround } from './ground';
+import { analyseBoard, type Board } from './layout';
+import { buildWindowTextures, createMaterials, createUniforms, tileMap } from './shading';
+import { buildSigilAtlas, sigilCell, sigilInk, sigilUv } from './sigils';
+import { addTrack } from './track';
+import { buildWater, createWaterMaterial } from './water';
 
-export const createTerrain: CreateTerrain = (input) => {
+export { analyseBoard, neighbourMask, pieceFor, pieceMask, rotateMask, WALK_HEIGHT } from './layout';
+export type { Piece, PieceKind } from './layout';
+export { sigilCell, sigilInk } from './sigils';
+
+export interface TerrainStats {
+  tiles: number;
+  /** Renderable objects in the group; each is one draw call, plus one more in the shadow pass if it casts shadows. */
+  meshes: number;
+  drawCalls: number;
+  triangles: number;
+  trees: number;
+  properties: number;
+}
+
+export interface TerrainDebug {
+  /** Fog map value of a tile: 255 seen, 0 hidden. */
+  fogAt(x: number, y: number): number;
+  /** Capture map value of a tile, 0..255. */
+  captureAt(x: number, y: number): number;
+  /** Current ion-storm amount, 0..1. */
+  storm(): number;
+  /** Faction a property currently shows (null = neutral). */
+  factionAt(x: number, y: number): FactionId | null;
+  /** Colour (0xRRGGBB) the first paint part of a property currently has, read back from the vertex buffer. */
+  paintAt(x: number, y: number): number | null;
+  /** The atlas cell the property's banner sigil currently points at, read back from the decal UVs. */
+  sigilAt(x: number, y: number): number | null;
+  /** The sigil alpha (0..255) a player would see at (a, b) in 0..1 across a property's banner decal, read through the decal's real UVs into the atlas. */
+  sigilSample(x: number, y: number, a: number, b: number): number | null;
+  /** Every material the kit uses, by role, and the shared uniforms they must all read (the fog map above all). */
+  materials(): Record<string, Material>;
+  uniforms(): { fogMap: Texture; storm: number; time: number };
+}
+
+export interface TerrainKit extends TerrainView {
+  readonly board: Board;
+  readonly stats: TerrainStats;
+  readonly debug: TerrainDebug;
+  /** Geometries, materials and textures this kit created that have not been disposed. */
+  live(): { geometries: number; materials: number; textures: number };
+}
+
+class Ledger {
+  readonly geometries = new Set<BufferGeometry>();
+  readonly materials = new Set<Material>();
+  readonly textures = new Set<Texture>();
+  geometry<T extends BufferGeometry>(g: T): T {
+    this.geometries.add(g);
+    g.addEventListener('dispose', () => this.geometries.delete(g));
+    return g;
+  }
+  material<T extends Material>(m: T): T {
+    this.materials.add(m);
+    m.addEventListener('dispose', () => this.materials.delete(m));
+    return m;
+  }
+  texture<T extends Texture>(t: T): T {
+    this.textures.add(t);
+    t.addEventListener('dispose', () => this.textures.delete(t));
+    return t;
+  }
+  disposeAll(): void {
+    for (const g of [...this.geometries]) g.dispose();
+    for (const m of [...this.materials]) m.dispose();
+    for (const t of [...this.textures]) t.dispose();
+  }
+}
+
+const triangleCount = (m: Mesh): number => {
+  const g = m.geometry;
+  const per = (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+  return m instanceof InstancedMesh ? per * m.count : per;
+};
+
+export function createTerrainKit(input: TerrainInput): TerrainKit {
+  const board = analyseBoard(input);
+  const { width, height } = board;
+  const ledger = new Ledger();
   const group = new Group();
   group.name = 'terrain';
-  const geo = new BoxGeometry(0.98, 0.2, 0.98);
-  const tiles: { mesh: Mesh<BoxGeometry, MeshStandardMaterial>; base: Color }[] = [];
-  for (let y = 0; y < input.height; y++) {
-    for (let x = 0; x < input.width; x++) {
-      const fam = TERRAIN_COLOR[terrainFamily(input.terrainAt(x, y))];
-      const mat = new MeshStandardMaterial({ color: fam.base, roughness: 0.9 });
-      const mesh = new Mesh(geo, mat);
-      const c = tileCenter(x, y);
-      mesh.position.set(c.x, -0.1, c.z);
-      mesh.receiveShadow = true;
-      group.add(mesh);
-      tiles.push({ mesh, base: new Color(fam.base) });
-    }
+
+  // Textures and shared uniforms.
+  const fogMap = ledger.texture(tileMap(width, height, 255));
+  const capMap = ledger.texture(tileMap(width, height, 0, NearestFilter));
+  const atlas = ledger.texture(buildSigilAtlas());
+  const win = buildWindowTextures();
+  ledger.texture(win.albedo);
+  ledger.texture(win.emissive);
+  const uniforms = createUniforms(fogMap, width, height);
+  const mats = createMaterials(uniforms, win.albedo, win.emissive, atlas);
+  const waterMat = createWaterMaterial(uniforms);
+  const ringMat = createRingMaterial(uniforms, capMap);
+  for (const m of [mats.ground, mats.solid, mats.glossy, mats.windows, mats.glow, mats.decal, mats.tree, mats.treeDepth, waterMat, ringMat]) ledger.material(m);
+
+  const meshes: Mesh[] = [];
+  const add = (name: string, geo: BufferGeometry, mat: Material, cast: boolean, receive: boolean, order = 0): Mesh => {
+    const mesh = new Mesh(ledger.geometry(geo), mat);
+    mesh.name = name;
+    mesh.castShadow = cast;
+    mesh.receiveShadow = receive;
+    mesh.renderOrder = order;
+    group.add(mesh);
+    meshes.push(mesh);
+    return mesh;
+  };
+
+  // Ground and water.
+  const ground = buildGround(board);
+  add('terrain:ground', ground.geometry, mats.ground, true, true);
+  const water = buildWater(board);
+  if (water.geometry) add('terrain:water', water.geometry, waterMat, false, true);
+
+  // Props: track, decor, buildings, merged per bucket.
+  const parts = new PartSet();
+  for (const t of board.tiles) {
+    addTrack(parts, t);
+    addDecor(parts, t);
+    addProperty(parts, t);
   }
-  const at = (x: number, y: number) => tiles[y * input.width + x];
-  const view: TerrainView = {
+  const merged = parts.finish();
+  const bucketMat: Record<Bucket, Material> = { solid: mats.solid, glossy: mats.glossy, windows: mats.windows, glow: mats.glow, decal: mats.decal };
+  const bucketGeo: Partial<Record<Bucket, BufferGeometry>> = {};
+  for (const b of ['solid', 'glossy', 'windows', 'glow', 'decal'] as Bucket[]) {
+    const g = merged[b];
+    if (!g) continue;
+    g.computeBoundingBox();
+    g.computeBoundingSphere();
+    bucketGeo[b] = g;
+    add(`terrain:${b}`, g, bucketMat[b], b !== 'glow' && b !== 'decal', b !== 'glow', b === 'decal' ? 1 : 0);
+  }
+
+  // Trees.
+  const plan = planTrees(board);
+  const species = [pineGeometry(), broadleafGeometry()];
+  for (const sp of [0, 1] as const) {
+    const list = plan.filter((p) => p.species === sp);
+    const geo = ledger.geometry(species[sp]);
+    if (!list.length) continue;
+    const im = new InstancedMesh(geo, mats.tree, list.length);
+    im.name = sp === 0 ? 'terrain:pines' : 'terrain:broadleaf';
+    list.forEach((inst, i) => { im.setMatrixAt(i, inst.matrix); im.setColorAt(i, inst.tint); });
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    im.customDepthMaterial = mats.treeDepth;
+    im.castShadow = true;
+    im.receiveShadow = true;
+    im.computeBoundingSphere();
+    group.add(im);
+    meshes.push(im);
+  }
+
+  // Capture rings.
+  const rings = buildRings(board);
+  if (rings) add('terrain:capture-rings', rings, ringMat, false, false, 5);
+
+  // ---------------------------------------------------------------- owners
+
+  const byTile = new Map<number, PartRecord[]>();
+  for (const r of parts.records) {
+    const list = byTile.get(r.tile);
+    if (list) list.push(r); else byTile.set(r.tile, [r]);
+  }
+  const shown = new Map<number, FactionId | null>();
+  const tmp = new Color();
+
+  function showOwner(tile: number, faction: FactionId | null): void {
+    const recs = byTile.get(tile);
+    if (!recs) return;
+    const paint = faction ? FACTION_COLOR[faction] : NEUTRAL_COLOR;
+    const accent = faction ? FACTION_ACCENT[faction] : NEUTRAL_ACCENT;
+    const ink = faction ? sigilInk(faction) : 0xffffff;
+    const [u0, v0, u1, v1] = sigilUv(sigilCell(faction));
+    for (const rec of recs) {
+      const g = bucketGeo[rec.bucket];
+      if (!g) continue;
+      const col = g.getAttribute('color') as BufferAttribute;
+      if (rec.role === 'paint') tmp.setHex(paint);
+      else if (rec.role === 'accent') tmp.setHex(accent);
+      else tmp.setHex(ink);
+      // An unowned beacon is a dull lens, not a light.
+      const mult = rec.role === 'accent' && !faction ? rec.mult * 0.16 : rec.mult;
+      for (let i = rec.start; i < rec.start + rec.count; i++) col.setXYZ(i, tmp.r * mult, tmp.g * mult, tmp.b * mult);
+      col.needsUpdate = true;
+      if (rec.role === 'ink' && rec.baseUv) {
+        const uv = g.getAttribute('uv') as BufferAttribute;
+        for (let k = 0; k < rec.count; k++) uv.setXY(rec.start + k, u0 + rec.baseUv[k * 2] * (u1 - u0), v0 + rec.baseUv[k * 2 + 1] * (v1 - v0));
+        uv.needsUpdate = true;
+      }
+    }
+    shown.set(tile, faction);
+  }
+
+  const properties = board.tiles.filter((t) => t.property);
+  let stormTarget = input.weather === 'ionstorm' ? 1 : 0;
+  uniforms.uStorm.value = stormTarget;
+  const stats: TerrainStats = {
+    tiles: width * height,
+    meshes: meshes.length,
+    drawCalls: meshes.reduce((n, m) => n + 1 + (m.castShadow ? 1 : 0), 0),
+    triangles: meshes.reduce((n, m) => n + triangleCount(m), 0),
+    trees: plan.length,
+    properties: properties.length,
+  };
+  const view: TerrainKit = {
     group,
-    heightAt: () => 0,
+    board,
+    heightAt(x, y) {
+      const cx = Math.min(width - 1, Math.max(0, Math.floor(x)));
+      const cy = Math.min(height - 1, Math.max(0, Math.floor(y)));
+      return board.at(cx, cy).walk;
+    },
     setOwners(ownerAt) {
-      for (let y = 0; y < input.height; y++) for (let x = 0; x < input.width; x++) {
-        if (terrainFamily(input.terrainAt(x, y)) !== 'structure') continue;
-        const p = ownerAt(x, y);
+      for (const t of properties) {
+        const p = ownerAt(t.x, t.y);
         const f = p === null ? null : input.factionOf(p);
-        at(x, y).base.set(f ? FACTION_COLOR[f] : NEUTRAL_COLOR);
-        at(x, y).mesh.material.color.copy(at(x, y).base);
+        if (shown.get(t.index) !== f || !shown.has(t.index)) showOwner(t.index, f);
       }
     },
-    setCapture() {},
+    setCapture(progressAt) {
+      const data = capMap.image.data as Uint8Array;
+      for (const t of properties) data[t.index] = Math.round(Math.min(1, Math.max(0, progressAt(t.x, t.y))) * 255);
+      capMap.needsUpdate = true;
+    },
+    setOccupied() {
+      // Contract stub (lead): the low form of occupied properties is ORDER G8a's. Until it lands, buildings keep their full height.
+    },
     setVisible(visibleAt) {
-      for (let y = 0; y < input.height; y++) for (let x = 0; x < input.width; x++) {
-        const t = at(x, y);
-        t.mesh.material.color.copy(t.base).multiplyScalar(visibleAt(x, y) ? 1 : 0.45);
-      }
+      const data = fogMap.image.data as Uint8Array;
+      for (const t of board.tiles) data[t.index] = visibleAt(t.x, t.y) ? 255 : 0;
+      fogMap.needsUpdate = true;
     },
-    setWeather() {},
-    update() {},
+    setWeather(weather: Weather) {
+      stormTarget = weather === 'ionstorm' ? 1 : 0;
+    },
+    update(dtSec, timeSec) {
+      uniforms.uTime.value = timeSec;
+      uniforms.uStorm.value += (stormTarget - uniforms.uStorm.value) * (1 - Math.exp(-Math.max(0, dtSec) * 3));
+      mats.glow.emissiveIntensity = 1 + 0.1 * Math.sin(timeSec * 2.3);
+    },
     dispose() {
-      geo.dispose();
-      for (const t of tiles) t.mesh.material.dispose();
+      group.clear();
+      ledger.disposeAll();
     },
+    stats,
+    debug: {
+      fogAt: (x, y) => (fogMap.image.data as Uint8Array)[y * width + x],
+      captureAt: (x, y) => (capMap.image.data as Uint8Array)[y * width + x],
+      storm: () => uniforms.uStorm.value,
+      factionAt: (x, y) => shown.get(y * width + x) ?? null,
+      materials: () => ({ ...mats, water: waterMat, rings: ringMat }),
+      uniforms: () => ({ fogMap: uniforms.uFogMap.value, storm: uniforms.uStorm.value, time: uniforms.uTime.value }),
+      paintAt(x, y) {
+        const rec = byTile.get(y * width + x)?.find((r) => r.role === 'paint');
+        const g = rec && bucketGeo[rec.bucket];
+        if (!rec || !g) return null;
+        const col = g.getAttribute('color') as BufferAttribute;
+        return tmp.setRGB(col.getX(rec.start), col.getY(rec.start), col.getZ(rec.start)).getHex();
+      },
+      sigilSample(x, y, a, b) {
+        const rec = byTile.get(y * width + x)?.find((r) => r.role === 'ink' && r.baseUv);
+        const g = rec && bucketGeo.decal;
+        if (!rec || !g || !rec.baseUv) return null;
+        const uv = g.getAttribute('uv') as BufferAttribute;
+        let lo = -1; let hi = -1;
+        for (let k = 0; k < rec.count; k++) {
+          if (rec.baseUv[k * 2] === 0 && rec.baseUv[k * 2 + 1] === 0) lo = rec.start + k;
+          if (rec.baseUv[k * 2] === 1 && rec.baseUv[k * 2 + 1] === 1) hi = rec.start + k;
+        }
+        if (lo < 0 || hi < 0) return null;
+        const u = uv.getX(lo) + (uv.getX(hi) - uv.getX(lo)) * a;
+        const v = uv.getY(lo) + (uv.getY(hi) - uv.getY(lo)) * b;
+        const img = atlas.image as { data: Uint8Array; width: number; height: number };
+        const px = Math.min(img.width - 1, Math.max(0, Math.floor(u * img.width)));
+        const py = Math.min(img.height - 1, Math.max(0, Math.floor(v * img.height)));
+        return img.data[(py * img.width + px) * 4 + 3];
+      },
+      sigilAt(x, y) {
+        const rec = byTile.get(y * width + x)?.find((r) => r.role === 'ink' && r.baseUv);
+        const g = rec && bucketGeo.decal;
+        if (!rec || !g || !rec.baseUv) return null;
+        const uv = g.getAttribute('uv') as BufferAttribute;
+        // Find the cell whose rectangle contains this decal's first corner.
+        for (let cell = 0; cell < 6; cell++) {
+          const [u0, v0, u1, v1] = sigilUv(cell);
+          const u = uv.getX(rec.start); const v = uv.getY(rec.start);
+          if (u >= u0 - 1e-6 && u <= u1 + 1e-6 && v >= v0 - 1e-6 && v <= v1 + 1e-6) return cell;
+        }
+        return null;
+      },
+    },
+    live: () => ({ geometries: ledger.geometries.size, materials: ledger.materials.size, textures: ledger.textures.size }),
   };
   view.setOwners(input.ownerAt);
   return view;
-};
+}
+
+export const createTerrain: CreateTerrain = (input) => createTerrainKit(input);
