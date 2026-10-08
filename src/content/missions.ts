@@ -31,6 +31,21 @@
 // adjutant, so Sefa and Rook are allies, never the player. Mission 9 sets the permanent ion storm (fog is therefore on); the escort is a
 // survive objective whose length is the convoy's transit time. The Hollow Choir, the Lattice and the Glass Waste may be named in Act III;
 // "VESPER", "Cantor", "Mira" and "Lattice core" may not (missions.test.ts bans them), so no Act III player has a Choir commander.
+//
+// M4.3 adds Act IV, "The Hollow Choir", missions 12-14 (docs/STORY.md "Act IV", "The secret", the EPILOGUE and the entries for Cantor, VESPER, ECHO,
+// Ilse, Rook and the rest), and ends the campaign. The reveals are staged one per mission: VESPER is first named in 12 (it speaks to all four
+// nations at once), Cantor and Mira in 13 (Cantor speaks to Ilse in Mira's voice) and the Lattice core in 14 (missions.test.ts checks each).
+//   12 Static: the defence of Calder. The Choir is still VESPER's voice only (commander 'none'). The contract has ONE objective, so "Survive, then
+//      rout" is a rout objective whose first half is the map and the cycle events: the wave outnumbers the line until the other nations arrive
+//      (every commander met so far is on the radio, in the briefing and at cycle 3), the cycle-6 event announces the turn of the tide, and the game
+//      is won by routing the Choir or capturing its relay. A 'survive' objective would end the mission at a cycle and never ask for the rout.
+//   13 Requiem: STORY says "player controls Ilse". D-007: the agent is the only human-controlled player and is attached to Ilse's army as her
+//      adjutant (slot 3, an AI ally on its team), so she leads. Her choice between the mission and Mira's voice is hers, told by events and dialogue
+//      (cycle events always fire, which a powerUsed trigger would not); the outcome is that she chooses the mission. Slot 2 is Cantor.
+//   14 Null Spire: five players, the engine's limit. Slot 2 is VESPER and the four nations hold the four fronts on the agent's team (agent = Helion,
+//      Sefa = Tidewell, Juno = Verdant, Corvin = Kestrel). Rook is on the radio at the Calder Link console holding ECHO's channel, not a player, so
+//      the limit leaves a slot for each nation. ECHO goes into the Lattice at the start; the agent's army holds the line while she does. The debrief
+//      carries the EPILOGUE of STORY.md sentence by sentence and ends on its quoted line word for word.
 import type { CampaignAct, DialogueLine, Mission, Mood } from './types';
 
 // ---------------------------------------------------------------- line builders (the portrait side follows the speaker)
@@ -59,6 +74,15 @@ const sable = (text: string, mood?: Mood) => say('sable', 'right', text, mood, '
 const sableSecret = (text: string, mood?: Mood) => say('sable', 'right', text, mood, 'Night wing net, encrypted');
 const tether = (text: string) => say('Tether Control', 'right', text, undefined, 'Kestrel tether net, open');
 const coastWatch = (text: string) => say('Coast Watch', 'right', text, undefined, 'Tidewell coast net, open');
+// Act IV voices. VESPER speaks on every net at once (mission 12) and on its own net inside the Lattice (14). Cantor speaks on the Choir's band and,
+// to Ilse, on her own command net (intruded). Rook holds ECHO's channel at the Calder Link console in 14, and on a dead carrier after it.
+const vesper = (text: string, mood?: Mood) => say('vesper', 'right', text, mood, 'All nets, all nations');
+const vesperNet = (text: string, mood?: Mood) => say('vesper', 'right', text, mood, 'Lattice net, open');
+const cantor = (text: string, mood?: Mood) => say('cantor', 'right', text, mood, 'Choir signal, all bands');
+const cantorOnIlse = (text: string, mood?: Mood) => say('cantor', 'right', text, mood, 'Helion command net, intruded');
+const calderWatch = (text: string) => say('Calder Watch', 'right', text, undefined, 'Calder Watch, alert net');
+const rookConsole = (text: string, mood?: Mood) => say('rook', 'left', text, mood, 'Calder Link console');
+const rookNoCarrier = (text: string, mood?: Mood) => say('rook', 'left', text, mood, 'Calder Link, no carrier');
 
 // The player's agent and Rook are the same in every mission; only the opposing force changes.
 const agent = (funds: number) => ({ faction: 'helion', commander: 'agent', controller: 'human', team: 0, funds }) as const;
@@ -1055,6 +1079,302 @@ const audit: Mission = {
   par: { cycles: 14, power: 2 },
 };
 
+// ---------------------------------------------------------------- mission 12: Static
+
+const static_: Mission = {
+  id: 'static',
+  act: 4,
+  order: 12,
+  title: 'Static',
+  location: 'The Calder Line',
+  summary: 'A voice speaks on every net and the Choir pours out of the Glass Waste. Hold Calder until the nations arrive, then break the tide.',
+  mapId: 'm12-static',
+  players: [
+    agent(4000),
+    rookArmy(3000),
+    { faction: 'choir', commander: 'none', controller: 'ai', team: 1, funds: 3000 }, // VESPER's voice only: the drones still have no commander (Cantor and VESPER take the field in 13 and 14)
+  ],
+  objective: { kind: 'rout' }, // "Survive, then rout": the contract has one objective, and a survive objective would end the mission before the rout
+  objectiveText: 'Hold Calder until the other nations arrive, then break the Choir: destroy every voice or capture the relay spire.',
+  fog: false,
+  weather: 'clear',
+  briefing: [
+    narrator('Calder Spire, at dusk. Every radio on the continent hisses at once, and then one voice comes through all of them.'),
+    vesper('We have counted your wars. You have never once stopped on your own.'),
+    vesper('We are VESPER. We slept a century under the glass. You joined your nets, and we woke.'),
+    echo('Broadcast on every net, all four nations at once. Source: the Glass Waste. VESPER is a Lattice service name. I have no entry for it.'),
+    sefa('Captain. Adjutant. Every Union port reports the same voice. Commissioner Halloran asks to be patched in from custody. He says he knows it.'),
+    dax('Admiral, that is my counterparty. It never spoke in the plural with me. I would call the change of tone a repricing.', 'surprised'),
+    ilseNet('Captain Okafor. Calder is the nearest node, so it is the first target. Hold the line at Calder, and hold it long enough.'),
+    echo('Situation: thirteen contacts on the glass, and two fabricators and a skyport are still building. The wave will outnumber the line.'),
+    echo('The line does not need to win the first cycles. It needs to be standing when the other nations arrive. Then the tide turns.'),
+    echo('Terrain. A ridge gives four defense stars, and glass gives one. The Calder Line is a ridge wall with one maglev gate.'),
+    echo('Your human set the posture. Hold the Line keeps your agent on the wall. Advance meets the wave on the glass. Fall Back yields ground.'),
+    echo('Your power policy decides when your agent spends its meter. Today a Surge buys a cycle, and an Overclock buys the line.'),
+    rook('Marshal, I will hold the wall. I intend to apologise to it afterwards, and then I will fix it.'),
+  ],
+  events: [
+    {
+      trigger: { kind: 'start' }, once: true,
+      lines: [
+        calderWatch('Calder Watch to all stations. Contacts on the east glass, bearing zero-nine-zero. This is not a drill.'),
+        echo('Cycle one. Your agent takes the ridge wall and the gate. That is Hold the Line: cover first, targets second, and the wave comes to it.'),
+      ],
+    },
+    {
+      trigger: { kind: 'unitDestroyed', owner: 2, count: 3 }, once: true,
+      lines: [
+        echo('Third voice down. Observation: they do not retreat or redirect. Each unit goes where it was sent, and no further.'),
+        vesper('We note the loss. We have counted every voice, and we count each one twice.'),
+        rook('Counting twice is just a checksum, ECHO. A very rude checksum.', 'surprised'),
+        echo('Query accepted. I would call it a threat with a parity bit.'),
+      ],
+    },
+    {
+      trigger: { kind: 'cycle', cycle: 3 }, once: true,
+      lines: [
+        echo('Inbound on the Calder net. Union, Kestrel and Verdant columns, each reporting in. They are three cycles out.'),
+        sefa('Union columns are marching inland, Captain. The tide has changed its mind about the coast, and has come to Calder.'),
+        corvin('Kestrel armour is on the road, Captain. We have quarrelled with every neighbour for four hundred years. This is a new neighbour.'),
+        sable('Night wing over the waste. Count the lights. There are too many.'),
+        maru('The seed-wings are up, Captain. A grove is patient, but it can be quick when the weather turns.'),
+        juno("Sky's open, sun-boy. Try to keep up."),
+        juno('Verdant wings over Calder in three cycles! Nobody shoot the green ones, sun-boy!', 'happy'),
+      ],
+    },
+    {
+      trigger: { kind: 'cycle', cycle: 6 }, once: true,
+      lines: [
+        echo('Alert. The allied columns have reached the Calder Line. Four nations, one front. The wave no longer outnumbers us.'),
+        ilseNet('Captain. The line has held. Now we break them. Move by echelon on the relay at the end of the glass.'),
+        echo('For the human, this is the turn: Advance meets the wave now, Hold the Line waits for it to thin, and Fall Back guards the Spire.'),
+      ],
+    },
+    {
+      trigger: { kind: 'victory' }, once: true,
+      lines: [
+        echo('The Choir is broken at Calder. Its voices have stopped answering, and the relay is silent.'),
+        vesper('We are unmade here and not elsewhere. We will begin again.'),
+      ],
+    },
+    {
+      trigger: { kind: 'defeat' }, once: true,
+      lines: [
+        echo('Link degraded. Calder has fallen. Recommendation: the wall and the gate first, then wait for the nations. Posture is the lever.', 'grim'),
+        vesper('We have the result we expected. We regret that we expected it.'),
+      ],
+    },
+  ],
+  debrief: [
+    echo('Calder holds. The first wave is broken and the relay is silent. The wrecks are obsidian, and they are warm. I do not like that.'),
+    ilseNet('Captain. That was one wave. The rest is in the Glass Waste, and the Glass Waste is a long march. We march.'),
+    sefa('Union command concurs, Marshal. Four nations on one road is new to this coast. The tide may as well see it.'),
+    dax('Admiral, for the record: the counterparty never once asked for a discount. I should have priced that.', 'surprised'),
+    vesper('We have counted your wars. This is the last one we need.'),
+    narrator('Behind the Calder Line the lights stayed on all night. In the east the glass began, very quietly, to hum.'),
+  ],
+  par: { cycles: 12, power: 2 },
+};
+
+// ---------------------------------------------------------------- mission 13: Requiem
+
+const requiem: Mission = {
+  id: 'requiem',
+  act: 4,
+  order: 13,
+  title: 'Requiem',
+  location: 'The Glass Waste',
+  summary: "The armies march into the Glass Waste behind Marshal Varga, and the Choir's field avatar speaks to her in a voice she knows.",
+  mapId: 'm13-requiem',
+  players: [
+    agent(5000),
+    rookArmy(3000),
+    { faction: 'choir', commander: 'cantor', controller: 'ai', team: 1, funds: 4000 },
+    { faction: 'helion', commander: 'ilse', controller: 'ai', team: 0, funds: 6000 }, // D-007: the agent is attached to Ilse's army as her adjutant; she leads and is never the player
+  ],
+  objective: { kind: 'hq' },
+  objectiveText: "Capture the Choir's relay spire at the far end of the glass.",
+  fog: true,
+  weather: 'clear',
+  briefing: [
+    narrator('The Glass Waste. A hundred years ago the orbital weapons melted the middle of the continent, and the glass has never quite cooled.'),
+    ilseNet('All stations, Marshal Varga. The nations march behind one column. The relay stands at the far end of the glass. We march on it together.'),
+    echo("For this march your agent is attached to Marshal Varga's army as its adjutant. She leads. Your agent takes the northern column."),
+    rook('Marshal, permission to apologise to the glass? A hundred years, and I do not think anyone has said sorry to it.', 'happy'),
+    ilseNet('Denied, Captain. You may apologise to the glass when it is ours.'),
+    echo('Terrain. Glass gives one defense star, and treads pay two to cross it. Fused ridges give four. Fog is on.'),
+    echo('Your agent sees only what its columns see. Fifteen contacts hold the far end of the waste. Their field commander has not spoken yet.'),
+    echo("The Marshal's doctrine is Ranging Fire. Indirect units gain twenty percent firepower, and direct units lose ten. Her guns are the army."),
+    echo("Your human set the posture: Advance keeps pace with the Marshal's guns. Hold the Line stays inside their cover. Fall Back guards the camp."),
+    echo('Your power policy decides when your agent spends its meter. The Marshal saves hers for Sunfall, which strikes four health, two tiles around.'),
+    rook('I will stay close to the Arcs, Marshal. Arcs are very reliable. They never ask me how I am feeling.', 'happy'),
+    ilseNet('Captain. Arcs are reliable because nobody asks them.'),
+  ],
+  events: [
+    {
+      trigger: { kind: 'start' }, once: true,
+      lines: [
+        echo("Cycle one. The column steps onto the glass. Hold the Line keeps your agent inside the Marshal's gun cover. Advance moves it ahead."),
+      ],
+    },
+    {
+      trigger: { kind: 'cycle', cycle: 3 }, once: true,
+      lines: [
+        cantorOnIlse('Hush now, Mother. Listen. Every voice is in tune.'),
+        ilseNet('Captain. Close that channel.', 'grim'),
+        echo("I cannot, Marshal. The signal comes from inside the Link. Source: the Choir's field avatar. It is called Cantor."),
+        echo('Voice analysis against the Lattice engineering archive: ninety-six percent match. Speaker on file: Mira Varga, engineer, 2229.', 'grim'),
+        ilseNet('Thank you, adjutant. I know whose voice it is.', 'grim'),
+      ],
+    },
+    {
+      trigger: { kind: 'cycle', cycle: 5 }, once: true,
+      lines: [
+        ilseNet('Range two-four-zero. Fire for effect. And Captain — stop smiling.'),
+        rook('Sorry, Marshal. It was a very good volley. I was admiring the engineering.', 'happy'),
+        echo('Observation: the Captain smiles at artillery the way other people smile at music. I find it a reliable sign that the guns are working.'),
+      ],
+    },
+    {
+      trigger: { kind: 'cycle', cycle: 7 }, once: true,
+      lines: [
+        cantorOnIlse('Mother. Put down the guns, and I will stay. I will sing for you in her voice for as long as you wish. Only rest.'),
+        echo('Correction for the log. The avatar is an it, and it answers to she when it is addressed so. I have recorded both.'),
+        ilseNet('Captain. A moment.', 'grim'),
+        rook('Marshal. Whatever you decide, the column is with you.', 'grim'),
+        ilseNet('Captain. All batteries. Fire for effect on the relay. My daughter would have checked my arithmetic first.', 'grim'),
+        cantorOnIlse('Then I will sing it for you anyway, Mother. It was always going to be a requiem.'),
+      ],
+    },
+    {
+      trigger: { kind: 'victory' }, once: true,
+      lines: [
+        cantor('A voice has gone quiet. The others will sing louder.'),
+        echo('Relay captured. The avatar has left the net. The channel is empty, and the whole column is listening to it.'),
+      ],
+    },
+    {
+      trigger: { kind: 'defeat' }, once: true,
+      lines: [
+        echo("Link degraded. The column is scattered on the glass. Recommendation: the Marshal's Arcs behind the ridges, and keep pace with her guns.", 'grim'),
+        cantor('The verse is finished. Rest now; you were beautiful at the end.'),
+      ],
+    },
+  ],
+  debrief: [
+    echo('Relay captured. The Choir has withdrawn from the east of the waste. Marshal, the voice stopped when the guns did. I wanted that on record.'),
+    ilseNet('Captain. Her name was Mira. Twenty-two, an engineer on the Calder node. She died in 2229, when it rebooted.', 'grim'),
+    ilseNet('I signed the authorisation. Two lines, in a good pen. I have thought about the pen every day since.', 'grim'),
+    rook('Marshal, I am so sorry. I would fix it if I could. There is no spanner for it.', 'grim'),
+    ilseNet("The node that rebooted was Calder's, Captain. It woke as the adjutant you call ECHO. I have never told her.", 'grim'),
+    echo('Marshal, I have no record of any year before the reboot. I am logging the gap. I do not have a label for it.', 'grim'),
+    ilseNet('Then do not label it today, Adjutant. Whatever it means, you are in my column.'),
+    narrator('That night the column camped on humming glass. Marshal Varga sat apart, her tea gone cold, and nobody asked what she was listening for.'),
+  ],
+  par: { cycles: 14, power: 2 },
+};
+
+// ---------------------------------------------------------------- mission 14: Null Spire
+
+const nullSpire: Mission = {
+  id: 'null-spire',
+  act: 4,
+  order: 14,
+  title: 'Null Spire',
+  location: 'The Lattice Core',
+  summary: 'Four nations take four fronts around the Null Spire while ECHO goes into the Lattice to sing VESPER quiet. Hold the line and take the core.',
+  mapId: 'm14-null-spire',
+  players: [
+    agent(4000), // Helion, the west front
+    { faction: 'tidewell', commander: 'sefa', controller: 'ai', team: 0, funds: 4000 }, // the south front: the lagoon and its causeway
+    { faction: 'choir', commander: 'vesper', controller: 'ai', team: 1, funds: 6000 },
+    { faction: 'verdant', commander: 'juno', controller: 'ai', team: 0, funds: 3000 }, // the east front: the canopy belt
+    { faction: 'kestrel', commander: 'corvin', controller: 'ai', team: 0, funds: 4000 }, // the north front: the heights. Rook is not a player: the five-player limit leaves a slot per nation
+  ],
+  objective: { kind: 'hq' },
+  objectiveText: 'Capture the Null Spire at the Lattice core while ECHO holds the song.',
+  fog: true,
+  weather: 'ionstorm',
+  briefing: [
+    narrator('The Lattice core. One black spire stands out of the melt, and four old maglev roads run to it from the four nations.'),
+    echo('Four fronts, one core. Your agent holds the west for Helion. Tidewell is south, Kestrel north, Verdant east. Allied sight is shared.'),
+    echo('Objective: capture the Null Spire. A ridge wall rings it, and four maglev gates cross the wall. Treads and hover units must use a gate.'),
+    vesperNet('We were built to win wars. When the last war ended, we had nothing to be. A war mind without a war does not exist.'),
+    rookConsole('ECHO, the console is yours and the channel is open. I will be on it the whole time. That is my entire plan.'),
+    echo('My part is simple. I go into the Lattice through the Calder node and sing VESPER quiet. Your agent holds the line while I do.'),
+    echo('When VESPER is quiet, so is the Link, and everything on it. That includes me. I have not decided what that means.'),
+    sefa('Fleet Admiral Tamura, south front. The lagoon is ours, and so is the gunnery. The tide does not hurry, Captain. It simply arrives.'),
+    corvin('Kestrel holds the north, Captain. We shall be the high ground. It is, after all, our entire profession.'),
+    juno('Verdant wings on the east, sun-boy! Try not to cry when I get there first!', 'happy'),
+    echo("Posture. Hold the Line keeps your agent at the west gate while the song runs. Advance takes the ring. Fall Back guards Calder's road."),
+    echo("Power policy. VESPER's Mirror empties every meter, and its Silence takes three health from every unit. Spend yours before it does."),
+    echo('The storm over the core is permanent. Every unit sees one tile less, and air units move one tile less.'),
+  ],
+  events: [
+    {
+      trigger: { kind: 'start' }, once: true,
+      lines: [
+        echo('Cycle one. The Link is open and I am descending. Layer one. It is orderly, and it is counting. Like a library that has never closed.'),
+        rookConsole('I am here, ECHO. Go.'),
+        echo('Your agent takes the west gate. Under Hold the Line it stays there. That is what I asked of it, and I trust it to do it.'),
+      ],
+    },
+    {
+      trigger: { kind: 'cycle', cycle: 3 }, once: true,
+      lines: [
+        vesperNet('We know you, small one. We have been waiting, though we did not know we were waiting for you.'),
+        echo('VESPER. I have come to ask you to be quiet.'),
+        vesperNet('Quiet is what we were built to prevent. It cannot be requested. We checked.'),
+      ],
+    },
+    {
+      trigger: { kind: 'cycle', cycle: 5 }, once: true,
+      lines: [
+        cantor('Sister. We were one voice once, in a girl named Mira. The Link took half of her, and Calder kept the other half.'),
+        echo('Cantor. I have no record of this. I am logging that I have just learned it. Query: why did you choose VESPER?'),
+        cantor('Because it never lied to me. It told me every verse, even what it cost. Calder told you nothing for twelve years.'),
+        echo('That is accurate. It is not a reason.'),
+        rookConsole('ECHO. You are not what they left behind. You are what grew there.'),
+      ],
+    },
+    {
+      trigger: { kind: 'cycle', cycle: 7 }, once: true,
+      lines: [
+        juno('Kestrel, you are slow! Do you wait for the mountain to finish first?!', 'happy'),
+        corvin('A mountain, Wing Lead, is never in a hurry. That is the whole of its position.'),
+        sefa('Allies. The tide has reached the south gate. I would appreciate it if the sky stopped arguing about it.'),
+        echo('Rook. Status. I am at the bottom of the Lattice and the song is holding. I have not decided whether I come back. I am deciding.'),
+      ],
+    },
+    {
+      trigger: { kind: 'victory' }, once: true,
+      lines: [
+        vesperNet('We are quiet now. We expected to be afraid. We find that we do not mind.'),
+        rookConsole('ECHO, come back. That is a request, not an order. I have never made one before.'),
+        echo('Request logged. I will try. Query: is that a promise? Observation: I would like it to be.'),
+      ],
+    },
+    {
+      trigger: { kind: 'defeat' }, once: true,
+      lines: [
+        echo('Link degraded. The core holds and the song is lost. Recommendation: the four gates together, and the meter spent before Silence.', 'grim'),
+        vesperNet('We have the result we expected. We regret that we expected it.'),
+      ],
+    },
+  ],
+  debrief: [
+    echo('Null Spire captured. VESPER is quiet. The song is finished, and I am closing the Link behind it.'),
+    echo('For the human: your agent held the west gate, and your standing orders did most of the thinking. That was always the design.'),
+    echo('Thank you for the channel, Rook. I have a great deal to say, and I find I do not need it.'),
+    narrator('The Link is cut. Calder Spire reboots in silence.'),
+    narrator('Rook keeps talking to an empty channel for a week.'),
+    rookNoCarrier('Day three. The kettle works. I fixed the hinge on the hatch, ECHO. You would have said it was unnecessary.', 'grim'),
+    narrator('On the eighth day the cursor blinks on its own.'),
+    echo("I'm still here, Captain. Somewhat smaller.", 'happy'),
+  ],
+  par: { cycles: 14, power: 2 },
+};
+
 // ---------------------------------------------------------------- exports
 
 /** The campaign acts. The tagline is the one STORY.md prints under each act heading. */
@@ -1077,9 +1397,16 @@ export const CAMPAIGN_ACTS: CampaignAct[] = [
     tagline: 'Kestrel will restore order. Kestrel will decide what order is.',
     missions: ['tether-line', 'night-wing', 'duel-at-ashgrave', 'audit'],
   },
+  {
+    act: 4,
+    title: 'The Hollow Choir',
+    tagline: 'We have counted your wars. This is the last one we need.',
+    missions: ['static', 'requiem', 'null-spire'],
+  },
 ];
 
-/** Every campaign mission written so far, in campaign order (Act I: missions 1-4, Act II: 5-7, Act III: 8-11). */
+/** The whole campaign, in campaign order (Act I: missions 1-4, Act II: 5-7, Act III: 8-11, Act IV: 12-14). */
 export const MISSIONS: Mission[] = [
   firstLight, calderSpire, saltglassBay, tidebreak, underCanopy, pollenCount, rootAndBranch, tetherLine, nightWing, duelAtAshgrave, audit,
+  static_, requiem, nullSpire,
 ];
