@@ -40,6 +40,12 @@ export interface TerrainView {
   setOwners(ownerAt: (x: number, y: number) => PlayerIndex | null): void;
   /** Capture progress per tile, 0 (none) to 1 (complete). Shown as a ring at the property's base. */
   setCapture(progressAt: (x: number, y: number) => number): void;
+  /**
+   * Which tiles have a live unit standing on them (in the viewer's frame; dying units do not count). A property under a unit shows
+   * its low form: its tall parts sink so the unit stands visibly on the pad, while the pad, the owner's band or banner, the sigil
+   * and the capture ring stay in view. It eases back when the tile is free. heightAt is unchanged.
+   */
+  setOccupied(occupiedAt: (x: number, y: number) => boolean): void;
   /** Which tiles the viewer sees now. Unseen tiles are dimmed and desaturated with a soft edge, never black. */
   setVisible(visibleAt: (x: number, y: number) => boolean): void;
   setWeather(weather: Weather): void;

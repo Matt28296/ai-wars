@@ -43,12 +43,13 @@ describe('the placeholders meet the contract (so the renderer core can be built 
     factionOf: () => 'helion',
     weather: 'clear',
   };
-  it('terrain builds one group, answers heights and takes owners, capture, sight and weather', () => {
+  it('terrain builds one group, answers heights and takes owners, capture, occupancy, sight and weather', () => {
     const t = createTerrain(input);
     expect(t.group.children.length).toBeGreaterThan(0);
     expect(Number.isFinite(t.heightAt(1, 1))).toBe(true);
     t.setOwners(() => null);
     t.setCapture(() => 0.5);
+    t.setOccupied((x) => x === 2);
     t.setVisible((x) => x > 0);
     t.setWeather('ionstorm');
     t.update(0.016, 1);
