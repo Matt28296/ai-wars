@@ -13,7 +13,12 @@
 //                        clock is the page's own, so a test page can fake it and shoot any moment (dev shots use a manual clock)
 //   ?level=overclock     with plan=1: make a power's cut-in an Overclock (the demo match only has Surges)
 //   ?speed=1|2|4         with plan=1: the plan's speed (default 1)
-//   ?probe=1             exposes window.__calls(): the draw calls and triangles of one frame, through the whole post chain and the scene alone
+//   ?quality=high|medium|low   force a quality tier (ambient occlusion on high only; low also caps the pixel ratio at 1); without it the
+//                        tier is chosen from the machine (a software renderer such as SwiftShader starts at low) and may drop
+//   ?ao=0                with a tier that has ambient occlusion: switch only that pass off (the rest of the tier stays), to see what it adds
+//   ?aoRadius=<n> ?aoScale=<n> ?aoIntensity=<n> ?aoThickness=<n>   retune the occlusion live (AO_LOOK in ao.ts is the shipped look)
+//   ?probe=1             exposes window.__calls(): the draw calls and triangles of one frame, through the whole post chain and the scene alone,
+//                        with the tier and the passes the composer ran
 // window.__ready is true once the first frames are up; window.__stage is the runtime (debug()).
 import { PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
 import { MAPS } from '../../../content/maps';
@@ -26,11 +31,13 @@ import { recordMatch, viewTimeline } from '../../watch/timeline';
 import type { Viewer } from '../../watch/timeline';
 import { planTransition } from '../../watch/transition';
 import type { Speed } from '../../watch/timing';
+import { AO_LOOK } from './ao';
+import type { StageAoPass } from './ao';
 import { StageRuntime } from './runtime';
 import { createStormStatic } from './storm';
 import { createTable } from './table';
 
-interface FrameCost { chain: { calls: number; triangles: number }; scene: { calls: number; triangles: number } }
+interface FrameCost { chain: { calls: number; triangles: number }; scene: { calls: number; triangles: number }; tier: string; passes: string[] }
 
 declare global {
   interface Window { __ready?: boolean; __stage?: StageRuntime; __lone?: { drawCalls: number; triangles: number; what: string }; __calls?: () => FrameCost }
@@ -101,6 +108,16 @@ if (lone) {
     if (plan.cutIn && (planLevel === 'surge' || planLevel === 'overclock')) plan.cutIn.level = planLevel;
   }
   rt.setView({ timeline, step: at, plan, reducedMotion: reduced });
+  const aoPass = (rt as unknown as { ao: StageAoPass | null }).ao;
+  if (aoPass) {
+    if (q.get('ao') === '0') aoPass.enabled = false;
+    const num = (k: string, d: number): number => (q.has(k) ? Number(q.get(k)) : d);
+    aoPass.configure({
+      ...AO_LOOK,
+      radius: num('aoRadius', AO_LOOK.radius), scale: num('aoScale', AO_LOOK.scale),
+      intensity: num('aoIntensity', AO_LOOK.intensity), thickness: num('aoThickness', AO_LOOK.thickness),
+    });
+  }
   if (q.get('probe') === '1') {
     // The frame's draw calls, measured through the real renderer: autoReset is off so the passes of one composer frame add up.
     window.__calls = () => {
@@ -114,7 +131,8 @@ if (lone) {
       r.renderer.render(r.scene, r.camera);
       const scene = { calls: r.renderer.info.render.calls, triangles: r.renderer.info.render.triangles };
       r.renderer.info.autoReset = true;
-      return { chain, scene };
+      const q = rt.debug().quality;
+      return { chain, scene, tier: q.tier, passes: q.passes };
     };
   }
   window.__ready = true;
