@@ -112,8 +112,9 @@ export interface GameState {
   nextUnitId: number;
   rng: number;               // seeded PRNG state (mulberry32); luck must come from here so replays are deterministic
   winnerTeam: number | null;
-  turnLimit?: number;        // mission: survive/rout by this cycle
+  turnLimit?: number;        // versus day limit: when this cycle ends, standings decide the winner (D-013)
   objective: Objective;
+  deadline?: Deadline;       // campaign "meet the objective by cycle N or lose" (D-013); never inferred from turnLimit
   // engine bookkeeping (optional so older saves still load):
   weatherOwner?: PlayerIndex; // temporary weather counts down at the start of this player's turns (weatherTurnsLeft 0 = permanent)
   baseWeather?: Weather;      // weather restored when temporary weather expires
@@ -125,6 +126,12 @@ export type Objective =
   | { kind: 'hq' }                                    // capture the enemy spire (rout also wins)
   | { kind: 'survive'; cycles: number }               // hold out until cycle N ends
   | { kind: 'capture'; properties: number };          // own N properties
+
+/** A campaign deadline: if `team` has not won when cycle `cycles` ends, `team` loses (D-013). */
+export interface Deadline {
+  team: number;
+  cycles: number;
+}
 
 // ---------- actions ----------
 export type Then =

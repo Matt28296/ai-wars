@@ -74,3 +74,12 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
 ### D-014: activating a power empties the whole meter (2026-10-08, DECIDED)
 - **Decided:** Surge and Overclock both reset the meter to 0; leftover charge does not carry over. This keeps the choice real: spend on Surge now, or save the whole bar for Overclock. (mechanics.md §10.2 describes a carry-over variant; this is the deliberate exception.)
 - **Reversible:** yes; one line in `activatePower` (`pl.power -= cost`).
+
+### D-015: five rules the M1 integration needs (2026-10-08, DECIDED)
+- **Decided:**
+  1. Charge is spent **per tile moved**, not per movement-cost point: a unit that crosses three canopy tiles spends 3 charge, the same as over three road tiles. This is the GBA behaviour and is what `applyMove` already does.
+  2. Ion storm: every unit sees 1 tile less (floor 1) and **air units move 1 tile less** (floor 1). The "+1 cost per tile for air" variant in `mechanics.md` §15 is not used: a flat −1 is easier to read on the map.
+  3. **50 units per player** on the map (cargo counts). At the cap the build is illegal and the build menu greys it out. The figure is unverified against the originals (`mechanics.md` §17); it is our rule either way.
+  4. A transport that is **carrying cargo cannot board another transport**. A Mule with a trooper inside cannot load into a Barge. Destroying a transport still destroys everything inside it, nested or not, as a defence.
+  5. If the player whose turn is starting loses their last unit during turn start (crash or sink), they are defeated at once. Play passes straight to the next undefeated player, and victory is checked after every turn-start loss. This holds in games of 3 or more players too.
+- **Reversible:** yes; each is one rule in one module.

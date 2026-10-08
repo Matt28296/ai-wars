@@ -2,22 +2,30 @@
 
 Read this file first when you resume. It is rewritten, not appended, whenever the state changes.
 
-## Where things stand (2026-10-08 05:1xZ)
+## Where things stand (2026-10-08 05:5xZ)
 
 - Direction: fork Blacklink, swap its Fire Emblem layer for an Advance Wars-family layer, keep the agent-as-commander core (`DECISIONS.md` D-001).
-- `main` exists (`35bcf4f`): the Ascendant Wars foundation (design system, story bible, contract, data, damage chart, research). The stopped workers' salvage stays on `claude/futuristic-advanced-wars-game-rt8yq6` @ `fa1789f`.
-- M0 (records, CI, guard, builder/reader definitions, pnpm) is on `aw/m0-records-ci`, going to its first PR.
-- The engine salvage (about 1,700 lines across 12 modules in `src/engine/*` on the salvage branch) has no dispatcher and no tests; M1 turns it into `src/game/aw` through bounded builder orders.
+- `main` @ `c6f8876` holds:
+  - M0: records, CI, guard and agent definitions;
+  - M1.0: the engine in `src/game/aw`, with `createGame` and `applyAction`;
+  - M1.1 movement, M1.2 combat, M1.3 turn economy, M1.4 powers and M1.5 fog/victory/score, each merged on green CI. 392 tests.
+- M1.8 (the eleven commanders as data) is PR #10, waiting on CI.
+- M1.6 is split into two file-disjoint builder orders:
+  - 6a: rules integration (D-013 deadline, D-015);
+  - 6b: legal-action enumerator, replay and seeded simulations.
+- The salvage branch `claude/futuristic-advanced-wars-game-rt8yq6` @ `fa1789f` is input only.
 
 ## Blockers (each with the smallest outside action)
 
-1. **ai-wars is public (D-003).** No Blacklink code can land. *Smallest action:* Matthew, GitHub → Matt28296/ai-wars → Settings → General → Danger Zone → Change visibility → Private. The lead re-reads the API and starts M2 the same hour.
-2. **GitHub Actions on ai-wars has never run.** *Smallest action:* none expected; the first PR shows whether Actions is enabled. If it is disabled, Matthew enables it under Settings → Actions.
+1. **ai-wars is public (D-003).** No Blacklink code can land, so M2 (the platform fork) cannot start.
+   - *Smallest action:* Matthew goes to GitHub → Matt28296/ai-wars → Settings → General → Danger Zone → Change visibility → Private.
+   - The lead re-reads the API and starts M2 the same hour.
+2. **The default branch is not `main`, so CodeRabbit skips every PR.**
+   - *Smallest action:* Matthew goes to Settings → General → Default branch → `main`.
 
 ## Next actions
 
-1. Open the M0 PR, read the `checks` run, merge on green with the gate output quoted.
-2. M1.0: move the contract and the salvage engine into `src/game/aw`, compiling, with a smoke test.
-3. M1.1–M1.5: up to five Sonnet builders, one worktree each, file-disjoint orders from `TASKS.md`.
-4. M1.6: integration, determinism, seeded simulations in CI.
-5. When D-003 clears: M2 platform fork.
+1. Merge PR #10 on green CI.
+2. Dispatch M1.6a and M1.6b, one Sonnet builder each in its own worktree. Verify each receipt with a planted regression, then PR and merge on green CI.
+3. Then M1 is done. Next is M3 prep, which does not need the platform: the Doctrine brain (D-004) over the legal-action enumerator, with seeded bot-vs-bot balance runs that record a source hash.
+4. When D-003 clears: M2 platform fork.
