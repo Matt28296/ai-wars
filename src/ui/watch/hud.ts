@@ -2,13 +2,13 @@
 // count. Nothing here reads the true state: a fogged viewer gets "?" for an enemy's unit count, as quality-bar 11.3 asks.
 import { COMMANDERS } from '../../content/commanders';
 import type { Mood } from '../../content/types';
-import { FACTIONS } from '../../data';
+import { FACTIONS, TERRAIN_TYPES } from '../../data';
 import { POWER_STAR } from '../../game/aw';
 import type { FactionId, PlayerIndex, PowerState } from '../../game/aw';
 import type { ObservedPlayer } from '../../game/aw/observe';
 import { hudMood } from '../portraits/mood';
 import { knownUnitCount } from './timeline';
-import type { TimelineStep } from './timeline';
+import type { TimelineStep, ViewFrame } from './timeline';
 
 export interface StarMeter {
   /** Stars filled, fractional. */
@@ -34,6 +34,8 @@ export interface PlayerPanelModel {
   active: Exclude<PowerState, 'none'> | null;
   /** Units the viewer may count; null shows as "?" (an enemy under fog). */
   units: number | null;
+  /** Properties the player holds. Ownership is public, so this is a number for every viewer, fog or not. */
+  properties: number;
   isCurrent: boolean;
   defeated: boolean;
   team: number;
@@ -54,6 +56,43 @@ export function starMeter(player: ObservedPlayer, uses: number): StarMeter {
   return { value, surge, max };
 }
 
+/** How many properties a player holds in a frame. Tile ownership is public (observe.ts), so a fogged viewer counts both sides exactly. */
+export function propertiesOf(frame: ViewFrame, player: PlayerIndex): number {
+  let n = 0;
+  for (const row of frame.tiles) for (const t of row) if (t.owner === player && TERRAIN_TYPES[t.terrain]?.property) n += 1;
+  return n;
+}
+
+// ---------------------------------------------------------------- tweens: funds tick, the meter fills
+
+/** Funds tick to their new value over about this long. */
+export const FUNDS_TWEEN_MS = 400;
+/** The power meter fills a little slower, so a charge reads as a fill and not a flicker. */
+export const METER_TWEEN_MS = 600;
+
+/** Reduced motion answers with 0 ms: the value is simply the new value. */
+export function tweenDuration(baseMs: number, reducedMotion: boolean): number {
+  return reducedMotion || !(baseMs > 0) ? 0 : baseMs;
+}
+
+/** Ease-out cubic: quick at first, settling on the value. */
+const easeOut = (t: number): number => 1 - (1 - t) ** 3;
+
+/**
+ * The value `elapsedMs` into a tween from `from` to `to`. Before it starts it is `from`; at or after its end, or with no duration at all,
+ * it is EXACTLY `to` (never a rounding off by one), and in between it moves monotonically from one to the other.
+ */
+export function tweenAt(from: number, to: number, elapsedMs: number, durationMs: number): number {
+  if (!(durationMs > 0) || elapsedMs >= durationMs) return to;
+  if (!(elapsedMs > 0)) return from;
+  return from + (to - from) * easeOut(elapsedMs / durationMs);
+}
+
+/** The reader's reduced-motion setting, read now (false where there is no window, as in tests). */
+export function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 export function playerPanels(step: TimelineStep): PlayerPanelModel[] {
   const f = step.frame;
   return f.players.map((p): PlayerPanelModel => {
@@ -70,6 +109,7 @@ export function playerPanels(step: TimelineStep): PlayerPanelModel[] {
       meter: starMeter(p, step.powerUses[p.index] ?? 0),
       active: p.powerState === 'none' ? null : p.powerState,
       units: knownUnitCount(f, p.index),
+      properties: propertiesOf(f, p.index),
       isCurrent: p.index === f.current,
       defeated: p.defeated,
       team: p.team,

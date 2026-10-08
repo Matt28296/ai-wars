@@ -1,8 +1,10 @@
 // Playback controls and nothing else: this viewer has no way to move, attack, build or select a unit (D-004, D-007). The human
 // watches, then adjusts doctrine elsewhere. Pure state machine, keyboard mapping and URL-hash parsing, so all of it is testable.
+import type { CommanderId, FactionId, PlayerIndex } from '../../game/aw';
+import { commanderNameOf, pad2, powerNameOf } from './format';
 import { isSpeed } from './timing';
 import type { Speed } from './timing';
-import type { Viewer } from './timeline';
+import type { TimelineStep, Viewer } from './timeline';
 
 export interface PlaybackState {
   /** The timeline step on screen. */
@@ -159,4 +161,79 @@ export function formatHash(h: HashState): string {
   if (h.viewer !== undefined) parts.push(`viewer=${h.viewer}`);
   if (h.speed !== undefined && h.speed !== 1) parts.push(`speed=${h.speed}`);
   return parts.length ? `#${parts.join('&')}` : '';
+}
+
+// ---------------------------------------------------------------- the scrubber's marks
+
+/** A tick where a cycle begins. */
+export interface CycleTick {
+  step: number;
+  cycle: number;
+  /** Cycle 1 and every fifth one: drawn taller, so the ticks can be counted. */
+  major: boolean;
+}
+
+/** A marker where a commander's power was activated. */
+export interface PowerMark {
+  step: number;
+  player: PlayerIndex;
+  level: 'surge' | 'overclock';
+  faction: FactionId;
+  commander: CommanderId;
+  /** "Rook Okafor: Surge name", for the tooltip and the screen reader. */
+  label: string;
+}
+
+export interface TimelineMarks {
+  last: number;
+  cycles: CycleTick[];
+  powers: PowerMark[];
+}
+
+/**
+ * The ticks and markers a viewer's scrubber shows. A cycle starts at the first step whose frame reads a new cycle number (step 0 starts
+ * the first); a power marker sits at the step whose events hold a `powerActivated`, which every viewer receives, so the markers say
+ * nothing a fogged viewer's log does not.
+ */
+export function timelineMarks(steps: readonly Pick<TimelineStep, 'index' | 'frame' | 'events'>[]): TimelineMarks {
+  const cycles: CycleTick[] = [];
+  const powers: PowerMark[] = [];
+  steps.forEach((s, i) => {
+    const cycle = s.frame.cycle;
+    if (i === 0 || cycle !== steps[i - 1].frame.cycle) cycles.push({ step: s.index, cycle, major: cycle === 1 || cycle % 5 === 0 });
+    for (const e of s.events) {
+      if (e.kind !== 'powerActivated') continue;
+      const faction = s.frame.players[e.player]?.faction;
+      if (faction === undefined) continue;
+      powers.push({ step: s.index, player: e.player, level: e.level, faction, commander: e.commander, label: `${commanderNameOf(e.commander)}: ${powerNameOf(e.commander, e.level)}` });
+    }
+  });
+  return { last: Math.max(0, steps.length - 1), cycles, powers };
+}
+
+/** The cycle a step belongs to: the number of the latest tick at or before it. */
+export function cycleOfStep(marks: TimelineMarks, step: number): number {
+  let cycle = marks.cycles[0]?.cycle ?? 1;
+  for (const t of marks.cycles) {
+    if (t.step > step) break;
+    cycle = t.cycle;
+  }
+  return cycle;
+}
+
+/** The scrubber's tooltip: "Cycle 04 · step 40", and the power activated at that step, if any. */
+export function scrubTip(marks: TimelineMarks, step: number): string {
+  const power = marks.powers.filter((p) => p.step === step).map((p) => `${p.label} (${p.level === 'surge' ? 'Surge' : 'Overclock'})`);
+  return [`Cycle ${pad2(cycleOfStep(marks, step))} · step ${step}`, ...power].join(' · ');
+}
+
+/** Where a step sits along the track, 0 to 1. */
+export const fractionOfStep = (step: number, last: number): number => (last > 0 ? Math.max(0, Math.min(1, step / last)) : 0);
+
+/** The step under a pointer: `thumb` is the slider thumb's width, whose centre travels the track less one thumb. */
+export function stepAtPointer(clientX: number, track: { left: number; width: number }, thumb: number, last: number): number {
+  const run = track.width - thumb;
+  if (!(run > 0) || last <= 0) return 0;
+  const f = (clientX - track.left - thumb / 2) / run;
+  return Math.round(Math.max(0, Math.min(1, f)) * last);
 }

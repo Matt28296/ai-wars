@@ -44,7 +44,7 @@ export function PowerMeter({ value = 0, surge = 3, max = 6, showLabel = true, ac
   });
   const width = Math.max(1, x - 3);
   return (
-    <div className={cx('aw-power', className)}>
+    <div className={cx('aw-power', ready && 'aw-power--ready', className)}>
       <svg width={width} height={14} viewBox={`0 0 ${width} 14`} role="img" aria-label={`Power ${Math.floor(v * 10) / 10} of ${max}: ${state}`}>
         {pips}
       </svg>
