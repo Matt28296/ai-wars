@@ -7,6 +7,12 @@
 // so a bad edit fails the build. Income is 1000 per property except uplinks (0), docs/research/mechanics.md section 6.
 // Rows run y = 0 downward and columns x = 0 rightward; each owners row is the twin of its terrain row ('.' = neutral).
 // Player slots on every map: 0 = the player's agent (Helion), 1 = Rook Okafor's Helion detachment, 2 = the opposing force.
+//
+// M4.2 adds the four Act III maps (docs/STORY.md "Act III -- Thin Air", missions 8-11). Slots 0-2 keep their meaning. Mission 10 adds slot 3, the
+// Hollow Choir's drones, as a THIRD TEAM hostile to both armies (the Highlord's air wing is part of his own army, slot 2, because a team is fixed at
+// setup and cannot change mid-battle); mission 11 adds slot 3, Admiral Sefa Tamura's Tidewell army, an ally on the agent's team (D-007), and its
+// slot 2 is the Choir. Mission 9 is fought inside a permanent ion storm, mission 11 in fog. Two of the four are fought up a slope (the Tether
+// ridges, the Ashgrave terraces), so the ridge, the maglev gate and the walker are the geometry the story teaches.
 import type { MapDef } from './types';
 
 // 12x9. Mission 1, First Light: the border drill. No fabricator, skyport or dock, so nothing can be built; Calder Spire stands at the
@@ -410,7 +416,272 @@ const rootAndBranch: MapDef = {
   recommended: { fog: false, weather: 'clear', startFunds: 2000 },
 };
 
-/** The seven campaign mission maps by id, in mission order (Act I: 1-4, Act II: 5-7). A mission's `mapId` is a key of this table. */
+// 22x14. Mission 8, Tether Line: a ridge spine (x=9-11) splits the map. The Tether Line is the maglev road along row 6, which crosses the spine at
+// a gate; a second, low pass of flats crosses at row 11. Treads and hover units cannot climb a ridge, so they must use a gate; walkers, foot
+// and exo units climb anywhere. Foothill crests (7-8, rows 5 and 7) flank the gate on the Helion side. Corvin's two Colossus walkers start on
+// the spine, his Bastions on the road, and his Tether Gate spire stands at the end of the line at (18,6).
+const tetherLine: MapDef = {
+  id: 'm8-tether-line',
+  name: 'Tether Gate Ridge',
+  description: "A ridge spine splits the Tether Line, with one maglev gate, one low pass and foothill crests, between two Helion bases and the Highlord's Tether Gate.",
+  players: 3,
+  terrain: [
+    '..........^...........', // 0
+    '.....ff..^^^....ff....', // 1
+    '....Ff..^^^^.^.C......', // 2
+    '..H...C.^^^^..C..F....', // 3
+    '.........^^^^^......f.', // 4
+    '.C.....^^^^^..........', // 5
+    '.....=============H.C.', // 6
+    '.......^^^^^..........', // 7
+    '.C.......^^^^^......f.', // 8
+    '......C..^^^..C..F....', // 9
+    '..H......^^^..........', // 10
+    '....F.f...............', // 11
+    '.....ff..^^^....ff....', // 12
+    '..........^...........', // 13
+  ],
+  owners: [
+    '......................', // 0
+    '......................', // 1
+    '....0..........2......', // 2
+    '..0..............2....', // 3
+    '......................', // 4
+    '.0....................', // 5
+    '..................2.2.', // 6
+    '......................', // 7
+    '.1....................', // 8
+    '.................2....', // 9
+    '..1...................', // 10
+    '....1.................', // 11
+    '......................', // 12
+    '......................', // 13
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 3, y: 4 },
+    { type: 'trooper', owner: 0, x: 4, y: 5 },
+    { type: 'breacher', owner: 0, x: 4, y: 4 },
+    { type: 'arc', owner: 0, x: 3, y: 5 },
+    { type: 'trooper', owner: 1, x: 3, y: 9 },
+    { type: 'trooper', owner: 1, x: 4, y: 8 },
+    { type: 'breacher', owner: 1, x: 4, y: 9 },
+    { type: 'arc', owner: 1, x: 3, y: 8 },
+    { type: 'colossus', owner: 2, x: 10, y: 3 },
+    { type: 'colossus', owner: 2, x: 10, y: 9 },
+    { type: 'bastion', owner: 2, x: 14, y: 6 },
+    { type: 'bastion', owner: 2, x: 15, y: 7 },
+    { type: 'breacher', owner: 2, x: 11, y: 5 },
+    { type: 'breacher', owner: 2, x: 11, y: 7 },
+    { type: 'trooper', owner: 2, x: 13, y: 5 },
+    { type: 'arc', owner: 2, x: 15, y: 5 },
+  ],
+  recommended: { fog: false, weather: 'clear', startFunds: 4000 },
+};
+
+// 24x12 (fog on, permanent ion storm). Mission 9, Night Wing: a high pass of ridge with a valley floor that climbs in steps from the Helion basin
+// at the south-west to the Night Wing plateau at the north-east. The maglev road is a monotone staircase from the convoy's head at (1,10) to the
+// neutral uplink at (22,4), 27 steps for the rear Mule and 25 for the front one, so a Mule (move 6) needs five cycles. Sable's spire stands
+// at (19,2) on the plateau; her skyport at (21,3) feeds the wing. Rook's column is the convoy: three Mules on the road, Wardens beside them.
+const nightWing: MapDef = {
+  id: 'm9-night-wing',
+  name: 'Thornback Pass',
+  description: 'A storm-wrapped mountain road climbs in steps from a Helion basin to a Night Wing plateau, with one uplink at the top and ridges on every side.',
+  players: 3,
+  terrain: [
+    '^^^^^^^^^^^^^^^^^^^^^^^^', // 0
+    '^^^^^^^^^^^^^^...f...C.^', // 1
+    '^^^^^^^^^^^^^^..F.fH...^', // 2
+    '^^^^^^^^^^^^^^.......A.^', // 3
+    '^^^^^^^^^^^^^^^^.=====U^', // 4
+    '..H.F....^^...Cf.=.Cff.^', // 5
+    '.f.....C.^^.======.^^^^^', // 6
+    '..ff......f.=.f....^^^^^', // 7
+    '.C...H.======.^^^^^^^^^^', // 8
+    '...F...=..C...^^^^^^^^^^', // 9
+    '.=======.^^^^^^^^^^^^^^^', // 10
+    '^^^^^^^^^^^^^^^^^^^^^^^^', // 11
+  ],
+  owners: [
+    '........................', // 0
+    '.....................2..', // 1
+    '................2..2....', // 2
+    '.....................2..', // 3
+    '........................', // 4
+    '..0.0...................', // 5
+    '.......1................', // 6
+    '........................', // 7
+    '.0...1..................', // 8
+    '...1....................', // 9
+    '........................', // 10
+    '........................', // 11
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 3, y: 6 },
+    { type: 'trooper', owner: 0, x: 5, y: 6 },
+    { type: 'breacher', owner: 0, x: 4, y: 6 },
+    { type: 'warden', owner: 0, x: 4, y: 7 },
+    { type: 'lancer', owner: 0, x: 6, y: 7 },
+    { type: 'mule', owner: 1, x: 1, y: 10 },
+    { type: 'mule', owner: 1, x: 2, y: 10 },
+    { type: 'mule', owner: 1, x: 3, y: 10 },
+    { type: 'warden', owner: 1, x: 4, y: 10 },
+    { type: 'lancer', owner: 1, x: 5, y: 10 },
+    { type: 'trooper', owner: 1, x: 6, y: 9 },
+    { type: 'wasp', owner: 2, x: 13, y: 5 },
+    { type: 'wasp', owner: 2, x: 15, y: 7 },
+    { type: 'wasp', owner: 2, x: 17, y: 3 },
+    { type: 'raptor', owner: 2, x: 19, y: 3 },
+    { type: 'anvil', owner: 2, x: 16, y: 1 },
+    { type: 'trooper', owner: 2, x: 18, y: 3 },
+    { type: 'breacher', owner: 2, x: 20, y: 2 },
+  ],
+  recommended: { fog: true, weather: 'ionstorm', startFunds: 3000 },
+};
+
+// 24x14, FOUR players. Mission 10, Duel at Ashgrave: the Helion lines on the west, a duelling field in the middle (a city, two outcrops, canopy) and
+// the Ashgrave heights on the east: two ridge terraces (x=16 and x=19), each crossed by one maglev gate on row 7, and the Highlord's spire at the
+// top (22,7). Slot 2 is Corvin: his armour in the field, and his air wing (Sable's Night Wing: three Wasps and a Raptor) on the terraces. Slot 3 is
+// the Choir's drones, a THIRD team: a seized relay (spire (12,1), fabricator (14,1)) on the north edge, and one squad on each flank, standing off.
+const duelAtAshgrave: MapDef = {
+  id: 'm10-duel-at-ashgrave',
+  name: 'Ashgrave Heights',
+  description: 'A duelling field lies between the Helion lines and the Ashgrave terraces, with a seized signal relay on its north edge and a drone squad on each flank.',
+  players: 4,
+  terrain: [
+    '................^..^....', // 0
+    '.......f....H.F.^..^....', // 1
+    '.........ff.....^..^.f..', // 2
+    '....F.........f.^F.^....', // 3
+    '..H.....C.......^..^A...', // 4
+    '...........^....^..^..f.', // 5
+    '.C..............^.^^....', // 6
+    '...........C...=======H.', // 7
+    '.C..............^^.^....', // 8
+    '...........^....^.C^..f.', // 9
+    '..H.....C.......^..^.C..', // 10
+    '....F.........f.^F.^....', // 11
+    '.......f.ff.....^..^.f..', // 12
+    '................^..^....', // 13
+  ],
+  owners: [
+    '........................', // 0
+    '............3.3.........', // 1
+    '........................', // 2
+    '....0............2......', // 3
+    '..0.................2...', // 4
+    '........................', // 5
+    '.0......................', // 6
+    '......................2.', // 7
+    '.1......................', // 8
+    '..................2.....', // 9
+    '..1..................2..', // 10
+    '....1............2......', // 11
+    '........................', // 12
+    '........................', // 13
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 4, y: 4 },
+    { type: 'trooper', owner: 0, x: 5, y: 5 },
+    { type: 'breacher', owner: 0, x: 5, y: 4 },
+    { type: 'arc', owner: 0, x: 3, y: 5 },
+    { type: 'trooper', owner: 1, x: 4, y: 9 },
+    { type: 'trooper', owner: 1, x: 5, y: 9 },
+    { type: 'breacher', owner: 1, x: 5, y: 10 },
+    { type: 'arc', owner: 1, x: 3, y: 9 },
+    { type: 'colossus', owner: 2, x: 14, y: 7 },
+    { type: 'bastion', owner: 2, x: 14, y: 5 },
+    { type: 'bastion', owner: 2, x: 14, y: 9 },
+    { type: 'breacher', owner: 2, x: 15, y: 5 },
+    { type: 'breacher', owner: 2, x: 15, y: 9 },
+    { type: 'lancer', owner: 2, x: 12, y: 7 },
+    { type: 'trooper', owner: 2, x: 15, y: 6 },
+    { type: 'arc', owner: 2, x: 17, y: 5 },
+    { type: 'wasp', owner: 2, x: 17, y: 4 },
+    { type: 'wasp', owner: 2, x: 17, y: 10 },
+    { type: 'wasp', owner: 2, x: 18, y: 8 },
+    { type: 'raptor', owner: 2, x: 18, y: 5 },
+    { type: 'wasp', owner: 3, x: 11, y: 3 },
+    { type: 'wasp', owner: 3, x: 13, y: 3 },
+    { type: 'skimmer', owner: 3, x: 12, y: 3 },
+    { type: 'wasp', owner: 3, x: 11, y: 12 },
+    { type: 'wasp', owner: 3, x: 13, y: 11 },
+    { type: 'skimmer', owner: 3, x: 12, y: 12 },
+  ],
+  recommended: { fog: false, weather: 'clear', startFunds: 5000 },
+};
+
+// 24x14, FOUR players, fog on. Mission 11, Audit: a northern sea (rows 0-5) over a beach of shoals (row 6) and a southern coast road (row 9). Tidewell's
+// north-west promontory (Sefa, slot 3: spire (1,1), docks (5,2) and (5,4) on the sea) is the fleet's front; the Helion bases (slots 0 and 1) in the
+// south-west are the land front. The Choir (slot 2) holds three coastal fabricators on row 7, each on the beach, and the Harbour Exchange spire
+// at (21,9) at the end of the coast road. Every Choir fabricator is within a Dreadnought's reach of the sea and a walk of the Helion spires.
+const audit: MapDef = {
+  id: 'm11-audit',
+  name: 'Harbour Exchange Coast',
+  description: 'A northern sea meets a southern coast road, with Tidewell docks to the north-west, three seized fabricators on the beach and the Harbour Exchange spire beyond.',
+  players: 4,
+  terrain: [
+    '......~~~~~~~~~~~~~~~~~~', // 0
+    '.H....~~~~~~~~~~~~~~~~~~', // 1
+    '.....D~~~~~~~~~~~~~~~~~~', // 2
+    '..F...~~~~~~~~~~~~~~~~~~', // 3
+    '.....D~~~~~~~~~~~~~~~~~~', // 4
+    '.C....~~~~~~~~~~~~~~~~~~', // 5
+    '......ssssssssssssssssss', // 6
+    '.C........F....F....F...', // 7
+    '..H.....C.....f..C......', // 8
+    '....F================H..', // 9
+    '.C......................', // 10
+    '.......ff....C.....A..^.', // 11
+    '..H.F.......ff........ff', // 12
+    '...f......^......^......', // 13
+  ],
+  owners: [
+    '........................', // 0
+    '.3......................', // 1
+    '.....3..................', // 2
+    '..3.....................', // 3
+    '.....3..................', // 4
+    '.3......................', // 5
+    '........................', // 6
+    '.0........2....2....2...', // 7
+    '..0.....................', // 8
+    '....0................2..', // 9
+    '.1......................', // 10
+    '...................2....', // 11
+    '..1.1...................', // 12
+    '........................', // 13
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 4, y: 8 },
+    { type: 'trooper', owner: 0, x: 5, y: 8 },
+    { type: 'breacher', owner: 0, x: 3, y: 8 },
+    { type: 'lancer', owner: 0, x: 4, y: 10 },
+    { type: 'arc', owner: 0, x: 3, y: 10 },
+    { type: 'trooper', owner: 1, x: 3, y: 11 },
+    { type: 'trooper', owner: 1, x: 5, y: 12 },
+    { type: 'breacher', owner: 1, x: 5, y: 11 },
+    { type: 'warden', owner: 1, x: 6, y: 10 },
+    { type: 'skimmer', owner: 2, x: 12, y: 6 },
+    { type: 'skimmer', owner: 2, x: 17, y: 6 },
+    { type: 'skimmer', owner: 2, x: 22, y: 6 },
+    { type: 'wasp', owner: 2, x: 13, y: 4 },
+    { type: 'wasp', owner: 2, x: 16, y: 3 },
+    { type: 'wasp', owner: 2, x: 19, y: 4 },
+    { type: 'lancer', owner: 2, x: 12, y: 8 },
+    { type: 'lancer', owner: 2, x: 18, y: 8 },
+    { type: 'arc', owner: 2, x: 16, y: 8 },
+    { type: 'dreadnought', owner: 3, x: 8, y: 3 },
+    { type: 'picket', owner: 3, x: 7, y: 2 },
+    { type: 'picket', owner: 3, x: 7, y: 4 },
+    { type: 'barge', owner: 3, x: 7, y: 5 },
+    { type: 'barge', owner: 3, x: 8, y: 5 },
+    { type: 'trooper', owner: 3, x: 3, y: 2 },
+    { type: 'breacher', owner: 3, x: 3, y: 4 },
+  ],
+  recommended: { fog: true, weather: 'clear', startFunds: 3000 },
+};
+
+/** The eleven campaign mission maps by id, in mission order (Act I: 1-4, Act II: 5-7, Act III: 8-11). A mission's `mapId` is a key of this table. */
 export const MISSION_MAPS: Record<string, MapDef> = {
   'm1-first-light': firstLight,
   'm2-calder-spire': calderSpire,
@@ -419,4 +690,8 @@ export const MISSION_MAPS: Record<string, MapDef> = {
   'm5-under-canopy': underCanopy,
   'm6-pollen-count': pollenCount,
   'm7-root-and-branch': rootAndBranch,
+  'm8-tether-line': tetherLine,
+  'm9-night-wing': nightWing,
+  'm10-duel-at-ashgrave': duelAtAshgrave,
+  'm11-audit': audit,
 };
