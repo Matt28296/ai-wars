@@ -46,3 +46,26 @@ describe('guard: whole repository', () => {
     expect(r.findings).toEqual([]);
   });
 });
+
+describe('guard: test integrity', () => {
+  it('flags focused, skipped and placeholder tests in any test file', () => {
+    const text = [
+      "it.only('a', () => {});",
+      "describe.skip('b', () => {});",
+      "test.todo('c');",
+      "xit('d', () => {});",
+      "fdescribe('e', () => {});",
+      "it.skipIf(process.env.CI)('f', () => {});",
+    ].join('\n');
+    const f = scanText('src/game/aw/combat.test.ts', text);
+    expect(f.map((x) => [x.line, x.rule])).toEqual([1, 2, 3, 4, 5, 6].map((n) => [n, 'test-integrity']));
+    expect(scanText('scripts/other.test.mjs', "test . only('x', () => {})")).toHaveLength(1);
+  });
+  it('allows ordinary tests, it.fails and lookalike names', () => {
+    const text = "it('a', () => {}); it.fails('b', () => {}); describe('c', () => {}); const exit = 1; profit(2); obj.it.skip;";
+    expect(scanText('src/game/aw/power.test.ts', text)).toEqual([]);
+  });
+  it('does not apply the rule outside test files', () => {
+    expect(scanText('src/game/aw/notes.ts', "// remember: never commit it.only('x')")).toEqual([]);
+  });
+});
