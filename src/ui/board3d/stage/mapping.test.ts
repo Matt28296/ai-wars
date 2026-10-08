@@ -3,19 +3,24 @@
 // values are worked out here from the art direction's own figures and from geometry, not read back from mapping.ts.
 import { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import type { Coord, GameEvent, UnitTypeId } from '../../../game/aw';
+import type { Coord, GameEvent, TerrainId, UnitTypeId } from '../../../game/aw';
+import { fixtureMap } from '../../../game/aw/testing';
+import type { FixtureUnit } from '../../../game/aw/testing';
 import { UNSEEN_UNIT } from '../../../game/aw/view-events';
 import { TIMINGS, scaled } from '../../watch/timing';
+import { recordMatch, viewTimeline } from '../../watch/timeline';
 import type { ViewFrame } from '../../watch/timeline';
-import { sampleTransition } from '../../watch/transition';
+import { planTransition, sampleTransition } from '../../watch/transition';
 import type { TransitionPlan } from '../../watch/transition';
-import { pt } from '../../watch/testing';
+import { fieldSetup, pt } from '../../watch/testing';
 import { FACTION_ACCENT } from '../palette';
 import {
-  GROUND_FX_LIFT, HIT_LIFT, SHOT, analyseStep, captureProgress, facingHeading, hashSeed, headingOf, mapSignature, mapStage, moveState, shotPhase, shotProgress,
-  surfaceY, toFxItems, toNumberItems,
+  CONTRAIL_LIFT, DUST_LIFT, GROUND_FX_LIFT, HIT_LIFT, SHOT, TRAIL_REACH, WAKE_LEVEL, analyseStep, attackAt, captureProgress, dustTint,
+  facingHeading, hashSeed, headingOf, mapSignature, mapStage, moveState, shakeAt, shotPhase, shotProgress, surfaceY, sweepOf, toFxItems, toNumberItems,
+  trailKindFor, trailOf,
 } from './mapping';
-import type { FxSpec, StageState, WorldEnv } from './mapping';
+import type { FxSpec, StageState, TrailKind, WorldEnv } from './mapping';
+import { SHAKE_MS } from './shake';
 import { fieldFrame, idOf, planOf } from './testing';
 
 const HIT_MS = scaled(TIMINGS.hitMs, 1); // 380
@@ -372,14 +377,14 @@ describe('effects the plan already has', () => {
     expect(later.fx.find((f) => f.kind === 'pulse')!.seed).toBe(fx.seed);
   });
 
-  it('shakes the camera for an ambush and an explosion, and only while they run', () => {
+  it('shakes the camera for an explosion and an ambush, and only while they run (the full shake is under SHAKE_MS)', () => {
     const events: GameEvent[] = [{ kind: 'ambushed', unitId: LANCER, at: pt(2), by: TROOPER }];
     const plan = planOf(frame0, frame0, events);
-    expect(stateAt(plan, events, 50).shake).toBeGreaterThan(0.5);
-    expect(stateAt(plan, events, 50).shake).toBeLessThanOrEqual(1);
-    expect(stateAt(plan, events, plan.durationMs - 1).shake).toBeLessThan(0.3);
+    expect(stateAt(plan, events, 50).shake).not.toBeNull();
+    expect(stateAt(plan, events, 50).shake!.weight).toBe(0.5);
+    expect(stateAt(plan, events, plan.durationMs - 1).shake).toBeNull();
     const quiet = planOf(frame0, frame0, [ATTACK]);
-    expect(stateAt(quiet, [ATTACK], 100).shake).toBe(0);
+    expect(stateAt(quiet, [ATTACK], 100).shake).toBeNull(); // a hit gives none
   });
 
   it('keeps the hit points the plan gives: a heal raises them, the plan decides when', () => {
@@ -525,5 +530,355 @@ describe('small helpers', () => {
     const tiles = frame0.tiles.map((row, y) => row.map((t, x) => (x === 4 && y === 1 ? { ...t, terrain: 'ridge' as const } : t)));
     expect(mapSignature({ ...frame0, tiles })).not.toBe(a);
     expect(mapSignature({ ...frame0, mapId: 'elsewhere' })).not.toBe(a);
+  });
+});
+
+// ---------------------------------------------------------------- G10: trails, shake, attack camera, power sweep
+
+/** A frame on the given terrain rows (codes as in the maps: '.' flats, '~' sea, 'r' river, 's' shoal), no fog. */
+function frameOn(rows: string[], units: FixtureUnit[]): ViewFrame {
+  const setup = { ...fieldSetup(units, { fog: false }), map: fixtureMap(rows, units, undefined, 'g10-fixture') };
+  return viewTimeline(recordMatch(setup, []), 'all').steps[0].frame;
+}
+const LAND = ['..........', '..........', '..........'];
+const SEA = ['~~~~~~~~~~', '~~~~~~~~~~', '~~~~~~~~~~'];
+
+/** A unit of `type` walking east along row 1 from x = 1 to x = 8 (seven tiles, 980 ms at 1x), sampled at plan time `t`. */
+function glide(frame: ViewFrame, id: number, t: number, speed: 1 | 2 | 4 = 1, from = 1, to = 8): { state: StageState; plan: TransitionPlan } {
+  const path: Coord[] = [];
+  for (let x = from; x <= to; x++) path.push(pt(x));
+  const end: ViewFrame = { ...frame, units: frame.units.map((u) => (u.id === id ? { ...u, x: to, y: 1 } : u)) };
+  const events: GameEvent[] = [{ kind: 'moved', unitId: id, path }];
+  const plan = planOf(frame, end, events, speed);
+  return { state: stateAt(plan, events, t, end, frame), plan };
+}
+const trailsOf = (s: StageState): FxSpec[] => s.fx.filter((f) => f.kind === 'dust' || f.kind === 'wake' || f.kind === 'contrail');
+const reachOf = (f: FxSpec): number => Math.hypot(f.at.x - f.to!.x, f.at.y - f.to!.y);
+
+describe('what a mover leaves behind is decided by how it moves and what it moves over', () => {
+  it('ground units kick dust, ships and barges make a wake, aircraft leave contrails, and a hover craft makes dust over land and a wake over water', () => {
+    const land: TerrainId[] = ['flats', 'canopy', 'ridge', 'shoal', 'maglev', 'span', 'glass', 'arcology', 'dock'];
+    for (const t of land) {
+      for (const m of ['foot', 'exo', 'tread', 'walker', 'hover'] as const) expect(trailKindFor(m, t), `${m} over ${t}`).toBe('dust');
+      expect(trailKindFor('air', t), `air over ${t}`).toBe('contrail');
+    }
+    for (const t of ['sea', 'river'] as const) {
+      expect(trailKindFor('hover', t)).toBe('wake');
+      expect(trailKindFor('air', t)).toBe('contrail'); // aircraft are aircraft whatever is under them
+      for (const m of ['foot', 'exo', 'tread', 'walker'] as const) expect(trailKindFor(m, t), `${m} over ${t}`).toBe('dust');
+    }
+    for (const t of ['sea', 'river', 'flats', 'dock', 'shoal'] as const) {
+      expect(trailKindFor('sea', t)).toBe('wake');
+      expect(trailKindFor('barge', t)).toBe('wake');
+    }
+  });
+
+  it('KNOWN-BAD: a wrong mapping is caught (a tread with a wake, a ship with dust, a wasp with dust, a hover craft over water with dust)', () => {
+    const wrong: [Parameters<typeof trailKindFor>[0], TerrainId, TrailKind][] = [['tread', 'flats', 'wake'], ['sea', 'sea', 'dust'], ['air', 'flats', 'dust'], ['hover', 'sea', 'dust'], ['hover', 'flats', 'wake'], ['foot', 'flats', 'contrail']];
+    for (const [m, t, k] of wrong) expect(trailKindFor(m, t), `${m} over ${t}`).not.toBe(k);
+  });
+
+  // The roster, written out here from what each unit is (its data row's move type), one kind per unit type.
+  const ROSTER: Record<UnitTypeId, TrailKind> = {
+    trooper: 'dust', breacher: 'dust', skimmer: 'dust', lancer: 'dust', bastion: 'dust', colossus: 'dust', mule: 'dust', arc: 'dust', salvo: 'dust', warden: 'dust',
+    wasp: 'contrail', raptor: 'contrail', anvil: 'contrail', picket: 'wake', dreadnought: 'wake', barge: 'wake',
+  };
+  const AT_SEA = new Set<UnitTypeId>(['picket', 'dreadnought', 'barge']);
+
+  it('every one of the 16 unit types draws its own kind of trail through the stage, mid-glide', () => {
+    for (const [type, kind] of Object.entries(ROSTER) as [UnitTypeId, TrailKind][]) {
+      const foe: UnitTypeId = AT_SEA.has(type) ? (type === 'picket' ? 'barge' : 'picket') : type === 'trooper' ? 'breacher' : 'trooper';
+      const frame = frameOn(AT_SEA.has(type) ? SEA : LAND, [{ type, owner: 0, x: 1, y: 1 }, { type: foe, owner: 1, x: 9, y: 0 }]);
+      const id = idOf(frame, type, 0);
+      const { state } = glide(frame, id, 490);
+      const t = trailsOf(state);
+      expect(t.map((f) => f.kind), type).toEqual([kind]);
+    }
+  });
+
+  it('a hover craft over water (a river: the game lets hover craft cross rivers, never open sea) makes a wake, over land dust: the terrain decides', () => {
+    const units: FixtureUnit[] = [{ type: 'lancer', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 9, y: 0 }];
+    const onRiver = frameOn(['rrrrrrrrrr', 'rrrrrrrrrr', 'rrrrrrrrrr'], units);
+    const onLand = frameOn(LAND, units);
+    expect(trailsOf(glide(onRiver, idOf(onRiver, 'lancer'), 490).state).map((f) => f.kind)).toEqual(['wake']);
+    expect(trailsOf(glide(onLand, idOf(onLand, 'lancer'), 490).state).map((f) => f.kind)).toEqual(['dust']);
+    // half and half: a lancer that crosses from land to the river changes kind where the terrain does
+    const bank = frameOn(['.....rrrrr', '.....rrrrr', '.....rrrrr'], units);
+    expect(trailsOf(glide(bank, idOf(bank, 'lancer'), 100).state).map((f) => f.kind)).toEqual(['dust']); // still over land
+    expect(trailsOf(glide(bank, idOf(bank, 'lancer'), 900).state).map((f) => f.kind)).toEqual(['wake']); // now over the water
+  });
+});
+
+describe('the trail a gliding unit leaves', () => {
+  const frame = frameOn(LAND, [{ type: 'bastion', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 9, y: 0 }]);
+  const id = idOf(frame, 'bastion', 0);
+
+  it('is where the unit is now and a point behind it on its own path, as far back as it has gone, up to its reach', () => {
+    // 7 tiles in 980 ms, eased: at 490 ms the unit has gone half the way (3.5 tiles), so it is at x = 4.5
+    const f = trailsOf(glide(frame, id, 490).state)[0];
+    expect(f.kind).toBe('dust');
+    expect(f.at.x).toBeCloseTo(4.5, 12);
+    expect(f.at.y).toBe(1);
+    expect(reachOf(f)).toBeCloseTo(TRAIL_REACH.tread, 12); // it has gone 3.5, more than a tread's 1.5, so the full reach
+    expect(f.to!.x).toBeCloseTo(4.5 - 1.5, 12); // straight back along row 1
+    expect(f.to!.y).toBe(1);
+    expect(f.progress).toBeCloseTo(0.5, 12); // half way through the glide's time
+    // early on it has barely left its tile: the trail is only as long as the path it has made. At 98 ms (a tenth of the time) the eased
+    // progress is 0.028 of 7 tiles = 0.196 tile
+    const early = trailsOf(glide(frame, id, 98).state)[0];
+    expect(reachOf(early)).toBeCloseTo(0.1 * 0.1 * (3 - 2 * 0.1) * 7, 12);
+    expect(early.to!.x).toBeCloseTo(1, 12); // it reaches back exactly to where the unit started
+  });
+
+  it('is the same reach for every move type as the table says, and an aircraft\'s is the longest', () => {
+    expect(TRAIL_REACH).toEqual({ tread: 1.5, walker: 1.4, exo: 1.2, foot: 1.0, hover: 0.9, sea: 2.2, barge: 1.8, air: 4.5 });
+    for (const m of ['foot', 'exo', 'tread', 'walker', 'hover', 'sea', 'barge'] as const) expect(TRAIL_REACH.air).toBeGreaterThan(TRAIL_REACH[m]);
+    // a hover craft's trail is short whatever it glides over: over a river it is under what a ship's V needs (about 1.1), so the kit draws
+    // ripples, and over land the dust is fainter than a tread's
+    expect(TRAIL_REACH.hover).toBeLessThan(1.1);
+    expect(TRAIL_REACH.sea).toBeGreaterThan(1.8);
+    expect(TRAIL_REACH.hover).toBeLessThan(TRAIL_REACH.tread);
+    const foot = frameOn(LAND, [{ type: 'trooper', owner: 0, x: 1, y: 1 }, { type: 'breacher', owner: 1, x: 9, y: 0 }]);
+    expect(reachOf(trailsOf(glide(foot, idOf(foot, 'trooper', 0), 700).state)[0])).toBeCloseTo(1.0, 12);
+    const river = frameOn(['rrrrrrrrrr', 'rrrrrrrrrr', 'rrrrrrrrrr'], [{ type: 'lancer', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 9, y: 0 }]);
+    expect(reachOf(trailsOf(glide(river, idOf(river, 'lancer'), 700).state)[0])).toBeCloseTo(0.9, 12);
+    const air = frameOn(LAND, [{ type: 'wasp', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 9, y: 0 }]);
+    expect(reachOf(trailsOf(glide(air, idOf(air, 'wasp'), 700).state)[0])).toBeCloseTo(4.5, 12);
+  });
+
+  it('exists only while the unit glides: not before its glide, not after, and not at all when glides are off (4x, reduced motion)', () => {
+    const { plan } = glide(frame, id, 0);
+    const later = planOf(frame, frame, [{ kind: 'turnStarted', player: 0, cycle: 2, income: 0 }, { kind: 'moved', unitId: id, path: [pt(1), pt(2), pt(3)] }]);
+    const begins = later.moves[0].startMs;
+    expect(begins).toBeGreaterThan(0);
+    const wait = mapStage({ frame, prev: frame, plan: later, sample: sampleTransition(later, begins / 2), t: begins / 2, info: analyseStep(frame, frame, [], later), step: 1 });
+    expect(trailsOf(wait)).toEqual([]); // waiting at the start of its path
+    expect(trailsOf(glide(frame, id, plan.durationMs + 10).state)).toEqual([]); // glide over
+    expect(trailsOf(glide(frame, id, 1).state)).toEqual([]); // not yet a hair away from its tile
+    for (const speed of [4] as const) {
+      const fast = glide(frame, id, 5, speed);
+      expect(fast.plan.moves).toEqual([]);
+      expect(trailsOf(fast.state)).toEqual([]);
+    }
+  });
+
+  it('is a stable seed per unit and step, different for another unit, and positive', () => {
+    const a = trailsOf(glide(frame, id, 300).state)[0];
+    const b = trailsOf(glide(frame, id, 600).state)[0];
+    expect(a.seed).toBe(b.seed);
+    expect(a.seed).toBe(hashSeed(1, 'trail', id));
+    expect(a.seed).toBeGreaterThan(0);
+    const other = frameOn(LAND, [{ type: 'bastion', owner: 0, x: 1, y: 1 }, { type: 'arc', owner: 0, x: 2, y: 2 }, { type: 'trooper', owner: 1, x: 9, y: 0 }]);
+    const arc = idOf(other, 'arc', 0);
+    expect(trailsOf(glide(other, arc, 300, 1, 2, 7).state)[0].seed).not.toBe(a.seed);
+  });
+
+  it('is never drawn for a unit the viewer cannot see: no unit, no trail', () => {
+    const events: GameEvent[] = [{ kind: 'moved', unitId: id, path: [pt(1), pt(2), pt(3), pt(4)] }];
+    const end: ViewFrame = { ...frame, units: frame.units.map((u) => (u.id === id ? { ...u, x: 4 } : u)) };
+    const plan = planOf(frame, end, events);
+    // the viewer's frames hold no such unit (it was never in sight): the plan is the same, the picture has no trail
+    const hidden = { ...frame, units: frame.units.filter((u) => u.id !== id) };
+    const t = plan.moves[0].durMs / 2;
+    const s = mapStage({ frame: hidden, prev: hidden, plan, sample: sampleTransition(plan, t), t, info: analyseStep(hidden, hidden, events, plan), step: 1 });
+    expect(s.units.some((u) => u.id === id)).toBe(false);
+    expect(trailsOf(s)).toEqual([]);
+  });
+
+  it('puts the effect where the kit expects it: dust at the feet in the terrain\'s tint, a wake on the water, a contrail at flying height', () => {
+    const dust = trailsOf(glide(frame, id, 490).state)[0];
+    expect(dust.lift).toBe(DUST_LIFT);
+    expect(dust.color).toBe(dustTint('flats'));
+    expect(dust.level).toBeUndefined();
+    const sea = frameOn(SEA, [{ type: 'picket', owner: 0, x: 1, y: 1 }, { type: 'picket', owner: 1, x: 9, y: 0 }]);
+    const wake = trailsOf(glide(sea, idOf(sea, 'picket', 0), 490).state)[0];
+    expect(wake.level).toBe(WAKE_LEVEL);
+    expect(WAKE_LEVEL).toBeCloseTo(-0.08 + 0.012, 12); // a hair over the water surface at -0.08, whatever the sea bed is
+    expect(wake.color).toBeUndefined();
+    const air = frameOn(LAND, [{ type: 'wasp', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 9, y: 0 }]);
+    const con = trailsOf(glide(air, idOf(air, 'wasp'), 490).state)[0];
+    expect(con.lift).toBe(CONTRAIL_LIFT);
+    expect(con.color).toBeUndefined();
+    // in the world: dust over the tilted ground, the wake at the water level whatever the ground is, the contrail up where aircraft fly
+    const env: WorldEnv = { surface: (x, y) => 0.2 * x + 0.1 * y, muzzleOf: () => null };
+    const [d] = toFxItems([dust], env);
+    expect(d.at.y).toBeCloseTo(env.surface(4.5, 1) + DUST_LIFT, 12);
+    expect(d.to!.y).toBeCloseTo(env.surface(3, 1) + DUST_LIFT, 12);
+    expect(d.at.x).toBeCloseTo(5, 12); // tile 4.5 is centred at 5.0 in the world
+    expect(d.at.z).toBeCloseTo(1.5, 12);
+    expect(d.color).toBe(dustTint('flats'));
+    const [w] = toFxItems([wake], env);
+    expect(w.at.y).toBe(WAKE_LEVEL);
+    expect(w.to!.y).toBe(WAKE_LEVEL);
+    const [c] = toFxItems([con], env);
+    expect(c.at.y).toBeCloseTo(env.surface(4.5, 1) + CONTRAIL_LIFT, 12);
+  });
+
+  it('the dust tint is the terrain\'s own colour dried with sand: pale, warm, and different over different ground', () => {
+    const tints = (['flats', 'canopy', 'ridge', 'shoal', 'maglev', 'glass'] as const).map(dustTint);
+    expect(new Set(tints).size).toBeGreaterThanOrEqual(4);
+    for (const c of tints) {
+      const r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+      expect(Math.min(r, g, b), 'a pale dust').toBeGreaterThan(110);
+      expect(r + g, 'warm, never blue').toBeGreaterThan(b * 2);
+    }
+    // 70% of the way from the flats' grass (0x86a86c) to dry sand (0xe6d8ae)
+    expect(dustTint('flats')).toBe(((Math.round(0x86 + (0xe6 - 0x86) * 0.7)) << 16) | ((Math.round(0xa8 + (0xd8 - 0xa8) * 0.7)) << 8) | Math.round(0x6c + (0xae - 0x6c) * 0.7));
+  });
+
+  it('trailOf is pure: no beat time inside the glide, no trail', () => {
+    const beat = { unitId: 1, path: [pt(0), pt(1), pt(2)], startMs: 100, durMs: 280 };
+    const flats = (): TerrainId => 'flats';
+    expect(trailOf(beat, 99, 'tread', flats)).toBeNull();
+    expect(trailOf(beat, 380, 'tread', flats)).toBeNull();
+    expect(trailOf(beat, 240, 'tread', flats)).not.toBeNull();
+    expect(trailOf({ ...beat, path: [pt(0)] }, 240, 'tread', flats)).toBeNull();
+  });
+});
+
+describe('the camera shake', () => {
+  const DEAD: GameEvent = { kind: 'destroyed', unitId: TROOPER, at: pt(3), type: 'trooper', owner: 1 };
+  const kill: GameEvent[] = [ATTACK, DEAD];
+  const plan = planOf(frame0, without0(frame0, TROOPER), kill);
+  const boom = plan.fx.find((f) => f.kind === 'explosion')!;
+  function without0(f: ViewFrame, id: number): ViewFrame { return { ...f, units: f.units.filter((u) => u.id !== id) }; }
+
+  it('starts with the explosion at full strength, decays, and is gone SHAKE_MS (a quarter second) later', () => {
+    expect(SHAKE_MS).toBe(250);
+    expect(boom.durMs).toBe(520);
+    expect(shakeAt(plan, boom.startMs - 1, 1)).toBeNull();
+    const first = shakeAt(plan, boom.startMs, 1)!;
+    expect(first).toMatchObject({ u: 0, weight: 1 });
+    expect(shakeAt(plan, boom.startMs + 125, 1)!.u).toBeCloseTo(0.5, 12);
+    expect(shakeAt(plan, boom.startMs + 249, 1)).not.toBeNull();
+    expect(shakeAt(plan, boom.startMs + 250, 1)).toBeNull();
+    expect(shakeAt(plan, boom.startMs + 400, 1)).toBeNull(); // the explosion is still burning; the camera is still
+  });
+  it('a hit gives none: the attack itself shakes nothing, only the kill does', () => {
+    const hitsOnly = planOf(frame0, frame0, [ATTACK]);
+    for (let t = 0; t < hitsOnly.durationMs; t += 20) expect(shakeAt(hitsOnly, t, 1), `t=${t}`).toBeNull();
+    const hit = plan.fx.find((f) => f.kind === 'hit')!;
+    expect(shakeAt(plan, hit.startMs + 100, 1)).toBeNull();
+  });
+  it('is seeded by the beat: the same beat always shakes the same way, another beat or step differently', () => {
+    const a = shakeAt(plan, boom.startMs + 50, 1)!;
+    expect(shakeAt(plan, boom.startMs + 90, 1)!.seed).toBe(a.seed);
+    expect(a.seed).toBe(hashSeed(1, 'shake', 'explosion', 3, 1));
+    expect(shakeAt(plan, boom.startMs + 50, 2)!.seed).not.toBe(a.seed);
+    const elsewhere = planOf(frame0, frame0, [{ kind: 'destroyed', unitId: TROOPER, at: pt(6, 2), type: 'trooper', owner: 1 }]);
+    const b = shakeAt(elsewhere, elsewhere.fx[0].startMs + 50, 1)!;
+    expect(b.seed).not.toBe(a.seed);
+  });
+  it('an ambush shakes at half strength, and the window shortens with the speed of the plan', () => {
+    const amb = planOf(frame0, frame0, [{ kind: 'ambushed', unitId: LANCER, at: pt(2), by: TROOPER }]);
+    expect(shakeAt(amb, 10, 1)).toMatchObject({ weight: 0.5 });
+    const fast = planOf(frame0, without0(frame0, TROOPER), kill, 2);
+    const fastBoom = fast.fx.find((f) => f.kind === 'explosion')!;
+    expect(fastBoom.durMs).toBe(260);
+    expect(shakeAt(fast, fastBoom.startMs + 120, 1)).not.toBeNull();
+    expect(shakeAt(fast, fastBoom.startMs + 125, 1)).toBeNull(); // half of 250 ms at 2x
+  });
+  it('nothing without a running plan', () => {
+    expect(shakeAt(null, 100, 1)).toBeNull();
+    expect(shakeAt(plan, null, 1)).toBeNull();
+  });
+  it('mapStage carries it while the explosion\'s first quarter second runs, and not before or after', () => {
+    const next = without0(frame0, TROOPER);
+    const info = analyseStep(frame0, next, kill, plan);
+    const at = (t: number): StageState => mapStage({ frame: next, prev: frame0, plan, sample: sampleTransition(plan, t), t, info, step: 1 });
+    expect(at(boom.startMs - 5).shake).toBeNull();
+    expect(at(boom.startMs + 30).shake).not.toBeNull();
+    expect(at(boom.startMs + 300).shake).toBeNull();
+    // after the plan there is no sample, so no shake
+    expect(mapStage({ frame: next, prev: frame0, plan, sample: null, t: 0, info, step: 1 }).shake).toBeNull();
+  });
+});
+
+describe('the attack camera, from the plan', () => {
+  const walkAndShoot: GameEvent[] = [{ kind: 'moved', unitId: LANCER, path: [pt(0), pt(1), pt(2)] }, { ...ATTACK } as GameEvent];
+  const base = { ...frame0, units: frame0.units.map((u) => (u.id === LANCER ? { ...u, x: 0 } : u)) };
+  const plan = planOf(base, frame0, walkAndShoot);
+  const hitAt = plan.fx.find((f) => f.kind === 'hit')!;
+  const info = analyseStep(base, frame0, walkAndShoot, plan);
+
+  it('eases in before the first strike, holds through it, and is gone as the attack ends', () => {
+    // the glide is 280 ms, the strike 280..660, the counter 660..1040; the window is 80..1280
+    expect(hitAt.startMs).toBe(280);
+    expect(attackAt(plan, info, 80)).toBeNull(); // exactly 0 at the start of the window
+    const mid = attackAt(plan, info, 500)!;
+    expect(mid.strength).toBe(1);
+    const early = attackAt(plan, info, 200)!;
+    expect(early.strength).toBeGreaterThan(0);
+    expect(early.strength).toBeLessThan(1);
+    expect(attackAt(plan, info, plan.durationMs + 5)).toBeNull();
+    // the strength is the easing of the window the strikes make
+    const last = plan.fx.filter((f) => f.kind === 'hit').at(-1)!;
+    expect(attackAt(plan, info, last.startMs + last.durMs + 240)).toBeNull();
+    expect(attackAt(plan, info, last.startMs + last.durMs + 100)!.strength).toBeLessThan(1);
+  });
+  it('looks at the two units of the strike under way: the attacker\'s tile and the defender\'s, then the counter\'s the other way round', () => {
+    const first = attackAt(plan, info, 400)!;
+    expect(first.from).toEqual(pt(2));
+    expect(first.to).toEqual(pt(3));
+    const counter = attackAt(plan, info, 800)!;
+    expect(counter.from).toEqual(pt(3));
+    expect(counter.to).toEqual(pt(2));
+  });
+  it('is off for a plan with no glides (4x speed, reduced motion): nothing to ease with', () => {
+    const fast = planOf(base, frame0, walkAndShoot, 4);
+    expect(fast.tween).toBe(false);
+    const fastInfo = analyseStep(base, frame0, walkAndShoot, fast);
+    expect(fastInfo.shots.length).toBeGreaterThan(0);
+    for (let t = 0; t < fast.durationMs; t += 5) expect(attackAt(fast, fastInfo, t), `t=${t}`).toBeNull();
+    const calm = planTransition(base, frame0, walkAndShoot, { speed: 1, reducedMotion: true });
+    expect(calm.tween).toBe(false);
+    for (let t = 0; t < calm.durationMs; t += 20) expect(attackAt(calm, analyseStep(base, frame0, walkAndShoot, calm), t), `t=${t}`).toBeNull();
+  });
+  it('is off when the attacker was never seen (a strike with no shot has no pair of units to look between), and with no plan or no clock', () => {
+    const unseen: GameEvent = { kind: 'attacked', attackerId: UNSEEN_UNIT, defenderId: TROOPER, damage: 42, counter: 0, attackerHp: UNSEEN_UNIT, defenderHp: 58 };
+    const p = planOf(frame0, frame0, [unseen]);
+    const i = analyseStep(frame0, frame0, [unseen], p);
+    expect(i.shots).toEqual([]);
+    for (let t = 0; t < p.durationMs; t += 20) expect(attackAt(p, i, t)).toBeNull();
+    expect(attackAt(null, info, 500)).toBeNull();
+    expect(attackAt(plan, info, null)).toBeNull();
+  });
+  it('is off in a step with no strike at all', () => {
+    const p = planOf(frame0, frame0, [{ kind: 'captured', at: pt(5, 2), terrain: 'arcology', by: 0, from: null }]);
+    for (let t = 0; t < p.durationMs; t += 20) expect(attackAt(p, analyseStep(frame0, frame0, [], p), t)).toBeNull();
+  });
+  it('mapStage carries it', () => {
+    const s = mapStage({ frame: frame0, prev: base, plan, sample: sampleTransition(plan, 500), t: 500, info, step: 1 });
+    expect(s.attack).toMatchObject({ strength: 1, from: pt(2), to: pt(3) });
+    const rest = mapStage({ frame: frame0, prev: base, plan, sample: null, t: 0, info, step: 1 });
+    expect(rest.attack).toBeNull();
+  });
+});
+
+describe('the power sweep, from the cut-in', () => {
+  const overclock: GameEvent[] = [{ kind: 'powerActivated', player: 1, level: 'overclock', commander: 'sefa' }];
+  const surge: GameEvent[] = [{ kind: 'powerActivated', player: 0, level: 'surge', commander: 'rook' }];
+
+  it('carries the commander\'s faction, the level and how far through the cut-in it is', () => {
+    const p = planOf(frame0, frame0, overclock);
+    const d = p.cutIn!.durMs;
+    expect(sweepOf(sampleTransition(p, d / 2))).toEqual({ faction: 'tidewell', player: 1, level: 'overclock', progress: 0.5 });
+    const s = planOf(frame0, frame0, surge);
+    expect(sweepOf(sampleTransition(s, s.cutIn!.durMs / 4))).toEqual({ faction: 'helion', player: 0, level: 'surge', progress: 0.25 });
+  });
+  it('is nothing outside the cut-in, with no cut-in, and with no sample', () => {
+    const p = planOf(frame0, frame0, overclock);
+    expect(sweepOf(sampleTransition(p, p.cutIn!.durMs + 50))).toBeNull();
+    const plain = planOf(frame0, frame0, [ATTACK]);
+    expect(sweepOf(sampleTransition(plain, 100))).toBeNull();
+    expect(sweepOf(null)).toBeNull();
+  });
+  it('mapStage carries it, and the faction is the one that activated the power (known-bad: the other player\'s)', () => {
+    const p = planOf(frame0, frame0, overclock);
+    const t = p.cutIn!.durMs / 2;
+    const s = mapStage({ frame: frame0, prev: frame0, plan: p, sample: sampleTransition(p, t), t, info: analyseStep(frame0, frame0, overclock, p), step: 1 });
+    expect(s.sweep!.faction).toBe('tidewell');
+    expect(s.sweep!.faction).not.toBe('helion');
+    expect(s.sweep!.level).toBe('overclock');
   });
 });
