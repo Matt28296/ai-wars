@@ -8,6 +8,13 @@ import type { PartSet, PartOpts } from './geo';
 const GAUGE = 0.15;
 const RAIL_W = 0.034;
 const RAIL_H = 0.03;
+// Rail light (art-direction.md: "glowing cyan rails"). The stage's bloom takes whatever is brighter than a luminance of 0.9, and it takes it WHOLE:
+// measured in the real stage, a rail at 1.45 (luminance 1.0) smeared a cyan halo across 0.27 tile and more, and lowering the emissive toward the
+// threshold changes nothing until the rail drops under it (above it the halo is the same size, below it there is none). So the rail body stays
+// UNDER the threshold at its brightest (the glow pulse adds 10%), and the glow is flat strips of light spilled on the bed beside it: each band is
+// [how far it reaches past the rail's edge, its brightness], outermost first. None of them can bloom, and the whole glow is 0.05 tile each side.
+const RAIL_BODY = 1.05;
+const SPILL: ReadonlyArray<readonly [number, number]> = [[0.05, 0.07], [0.034, 0.16], [0.016, 0.38]];
 const BED_W = 0.5;
 const DECK_W = 0.66;
 const COL = { bed: 0x2a313a, sleeper: 0x3a424c, deck: 0x5d6874, parapet: 0x95a1ae, pier: 0x4b5560, rail: 0x72eaff, lamp: 0xffb347, stop: 0x3a434e };
@@ -65,7 +72,11 @@ export function addTrack(p: PartSet, t: TileInfo): void {
   const bedH = deck ? 0.004 : 0.02;
   const bedTop = base + bedH;
   const { mask, piece } = t.track;
-  const rail: PartOpts = { color: COL.rail, bucket: 'glow', mult: 1.45 };
+  const rail: PartOpts = { color: COL.rail, bucket: 'glow', mult: RAIL_BODY };
+  const spillY = bedTop + 0.0125; // just over the sleepers' tops, so the light shows between and over them
+  const glowBands = (place: (width: number, y: number, o: PartOpts) => void): void => {
+    SPILL.forEach(([reach, mult], i) => place(RAIL_W + 2 * reach, spillY + i * 0.0006, { color: COL.rail, bucket: 'glow', mult }));
+  };
 
   const list = arms(mask, piece.kind);
   const curved = piece.kind === 'corner';
@@ -92,8 +103,10 @@ export function addTrack(p: PartSet, t: TileInfo): void {
 
   if (curved) {
     arcBoxes(p, mask, 0.5, BED_W, base + bedH / 2, bedH, { color: COL.bed });
-    arcBoxes(p, mask, 0.5 - GAUGE, RAIL_W, bedTop + RAIL_H / 2, RAIL_H, rail);
-    arcBoxes(p, mask, 0.5 + GAUGE, RAIL_W, bedTop + RAIL_H / 2, RAIL_H, rail);
+    for (const r of [0.5 - GAUGE, 0.5 + GAUGE]) {
+      glowBands((width, y, o) => arcBoxes(p, mask, r, width, y, 0.001, o));
+      arcBoxes(p, mask, r, RAIL_W, bedTop + RAIL_H / 2, RAIL_H, rail);
+    }
     // Sleepers radiate across the bed.
     const cx = mask & BIT.E ? 1 : 0;
     const cz = mask & BIT.S ? 1 : 0;
@@ -108,7 +121,10 @@ export function addTrack(p: PartSet, t: TileInfo): void {
 
   for (const a of list) {
     armBox(p, a.d, a.from, a.to, 0, BED_W, base + bedH / 2, bedH, { color: COL.bed });
-    for (const s of [-1, 1]) armBox(p, a.d, a.railFrom, a.to, s * GAUGE, RAIL_W, bedTop + RAIL_H / 2, RAIL_H, rail);
+    for (const s of [-1, 1]) {
+      glowBands((width, y, o) => armBox(p, a.d, a.railFrom, a.to, s * GAUGE, width, y, 0.001, o));
+      armBox(p, a.d, a.railFrom, a.to, s * GAUGE, RAIL_W, bedTop + RAIL_H / 2, RAIL_H, rail);
+    }
     for (const tt of [0.1, 0.2, 0.3, 0.4]) {
       if (tt > a.to - 0.03) continue;
       armBox(p, a.d, tt - 0.013, tt + 0.013, 0, 0.4, bedTop + 0.006, 0.012, { color: COL.sleeper });

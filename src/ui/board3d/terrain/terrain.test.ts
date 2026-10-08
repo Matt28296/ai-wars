@@ -60,7 +60,7 @@ describe('every terrain builds', () => {
 
   it('the contract entry point returns a TerrainView with the full interface', () => {
     const view = createTerrain(boardInput(['.f^', '=#r', '~sg']));
-    for (const k of ['group', 'heightAt', 'setOwners', 'setCapture', 'setVisible', 'setWeather', 'update', 'dispose'] as const) expect(view[k], k).toBeDefined();
+    for (const k of ['group', 'heightAt', 'setOwners', 'setCapture', 'setOccupied', 'setVisible', 'setWeather', 'update', 'dispose'] as const) expect(view[k], k).toBeDefined();
     view.dispose();
   });
 
@@ -293,8 +293,11 @@ describe('shader patches', () => {
       expect(tpl, `${name}: ${m.type}`).toBeDefined();
       const shader = run(m, tpl.vertexShader, tpl.fragmentShader);
       if (m.type === 'MeshDepthMaterial') {
-        expect(name).toBe('treeDepth');
-        expect(shader.vertexShader).toContain('swH'); // the shadow of a tree sways with the tree
+        expect(['treeDepth', 'sinkDepth']).toContain(name);
+        // The shadow of a tree sways with the tree; the shadow of an occupied property shrinks with the property.
+        expect(shader.vertexShader.includes('swH'), `${name} sway`).toBe(name === 'treeDepth');
+        expect(shader.vertexShader.includes('aSink'), `${name} sink`).toBe(name === 'sinkDepth');
+        if (name === 'sinkDepth') expect(shader.uniforms.uOccMap.value).toBe(kit.debug.uniforms().occMap);
         continue;
       }
       expect(shader.vertexShader, name).toContain('vTrnXZ');
@@ -303,6 +306,11 @@ describe('shader patches', () => {
       expect(shader.vertexShader.includes('swH'), `${name} sway`).toBe(name === 'tree');
       expect(shader.fragmentShader.includes('emissive * vColor.rgb'), `${name} glow`).toBe(name === 'glow');
       expect(shader.fragmentShader.includes('wNoise'), `${name} water`).toBe(name === 'water');
+      // The merged props (and only they) read the low map and squash the parts a property's occupant stands among.
+      const prop = ['solid', 'glossy', 'windows', 'glow', 'decal'].includes(name);
+      expect(shader.vertexShader.includes('aSink'), `${name} sink`).toBe(prop);
+      expect(shader.vertexShader.includes('uOccMap'), `${name} low map`).toBe(prop);
+      if (prop) expect(shader.uniforms.uOccMap.value, name).toBe(kit.debug.uniforms().occMap);
     }
     kit.dispose();
   });

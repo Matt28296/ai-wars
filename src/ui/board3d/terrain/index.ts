@@ -6,6 +6,7 @@
 //   trees     3-5 instanced, swaying trees per canopy tile, two species                                              (flora.ts)
 //   props     boulders, pebbles, glass shards, maglev track and bridges, the six property models                     (flora.ts, track.ts, buildings.ts)
 //   rings     capture rings, one mesh, progress read from a texture                                                  (capture.ts)
+//   low form  a property under a unit sinks its tall parts to a quarter height: a one-texel-per-tile map the vertex shader reads  (shading.ts)
 // Fog of war and the ion-storm grade are applied inside every material (shading.ts), so one texture write changes what is dimmed.
 import {
   BufferAttribute, Color, Group, InstancedMesh, Mesh, NearestFilter,
@@ -17,10 +18,11 @@ import { FACTION_ACCENT, FACTION_COLOR, NEUTRAL_COLOR } from '../palette';
 import { addProperty, NEUTRAL_ACCENT } from './buildings';
 import { buildRings, createRingMaterial } from './capture';
 import { addDecor, broadleafGeometry, pineGeometry, planTrees } from './flora';
-import { PartSet, type Bucket, type PartRecord } from './geo';
+import { PartSet, SINK_ATTR, type Bucket, type PartRecord } from './geo';
 import { buildGround } from './ground';
 import { analyseBoard, type Board } from './layout';
-import { buildWindowTextures, createMaterials, createUniforms, tileMap } from './shading';
+import { smoothstep } from './rng';
+import { LOW_EASE_SEC, buildWindowTextures, createMaterials, createUniforms, lowFormY, tileMap } from './shading';
 import { buildSigilAtlas, sigilCell, sigilInk, sigilUv } from './sigils';
 import { addTrack } from './track';
 import { buildWater, createWaterMaterial } from './water';
@@ -48,6 +50,14 @@ export interface TerrainDebug {
   storm(): number;
   /** Faction a property currently shows (null = neutral). */
   factionAt(x: number, y: number): FactionId | null;
+  /** How low a tile's property sits right now, 0 (full form) to 1 (low form): the value the vertex shader reads from the low map. */
+  lowAt(x: number, y: number): number;
+  /**
+   * The vertical extent of a property tile's parts as drawn right now, the vertex shader's arithmetic run on the CPU over the real
+   * merged geometry: parts that stay (pad, owner band, bay, banner, sigil, landing disc) and parts that sink (everything else).
+   * Null for a tile with no such parts. Heights are world Y, the highest vertex of each kind.
+   */
+  extentAt(x: number, y: number): { stays: { minY: number; maxY: number } | null; sinks: { minY: number; maxY: number } | null; pad: number } | null;
   /** Colour (0xRRGGBB) the first paint part of a property currently has, read back from the vertex buffer. */
   paintAt(x: number, y: number): number | null;
   /** The atlas cell the property's banner sigil currently points at, read back from the decal UVs. */
@@ -56,7 +66,7 @@ export interface TerrainDebug {
   sigilSample(x: number, y: number, a: number, b: number): number | null;
   /** Every material the kit uses, by role, and the shared uniforms they must all read (the fog map above all). */
   materials(): Record<string, Material>;
-  uniforms(): { fogMap: Texture; storm: number; time: number };
+  uniforms(): { fogMap: Texture; storm: number; time: number; occMap: Texture };
 }
 
 export interface TerrainKit extends TerrainView {
@@ -66,6 +76,15 @@ export interface TerrainKit extends TerrainView {
   /** Geometries, materials and textures this kit created that have not been disposed. */
   live(): { geometries: number; materials: number; textures: number };
 }
+
+/**
+ * The brightest a beacon may be, as the luminance of its HDR colour. The stage's bloom keeps whatever passes its threshold whole, so a brighter
+ * beacon only widens its halo: measured in the real stage, a Helion spire beacon at luminance 1.6 hazed 8 px (0.15 tile) and the yellow Kestrel
+ * accent, which is brighter per unit, would have gone further. Past this the beacon's multiplier is cut down, never its colour.
+ */
+export const BEACON_MAX_LUMA = 1.3;
+/** The glow materials breathe by this fraction of their brightness (a slow sine), so the brightest a glow ever gets is (1 + GLOW_PULSE) times its colour. */
+export const GLOW_PULSE = 0.1;
 
 class Ledger {
   readonly geometries = new Set<BufferGeometry>();
@@ -109,15 +128,16 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
   // Textures and shared uniforms.
   const fogMap = ledger.texture(tileMap(width, height, 255));
   const capMap = ledger.texture(tileMap(width, height, 0, NearestFilter));
+  const occMap = ledger.texture(tileMap(width, height, 0, NearestFilter));
   const atlas = ledger.texture(buildSigilAtlas());
   const win = buildWindowTextures();
   ledger.texture(win.albedo);
   ledger.texture(win.emissive);
-  const uniforms = createUniforms(fogMap, width, height);
+  const uniforms = createUniforms(fogMap, width, height, occMap);
   const mats = createMaterials(uniforms, win.albedo, win.emissive, atlas);
   const waterMat = createWaterMaterial(uniforms);
   const ringMat = createRingMaterial(uniforms, capMap);
-  for (const m of [mats.ground, mats.solid, mats.glossy, mats.windows, mats.glow, mats.decal, mats.tree, mats.treeDepth, waterMat, ringMat]) ledger.material(m);
+  for (const m of [mats.ground, mats.solid, mats.glossy, mats.windows, mats.glow, mats.decal, mats.tree, mats.treeDepth, mats.sinkDepth, waterMat, ringMat]) ledger.material(m);
 
   const meshes: Mesh[] = [];
   const add = (name: string, geo: BufferGeometry, mat: Material, cast: boolean, receive: boolean, order = 0): Mesh => {
@@ -153,7 +173,9 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
     g.computeBoundingBox();
     g.computeBoundingSphere();
     bucketGeo[b] = g;
-    add(`terrain:${b}`, g, bucketMat[b], b !== 'glow' && b !== 'decal', b !== 'glow', b === 'decal' ? 1 : 0);
+    const mesh = add(`terrain:${b}`, g, bucketMat[b], b !== 'glow' && b !== 'decal', b !== 'glow', b === 'decal' ? 1 : 0);
+    // The shadow of an occupied property shrinks with the property (the default depth material knows nothing of the low form).
+    if (mesh.castShadow) mesh.customDepthMaterial = mats.sinkDepth;
   }
 
   // Trees.
@@ -204,8 +226,15 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
       if (rec.role === 'paint') tmp.setHex(paint);
       else if (rec.role === 'accent') tmp.setHex(accent);
       else tmp.setHex(ink);
-      // An unowned beacon is a dull lens, not a light.
-      const mult = rec.role === 'accent' && !faction ? rec.mult * 0.16 : rec.mult;
+      // An unowned beacon is a dull lens, not a light; an owned one is capped so its bloom stays a tight glow.
+      let mult = rec.mult;
+      if (rec.role === 'accent') {
+        if (!faction) mult *= 0.16;
+        else {
+          const luma = 0.2126 * tmp.r + 0.7152 * tmp.g + 0.0722 * tmp.b;
+          if (luma * mult > BEACON_MAX_LUMA) mult = BEACON_MAX_LUMA / luma;
+        }
+      }
       for (let i = rec.start; i < rec.start + rec.count; i++) col.setXYZ(i, tmp.r * mult, tmp.g * mult, tmp.b * mult);
       col.needsUpdate = true;
       if (rec.role === 'ink' && rec.baseUv) {
@@ -218,6 +247,11 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
   }
 
   const properties = board.tiles.filter((t) => t.property);
+  // The low form: per property tile, a target (1 = a unit stands here) and an eased progress. The map the shader reads holds the progress
+  // passed through smoothstep, so the sink starts and ends gently; `update` writes only the tiles that are still moving.
+  const lowTarget = new Uint8Array(width * height);
+  const lowProgress = new Float32Array(width * height);
+  const lowMap = occMap.image.data as Uint8Array;
   let stormTarget = input.weather === 'ionstorm' ? 1 : 0;
   uniforms.uStorm.value = stormTarget;
   const stats: TerrainStats = {
@@ -248,8 +282,8 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
       for (const t of properties) data[t.index] = Math.round(Math.min(1, Math.max(0, progressAt(t.x, t.y))) * 255);
       capMap.needsUpdate = true;
     },
-    setOccupied() {
-      // Contract stub (lead): the low form of occupied properties is ORDER G8a's. Until it lands, buildings keep their full height.
+    setOccupied(occupiedAt) {
+      for (const t of properties) lowTarget[t.index] = occupiedAt(t.x, t.y) ? 1 : 0;
     },
     setVisible(visibleAt) {
       const data = fogMap.image.data as Uint8Array;
@@ -260,9 +294,25 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
       stormTarget = weather === 'ionstorm' ? 1 : 0;
     },
     update(dtSec, timeSec) {
+      // A huge dt (scrubbing, a first frame after a long pause) reaches every target at once; NaN and negative steps do nothing.
+      const dt = dtSec > 0 ? dtSec : 0;
+      const step = Math.min(dt, 1e6) / LOW_EASE_SEC;
+      let moved = false;
+      if (step > 0) {
+        for (const t of properties) {
+          const i = t.index;
+          const goal = lowTarget[i];
+          const p = lowProgress[i];
+          if (p === goal) continue;
+          lowProgress[i] = goal > p ? Math.min(goal, p + step) : Math.max(goal, p - step);
+          lowMap[i] = Math.round(smoothstep(0, 1, lowProgress[i]) * 255);
+          moved = true;
+        }
+      }
+      if (moved) occMap.needsUpdate = true;
       uniforms.uTime.value = timeSec;
-      uniforms.uStorm.value += (stormTarget - uniforms.uStorm.value) * (1 - Math.exp(-Math.max(0, dtSec) * 3));
-      mats.glow.emissiveIntensity = 1 + 0.1 * Math.sin(timeSec * 2.3);
+      uniforms.uStorm.value += (stormTarget - uniforms.uStorm.value) * (1 - Math.exp(-dt * 3));
+      mats.glow.emissiveIntensity = 1 + GLOW_PULSE * Math.sin(timeSec * 2.3);
     },
     dispose() {
       group.clear();
@@ -274,8 +324,30 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
       captureAt: (x, y) => (capMap.image.data as Uint8Array)[y * width + x],
       storm: () => uniforms.uStorm.value,
       factionAt: (x, y) => shown.get(y * width + x) ?? null,
+      lowAt: (x, y) => lowMap[y * width + x] / 255,
+      extentAt(x, y) {
+        const tile = board.at(x, y);
+        if (!tile.property) return null;
+        const low = lowMap[tile.index] / 255;
+        const out = { stays: null as { minY: number; maxY: number } | null, sinks: null as { minY: number; maxY: number } | null, pad: tile.walk };
+        for (const b of ['solid', 'glossy', 'windows', 'glow', 'decal'] as Bucket[]) {
+          const g = bucketGeo[b];
+          if (!g) continue;
+          const pos = g.getAttribute('position') as BufferAttribute;
+          const sk = g.getAttribute(SINK_ATTR) as BufferAttribute;
+          for (let i = 0; i < pos.count; i++) {
+            if (Math.floor(pos.getX(i)) !== x || Math.floor(pos.getZ(i)) !== y) continue;
+            const yy = lowFormY(pos.getY(i), sk.getX(i), sk.getY(i), low);
+            const k = sk.getX(i) > 0.5 ? 'sinks' : 'stays';
+            const e = out[k];
+            if (!e) out[k] = { minY: yy, maxY: yy };
+            else { e.minY = Math.min(e.minY, yy); e.maxY = Math.max(e.maxY, yy); }
+          }
+        }
+        return out;
+      },
       materials: () => ({ ...mats, water: waterMat, rings: ringMat }),
-      uniforms: () => ({ fogMap: uniforms.uFogMap.value, storm: uniforms.uStorm.value, time: uniforms.uTime.value }),
+      uniforms: () => ({ fogMap: uniforms.uFogMap.value, storm: uniforms.uStorm.value, time: uniforms.uTime.value, occMap: uniforms.uOccMap.value }),
       paintAt(x, y) {
         const rec = byTile.get(y * width + x)?.find((r) => r.role === 'paint');
         const g = rec && bucketGeo[rec.bucket];
