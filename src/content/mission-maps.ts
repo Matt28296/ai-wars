@@ -1,6 +1,8 @@
-// M4.0 the four Act I mission maps. Spec: docs/STORY.md "Act I -- Cinder Season" (missions 1-4), docs/delivery/DECISIONS.md D-007.
+// M4.0 the four Act I mission maps and M4.1 the three Act II maps. Spec: docs/STORY.md "Act I -- Cinder Season" (missions 1-4) and "Act II --
+// False Colors" (missions 5-7), docs/delivery/DECISIONS.md D-007.
 // All are original and drawn for the story beat they carry, not for symmetry: the player's agent and Rook's detachment (players 0 and 1,
-// one team) start on the west, the opposing force (player 2) on the east. Tile legend and MapDef: src/content/types.ts. Rules:
+// one team) start on the west, the opposing force (player 2) on the east. Mission 6 adds Wing Lead Juno Reyes-Abara as a fourth player, an
+// ally on team 0 in slot 3, so that "player 2 is the opposing force" holds on every map. Tile legend and MapDef: src/content/types.ts. Rules:
 // src/content/map-check.ts. missions.test.ts runs checkMap on every map (mission 1 with requireBases false, since it has no production),
 // so a bad edit fails the build. Income is 1000 per property except uplinks (0), docs/research/mechanics.md section 6.
 // Rows run y = 0 downward and columns x = 0 rightward; each owners row is the twin of its terrain row ('.' = neutral).
@@ -222,10 +224,199 @@ const tidebreak: MapDef = {
   recommended: { fog: false, weather: 'clear', startFunds: 4000 },
 };
 
-/** The four Act I mission maps by id, in mission order. A mission's `mapId` is a key of this table. */
+// 20x14. Mission 5, Under Canopy (fog on): the Helion zone is open ground on the west; east of x=4 the weald is canopy (about half the map), cut
+// by glades with a neutral arcology each, a short maglev road (row 6) and two ridge lookouts (foot units see +3 on a ridge). Juno's relay spire
+// stands at (16,6) in a grove behind the central glade, with her fabricator at (18,3) and skyport at (18,10). Her Wasps start in the open sky
+// out of sight, and two Troopers wait under canopy beside the road, so a column that does not scout is ambushed.
+const underCanopy: MapDef = {
+  id: 'm5-under-canopy',
+  name: 'Sunless Weald',
+  description: 'A weald of dense canopy, glades and two ridge lookouts, with a Verdant relay spire at its heart and open Helion ground behind.',
+  players: 3,
+  terrain: [
+    '...f.fffffffffffffff', // 0
+    'f.......ffffffffffff', // 1
+    '..F...C.ffff...ff...', // 2
+    '....f...f^ff.C.ff.F.', // 3
+    '.H...fff^^ff...ff...', // 4
+    '.....ffff...fff...ff', // 5
+    'f...=====.C.....H.ff', // 6
+    '....fffff...fff...ff', // 7
+    '.f...fffffffffffffff', // 8
+    '.H...fff^^ff...ff...', // 9
+    '........f^ff.C.ff.A.', // 10
+    '..F...C.ffff...ff...', // 11
+    '....f...ffffffffffff', // 12
+    '..f..fffffffffffffff', // 13
+  ],
+  owners: [
+    '....................', // 0
+    '....................', // 1
+    '..0.................', // 2
+    '..................2.', // 3
+    '.0..................', // 4
+    '....................', // 5
+    '................2...', // 6
+    '....................', // 7
+    '....................', // 8
+    '.1..................', // 9
+    '..................2.', // 10
+    '..1.................', // 11
+    '....................', // 12
+    '....................', // 13
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 3, y: 4 },
+    { type: 'trooper', owner: 0, x: 2, y: 5 },
+    { type: 'breacher', owner: 0, x: 3, y: 3 },
+    { type: 'skimmer', owner: 0, x: 3, y: 5 },
+    { type: 'trooper', owner: 1, x: 3, y: 8 },
+    { type: 'trooper', owner: 1, x: 2, y: 7 },
+    { type: 'breacher', owner: 1, x: 3, y: 9 },
+    { type: 'warden', owner: 1, x: 4, y: 8 },
+    { type: 'wasp', owner: 2, x: 12, y: 3 },
+    { type: 'wasp', owner: 2, x: 12, y: 10 },
+    { type: 'wasp', owner: 2, x: 14, y: 7 },
+    { type: 'trooper', owner: 2, x: 9, y: 8 },
+    { type: 'trooper', owner: 2, x: 8, y: 5 },
+    { type: 'skimmer', owner: 2, x: 13, y: 6 },
+  ],
+  recommended: { fog: true, weather: 'clear', startFunds: 2000 },
+};
+
+// 22x14, FOUR players. Mission 6, Pollen Count: the Ashfall seed vault compound on the west is shared by the agent (spire (2,3)), Rook (spire
+// (2,10)) and Juno (the vault hall, spire (4,6), with her skyport at (6,5)); a ridge wall at x=10-11 with a maglev gate (row 6) and open passes
+// (rows 2 and 11) shelters it from the east, where the Choir's drones hold a seized relay spire at (19,6) with a fabricator and a skyport.
+// checkMap wants every slot to own one spire and a fabricator, so the drones hold a spire and a fabricator at the east treeline; taking that
+// spire would rout them and end the mission early, and it sits behind their starting wing. Slot 2 is the opposing force, slot 3 is Juno (team 0).
+const pollenCount: MapDef = {
+  id: 'm6-pollen-count',
+  name: 'Ashfall Seed Vault',
+  description: 'A seed vault compound behind a ridge wall with one gate, facing a seized relay spire where unmarked drones gather.',
+  players: 4,
+  terrain: [
+    'ff.....ff.^^.....f....', // 0
+    'f.....f...^^.ff......f', // 1
+    '....F...C......f......', // 2
+    '..H.......^^....fF....', // 3
+    '.........f^^.Cf.......', // 4
+    '......A.f.^^f.....f...', // 5
+    '..C.H===========C=.H..', // 6
+    '......F...^^f.....f...', // 7
+    '........f.^^..f.......', // 8
+    '.........f^^.C........', // 9
+    '..H.......^^....f...A.', // 10
+    '....F...C......f......', // 11
+    'f......f..^^.ff......f', // 12
+    'ff.....ff.^^.....f....', // 13
+  ],
+  owners: [
+    '......................', // 0
+    '......................', // 1
+    '....0.................', // 2
+    '..0..............2....', // 3
+    '......................', // 4
+    '......3...............', // 5
+    '..3.3..............2..', // 6
+    '......3...............', // 7
+    '......................', // 8
+    '......................', // 9
+    '..1.................2.', // 10
+    '....1.................', // 11
+    '......................', // 12
+    '......................', // 13
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 3, y: 4 },
+    { type: 'trooper', owner: 0, x: 4, y: 4 },
+    { type: 'breacher', owner: 0, x: 5, y: 3 },
+    { type: 'warden', owner: 0, x: 5, y: 4 },
+    { type: 'trooper', owner: 1, x: 3, y: 9 },
+    { type: 'trooper', owner: 1, x: 4, y: 9 },
+    { type: 'lancer', owner: 1, x: 5, y: 10 },
+    { type: 'warden', owner: 1, x: 5, y: 9 },
+    { type: 'wasp', owner: 2, x: 16, y: 4 },
+    { type: 'wasp', owner: 2, x: 16, y: 8 },
+    { type: 'wasp', owner: 2, x: 17, y: 6 },
+    { type: 'skimmer', owner: 2, x: 15, y: 5 },
+    { type: 'skimmer', owner: 2, x: 15, y: 7 },
+    { type: 'skimmer', owner: 2, x: 18, y: 6 },
+    { type: 'wasp', owner: 3, x: 7, y: 6 },
+    { type: 'wasp', owner: 3, x: 8, y: 4 },
+    { type: 'wasp', owner: 3, x: 8, y: 8 },
+    { type: 'skimmer', owner: 3, x: 7, y: 3 },
+  ],
+  recommended: { fog: false, weather: 'clear', startFunds: 3000 },
+};
+
+// 22x14. Mission 7, Root and Branch: a grove of canopy (a third of the map) opened by glades, each with a property in it; flats beside canopy
+// are what Maru's Overgrowth turns to canopy. Seventeen properties: two each for the agent (spire (1,3)) and Rook (spire (1,10)), three for
+// Maru (spire (20,6), fabricator (19,2), arcology (19,10)) and ten neutral, among them an uplink at (11,7), a skyport at (16,6) and a
+// fabricator at (15,12). Two ridge mounds in the middle give the lookouts; a short maglev road leads out of the Helion zone.
+const rootAndBranch: MapDef = {
+  id: 'm7-root-and-branch',
+  name: 'The Elder Grove',
+  description: 'A grove of canopy and glades between two Helion bases and the Elder\'s root-house, with seventeen properties to hold.',
+  players: 3,
+  terrain: [
+    'f...ffffffffffffffffff', // 0
+    '.....fffff...ffff...ff', // 1
+    '...F....ff.C.ffff..Fff', // 2
+    '.H....C.........f...ff', // 3
+    '..........^f..C...ffff', // 4
+    'f....fff.^^ff...ff....', // 5
+    '...f=====C....f.A...H.', // 6
+    'f..f.fff...U..........', // 7
+    '.....fff.^^ff...ff....', // 8
+    '..........^f..C......f', // 9
+    '.H....C.f.......ff.C.f', // 10
+    '...F....ff.C.f...f...f', // 11
+    '.....fffff...f.F.fffff', // 12
+    'f...ffffffffff...fffff', // 13
+  ],
+  owners: [
+    '......................', // 0
+    '......................', // 1
+    '...0...............2..', // 2
+    '.0....................', // 3
+    '......................', // 4
+    '......................', // 5
+    '....................2.', // 6
+    '......................', // 7
+    '......................', // 8
+    '......................', // 9
+    '.1.................2..', // 10
+    '...1..................', // 11
+    '......................', // 12
+    '......................', // 13
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 3, y: 4 },
+    { type: 'trooper', owner: 0, x: 2, y: 5 },
+    { type: 'trooper', owner: 0, x: 4, y: 3 },
+    { type: 'breacher', owner: 0, x: 4, y: 4 },
+    { type: 'skimmer', owner: 0, x: 3, y: 5 },
+    { type: 'trooper', owner: 1, x: 3, y: 9 },
+    { type: 'trooper', owner: 1, x: 2, y: 8 },
+    { type: 'trooper', owner: 1, x: 4, y: 10 },
+    { type: 'breacher', owner: 1, x: 4, y: 9 },
+    { type: 'trooper', owner: 2, x: 16, y: 3 },
+    { type: 'trooper', owner: 2, x: 16, y: 5 },
+    { type: 'trooper', owner: 2, x: 17, y: 10 },
+    { type: 'breacher', owner: 2, x: 18, y: 4 },
+    { type: 'breacher', owner: 2, x: 17, y: 8 },
+    { type: 'skimmer', owner: 2, x: 15, y: 8 },
+  ],
+  recommended: { fog: false, weather: 'clear', startFunds: 2000 },
+};
+
+/** The seven campaign mission maps by id, in mission order (Act I: 1-4, Act II: 5-7). A mission's `mapId` is a key of this table. */
 export const MISSION_MAPS: Record<string, MapDef> = {
   'm1-first-light': firstLight,
   'm2-calder-spire': calderSpire,
   'm3-saltglass-bay': saltglassBay,
   'm4-tidebreak': tidebreak,
+  'm5-under-canopy': underCanopy,
+  'm6-pollen-count': pollenCount,
+  'm7-root-and-branch': rootAndBranch,
 };
