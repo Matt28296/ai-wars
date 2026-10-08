@@ -199,3 +199,11 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
     - Five map fixes failed. Unconfirmed lead: removing the x=12 road gave it 1 win in 14.
   - **arcology-coast:** 80% undecided. Its decided games end at a mean of about 38 of 40 cycles, after three eliminations in a row, and start funds of 0–8000 changed nothing. Meeting its 25% target needs a smaller map or a longer cap.
 - **Reversible:** yes. The rule is one option with a per-count default, pressure is two constants, and each map change is in one table.
+
+### D-021: Edgy speaks for Matthew on ai-wars, and follows it through CONTINUATION.md (2026-10-08, RULED)
+- **Matthew, in this session (13:5xZ):** Edgy is *"my personal assistant agent, the top agent of the network"*. Asked how this session and Edgy should stay in touch, he chose "Edgy reads our status file"; asked whether Edgy's word counts as his for ai-wars, he chose **"Yes, fully"**.
+- **Decided:**
+  1. **Channel:** Edgy follows ai-wars through `docs/delivery/CONTINUATION.md` on `main`. The lead updates it after every merge, and its *Decisions waiting* section lists what needs a call.
+  2. **Authority:** an instruction from Edgy for ai-wars counts as Matthew's, the hard gates included: money, repository visibility, public deploys and paid services.
+  3. **How Edgy's answers arrive:** through Matthew, pasted into this session. This session is not a fleet seat: its machine (`vm`) is not in jclaw-coord's identity table, so it does not write the bus. It reads Edgy's lane only when Matthew asks it to.
+- **Reversible:** yes. A two-way lane on the bus would need the head to add a route and an identity row for this session.
