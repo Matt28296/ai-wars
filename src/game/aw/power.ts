@@ -1,7 +1,8 @@
 // Commander powers: the meter (AW2 rules), activation and the InstantEffect vocabulary.
 //
-// Meter: damage dealt charges funds value of display HP removed × 0.5, damage taken × 1.0, scaled by
-// powerChargePercent; no charging while the player's own power is active; capped at the Overclock cost.
+// Meter (mechanics.md 10.1): combat computes value = list cost × INTERNAL HP lost / 100 and calls gainPower with it
+// twice: the victim gets 100% of the value, the dealer 50%. Gains are scaled by powerChargePercent; no charging
+// while the player's own power is active; capped at the Overclock cost. Power-effect damage never charges.
 // One star = POWER_STAR points, and every previous activation makes stars 20% dearer (max +100%).
 // Activating either power empties the meter. A power stays active until the start of its owner's next turn
 // (so its defense applies through the enemy turn); all active powers add +10 firepower / +10 defense.
@@ -61,6 +62,7 @@ export function canActivatePower(state: GameState, level: PowerLevel): boolean {
   return pl.power >= powerCost(state, p, level);
 }
 
+/** Adds `amount` meter points (already the 100% or 50% share) scaled by powerChargePercent; a no-op while the player's power is active. */
 export function gainPower(ctx: Ctx, p: PlayerIndex, amount: number): void {
   const s = ctx.s;
   const pl = s.players[p];
