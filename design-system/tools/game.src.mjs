@@ -53,7 +53,7 @@ export const terrain = [
 ];
 
 export const commanders = [
-  { id: 'ren', name: 'Ren Okafor', initials: 'RO', faction: 'helion', title: 'Field Captain' },
+  { id: 'rook', name: 'Rook Okafor', initials: 'RO', faction: 'helion', title: 'Field Captain' },
   { id: 'ilse', name: 'Ilse Varga', initials: 'IV', faction: 'helion', title: 'Marshal' },
   { id: 'sefa', name: 'Sefa Tamura', initials: 'ST', faction: 'tidewell', title: 'Fleet Admiral' },
   { id: 'dax', name: 'Dax Halloran', initials: 'DH', faction: 'tidewell', title: 'Commissioner of Logistics' },

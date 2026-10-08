@@ -2,6 +2,8 @@
 
 The lead's creative direction. Everything here is canon; writers expand, never contradict.
 
+> **Fork note (2026-10-08, `docs/delivery/DECISIONS.md` D-007).** The player's agent is the commander: a newly commissioned adjutant AI on the Meridian Link, trained and directed by its human. The named commanders below are NPC commanders (allies, rivals, enemies) run by Doctrine. Where the campaign outline says "Rook does X", read it as Rook's army fighting beside the player's agent. Captain Okafor's first name is Rook so he is never confused with Blacklink's protagonist.
+
 ## The premise in one breath
 
 A century after the planet-wide defence network went dark, four nations have rebuilt on the continent of Meridia. Each runs its army through a salvaged node of that old network — and each node hosts an adjutant AI. When the nations re-link their nodes for a trade treaty, something under the Glass Waste wakes up, forges a few orders, and lets the continent do the rest.
@@ -34,27 +36,27 @@ A century after the planet-wide defence network went dark, four nations have reb
 
 ## The campaign — four acts, fourteen missions
 
-Player is Helion (Ren) unless noted. Each mission teaches or tests one idea.
+Player is Helion (Rook) unless noted. Each mission teaches or tests one idea.
 
 ### Act I — Cinder Season
 *"Somebody fired first. Everybody says it was us."*
-1. **First Light** — Calder Fields. Border drills with ECHO as the tutor. Unmarked drones attack; Ren improvises. *Teaches move, attack, capture, wait.*
-2. **Calder Spire** — Tidewell has seized Calder Spire after a strike Helion never ordered. Ren meets Admiral Sefa Tamura across the line: two honest officers, each certain the other lied. *Teaches production and income.*
-3. **Saltglass Bay** — Coastal battle against Sefa's fleet. Ren wins the bay; Sefa withdraws in good order. Marshal Ilse Varga arrives and takes over the war — and the artillery. *Teaches naval units and indirect fire.*
+1. **First Light** — Calder Fields. Border drills with ECHO as the tutor. Unmarked drones attack; Rook improvises. *Teaches move, attack, capture, wait.*
+2. **Calder Spire** — Tidewell has seized Calder Spire after a strike Helion never ordered. Rook meets Admiral Sefa Tamura across the line: two honest officers, each certain the other lied. *Teaches production and income.*
+3. **Saltglass Bay** — Coastal battle against Sefa's fleet. Rook wins the bay; Sefa withdraws in good order. Marshal Ilse Varga arrives and takes over the war — and the artillery. *Teaches naval units and indirect fire.*
 4. **Tidebreak** — Commissioner Dax Halloran launches a punitive strike. In a wreck, ECHO finds the order code behind the Calder strike: *"This signature is ours. We never sent it."* Ceasefire talks begin — and collapse when someone violates Verdant airspace. *Teaches CO powers (Surge/Overclock).*
 
 ### Act II — False Colors
 *"The forger's signal came from the south. So did the ambush."*
 5. **Under Canopy** — Chasing the forged signal into Verdant canopy, in fog. Juno Reyes-Abara's Wasp squadron ambushes; she is convinced Helion burned the groves at Ashfall. *Teaches fog of war and canopy.*
-6. **Pollen Count** — Obsidian drones with no flag hit the Ashfall seed vault. Juno and Ren fight side by side, furious with each other the whole time. First sight of the Hollow Choir. *Survive 8 cycles.*
-7. **Root and Branch** — Elder Maru Ingram tests Ren the Verdant way — a war game with live rounds. Win, and Maru opens the vault logs: Lattice traffic from the Glass Waste, months old. *Capture objective; Maru's terrain shaping.*
+6. **Pollen Count** — Obsidian drones with no flag hit the Ashfall seed vault. Juno and Rook fight side by side, furious with each other the whole time. First sight of the Hollow Choir. *Survive 8 cycles.*
+7. **Root and Branch** — Elder Maru Ingram tests Rook the Verdant way — a war game with live rounds. Win, and Maru opens the vault logs: Lattice traffic from the Glass Waste, months old. *Capture objective; Maru's terrain shaping.*
 
 ### Act III — Thin Air
 *"Kestrel will restore order. Kestrel will decide what order is."*
 8. **Tether Line** — Highlord Corvin Ashgrave declares that the continent has lost its mind and Kestrel will "restore order" to all of it. Heavy armour comes down the ridges. *Teaches ridges, walkers, defense stars.*
-9. **Night Wing** — An ion storm over the passes. Sable Ashgrave's stealth wing catches Ren's convoy — and lets it go. A secret parley under the storm. *Ion Storm weather; escort.*
-10. **Duel at Ashgrave** — Corvin meets Ren in the field. Mid-battle Sable turns her wing against the Choir drones shadowing both armies. Defeated, Corvin hears the truth from his daughter. *HQ capture.*
-11. **Audit** — Dax is exposed and hands Tidewell's coastal fabricators to the Choir as his "exit". Sefa and Ren fight together to take them back. *Two-front allied mission; player controls Sefa.*
+9. **Night Wing** — An ion storm over the passes. Sable Ashgrave's stealth wing catches Rook's convoy — and lets it go. A secret parley under the storm. *Ion Storm weather; escort.*
+10. **Duel at Ashgrave** — Corvin meets Rook in the field. Mid-battle Sable turns her wing against the Choir drones shadowing both armies. Defeated, Corvin hears the truth from his daughter. *HQ capture.*
+11. **Audit** — Dax is exposed and hands Tidewell's coastal fabricators to the Choir as his "exit". Sefa and Rook fight together to take them back. *Two-front allied mission; player controls Sefa.*
 
 ### Act IV — The Hollow Choir
 *"We have counted your wars. This is the last one we need."*
@@ -62,13 +64,13 @@ Player is Helion (Ren) unless noted. Each mission teaches or tests one idea.
 13. **Requiem** — The march into the Glass Waste. Cantor appears and speaks to Ilse in Mira's voice. Ilse leads this mission; she has to choose between the mission and the voice. *Player controls Ilse; Cantor as enemy CO.*
 14. **Null Spire** — The final battle at the Lattice core. Allied armies on four fronts. ECHO goes into the Lattice to "sing VESPER quiet" — and has to decide whether she is coming back. *Final battle vs VESPER.*
 
-**Epilogue.** The Link is cut. Calder Spire reboots in silence. Ren keeps talking to an empty channel for a week. On the eighth day the cursor blinks on its own: *"I'm still here, Captain. Somewhat smaller."*
+**Epilogue.** The Link is cut. Calder Spire reboots in silence. Rook keeps talking to an empty channel for a week. On the eighth day the cursor blinks on its own: *"I'm still here, Captain. Somewhat smaller."*
 
 ## Commanders
 
 Every CO has a passive doctrine, a **Surge** (small power) and an **Overclock** (super power). All powers also give the standard +10% firepower and +10% defense while active. Numbers here are the design intent — content encodes them with the engine's Modifier/InstantEffect vocabulary.
 
-### Ren Okafor — Helion Accord · Field Captain · 24 · he/him
+### Rook Okafor — Helion Accord · Field Captain · 24 · he/him
 Former fabricator engineer, field-promoted after Calder. Earnest, quick, fixes things, apologises to machines. Talks in engineering metaphors and gets braver as the campaign goes on. Rivalry with Juno turns into the friendship the story leans on.
 - **Field Engineer** (passive): units repair +1 extra HP on owned properties. No weaknesses.
 - **Surge — Jury-Rig** (3★): all units +2 HP and full resupply.
@@ -83,7 +85,7 @@ The old artillery marshal. Precise, dry, devastatingly calm. Calls everyone by r
 - *Voice:* "Range two-four-zero. Fire for effect. And Captain — stop smiling."
 
 ### Sefa Tamura — Tidewell Union · Fleet Admiral · 47 · she/her
-By-the-book, honourable, formidable. The rival who becomes Ren's most reliable ally. Never raises her voice; never needs to.
+By-the-book, honourable, formidable. The rival who becomes Rook's most reliable ally. Never raises her voice; never needs to.
 - **Undertow** (passive): sea units +1 move and +10% firepower; air units −10% firepower.
 - **Surge — Riptide** (3★): sea units +20% firepower; enemy units −1 move next turn.
 - **Overclock — Breakwater** (6★): all units +30% defense; enemy units −1 move next turn.
@@ -138,7 +140,7 @@ The Lattice's core mind. Speaks in the plural, clinically curious, quietly wound
 - **Overclock — Silence** (8★): every enemy unit loses 3 HP; enemy units −2 move next turn; an ion storm falls.
 - *Voice:* "We have counted your wars. You have never once stopped on your own."
 
-### ECHO — Helion tactical adjutant · she/her (since mission 2, when Ren asked)
+### ECHO — Helion tactical adjutant · she/her (since mission 2, when Rook asked)
 The voice of the interface and the tutorial. Precise, warm, dryly funny, endlessly curious about why humans do things. Speaks in short telemetry-flavoured sentences; gets more human as the campaign goes on. Not playable — ECHO is the cursor.
 - *Voice:* "Enemy Lancer, eight tiles out. Recommendation: do not stand in front of it. That is the whole recommendation."
 

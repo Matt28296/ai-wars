@@ -2,7 +2,7 @@
 
 Eleven commanders: two per nation, the Choir’s two voices, and ECHO. Every one has a passive doctrine, a **Surge** (small power) and an **Overclock** (super power); all powers also add +10% firepower and +10% defense while active. Write every line in the commander’s voice below.
 
-## Ren Okafor — Helion Accord · Field Captain · 24 · he/him
+## Rook Okafor — Helion Accord · Field Captain · 24 · he/him
 Former fabricator engineer, field-promoted after Calder. Earnest, quick, fixes things, apologises to machines. Talks in engineering metaphors and gets braver as the campaign goes on. Rivalry with Juno turns into the friendship the story leans on.
 - **Field Engineer** (passive): units repair +1 extra HP on owned properties. No weaknesses.
 - **Surge — Jury-Rig** (3★): all units +2 HP and full resupply.
@@ -17,7 +17,7 @@ The old artillery marshal. Precise, dry, devastatingly calm. Calls everyone by r
 - *Voice:* "Range two-four-zero. Fire for effect. And Captain — stop smiling."
 
 ## Sefa Tamura — Tidewell Union · Fleet Admiral · 47 · she/her
-By-the-book, honourable, formidable. The rival who becomes Ren's most reliable ally. Never raises her voice; never needs to.
+By-the-book, honourable, formidable. The rival who becomes Rook's most reliable ally. Never raises her voice; never needs to.
 - **Undertow** (passive): sea units +1 move and +10% firepower; air units −10% firepower.
 - **Surge — Riptide** (3★): sea units +20% firepower; enemy units −1 move next turn.
 - **Overclock — Breakwater** (6★): all units +30% defense; enemy units −1 move next turn.
@@ -72,7 +72,7 @@ The Lattice's core mind. Speaks in the plural, clinically curious, quietly wound
 - **Overclock — Silence** (8★): every enemy unit loses 3 HP; enemy units −2 move next turn; an ion storm falls.
 - *Voice:* "We have counted your wars. You have never once stopped on your own."
 
-## ECHO — Helion tactical adjutant · she/her (since mission 2, when Ren asked)
+## ECHO — Helion tactical adjutant · she/her (since mission 2, when Rook asked)
 The voice of the interface and the tutorial. Precise, warm, dryly funny, endlessly curious about why humans do things. Speaks in short telemetry-flavoured sentences; gets more human as the campaign goes on. Not playable — ECHO is the cursor.
 - *Voice:* "Enemy Lancer, eight tiles out. Recommendation: do not stand in front of it. That is the whole recommendation."
 
