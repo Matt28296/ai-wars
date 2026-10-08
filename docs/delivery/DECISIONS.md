@@ -120,3 +120,30 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
   - terrain, units and effects are separate builders in separate folders.
 - **Checked by:** node tests, plus headless Chromium (SwiftShader WebGL2, confirmed working in this environment) screenshots read by the builder and the lead.
 - **Reversible:** yes; the SVG board remains, and the 3D board sits behind one switch.
+
+### D-019: the first mover collects no income on turn one, and Doctrine presses when clearly ahead (2026-10-08, DECIDED)
+- **Measured problem (M3.1, hash `f1a42064b9ecdc72`):** in Doctrine-vs-Doctrine mirrored games the first mover won most duels (calder 17–3, tether 12–4, canopy 9–7). Big maps stalled: saltglass 14 of 20 undecided, arcology-coast 16 of 20.
+- **Decided:**
+  1. `createGame` takes `firstMoverRule: 'none' | 'noFirstIncome' | 'secondBonus'`; the default is **`noFirstIncome`** (player 0 collects no income at the start of its first turn).
+     - Measured with the M3.1 Doctrine, 30 mirrored games per map, cap 40 cycles (hash `b3b2697776c3d469`), side-0 share of decided games: `none` 86/76/61% (calder/tether/canopy, mean 74%); `noFirstIncome` 57/44/77% (mean 59%); `secondBonus` 73/71/64% (mean 69%).
+     - Re-checked with the final Doctrine, 20 games (hash `de6f2ff473a24ec2`), calder/tether/canopy/saltglass: `none` 90/74/56/100; `secondBonus` 60/76/59/67; `noFirstIncome` 53/44/75/90. Over all four maps the two rules tie at 65.5%; over the three duel maps `noFirstIncome` is better (57% vs 65%), so it stands.
+  2. **Campaign missions use `'none'`.** Their balance is authored per mission (start funds, positions, objectives), so whatever builds a mission's `CreateGameOptions` passes `firstMoverRule: 'none'`; `missions.test.ts` does. The default applies to skirmish, where maps are symmetric. **A recorded match must carry its rule:** a setup that omits `firstMoverRule` replays under the current default, so a match recorded before this change replays differently. The watch view's demo now passes `'none'` explicitly; the replay format (M3.3) stores the rule with the setup.
+  3. **Doctrine pressure.** When its team's visible army value is at least 1.6× the strongest single enemy player's (and at least 6,000), never under fog or an ion storm, or when it nears the 50-unit cap (≥ 48), Doctrine plays Advance whatever the orders say: capturers go for the enemy spire with an armed escort within 2 tiles, attacks that clear the spire score higher, and building stops at 36 units. The 1.6 is the low end of a plateau: the first time a side reached a ratio r, it went on to win 79% (1.2), 86% (1.4), 88% (1.5, 1.6) and 90% (1.8, 2.0) of 42 decided games.
+  4. `forecast` gives no damage and no counter for a target out of range or with no usable weapon (the same answer as an unseen target). Under fog an enemy transport's cargo is hidden: `cargo: []` and a `loaded` flag (D-016's rule, extended to cargo).
+- **Result** (`pnpm balance --games 20`, default rule, cap 40, hash `de6f2ff473a24ec2`; side-0 share of decided games, undecided):
+
+  | map | wins by seat | side-0 share | undecided | target |
+  |---|---|---|---|---|
+  | calder-fields | 10 / 9 | 53% | 1 (5%) | met |
+  | tether-ridges | 8 / 10 | 44% | 2 (10%) | met |
+  | canopy-highlands | 15 / 5 | 75% | 0 | share missed (+10) |
+  | saltglass-bay | 9 / 1 | 90% | 10 (50%) | both missed |
+  | glass-waste (3p) | 0 / 4 / 9 | n/a | 7 (35%) | undecided missed (+10) |
+  | arcology-coast (4p) | 0 / 2 / 6 / 2 | n/a | 10 (50%) | undecided missed (+25) |
+
+  Targets were 35–65% side-0 share on 2-player maps and ≤ 25% undecided. Undecided games fell from 14 to 10 on saltglass and from 16 to 10 on arcology-coast. Two of six maps are fully on target.
+- **Open (M3.3):**
+  - saltglass's only land route is a ~40-tile march along the north shore, so pressure starts at cycle 20–31 and needs 10–15 more cycles; that is a map problem as much as a brain problem;
+  - in 3- and 4-player games no single side gets 1.6× the strongest enemy, the 48-unit cap never fires (units peak at 40), and `noFirstIncome` over-penalises seat 0 there (it won 0 of 23 decided games): the rule should apply to 2-player games only, or scale by seat;
+  - canopy and saltglass keep a seat bias under all three rules.
+- **Reversible:** yes; the rule is one option with a default, and pressure is one function in `eval.ts`.

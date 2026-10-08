@@ -9,11 +9,12 @@
 //                                    when a capturer has no land route)
 //   - what the army already has too much of
 // A category whose weight is 0 is never built. The composition weights are shares of the money spent on the army.
+// In pressure (a won game being closed out, see eval.ts pressureOf) it builds nothing once it fields PRESSURE_BUILD_LIMIT units.
 import { TERRAIN_TYPES, UNIT_LIST, UNIT_TYPES } from '../../data';
 import type { Action, Unit, UnitTypeId } from '../aw/types';
 import { areEnemies, manhattan } from '../aw/state';
 import type { Category, Ctx } from './eval';
-import { INF, baseDamage, categoryOf, foeAnchors, reachFrom, unitValue } from './eval';
+import { INF, PRESSURE_BUILD_LIMIT, baseDamage, categoryOf, foeAnchors, pressureOf, reachFrom, unitValue } from './eval';
 import type { Composition } from './orders';
 
 type BuildAction = Extract<Action, { kind: 'build' }>;
@@ -106,6 +107,10 @@ function availableCategories(ctx: Ctx): Set<Category> {
 export function chooseBuild(ctx: Ctx, actions: Action[], pick: (n: number) => number): Action | null {
   const builds = actions.filter((a): a is BuildAction => a.kind === 'build');
   if (!builds.length) return null;
+  // Closing out a won game (M3.2): a crowded army builds no more. Its extra units would only queue behind the ones already
+  // marching, and at the cap the build is illegal anyway.
+  const press = pressureOf(ctx);
+  if (press.on && press.units >= PRESSURE_BUILD_LIMIT) return null;
   const comp: Composition = ctx.orders.composition;
   const avail = availableCategories(ctx);
   const army = armyOf(ctx);

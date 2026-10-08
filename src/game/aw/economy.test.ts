@@ -12,7 +12,7 @@ import {
 } from './index';
 import type { PlayerSetup } from './index';
 import { draft } from './state';
-import { fixtureGame } from './testing';
+import { fixtureGame as fixtureGameWithDefaults } from './testing';
 import type { FixtureUnit } from './testing';
 import { REPAIR_HP, repairsDomain } from './turn';
 import type {
@@ -20,6 +20,11 @@ import type {
 } from './types';
 
 // ---------------------------------------------------------------- helpers
+
+// M3.2: this file prices the turn economy under the original first-player rule (player 0 is paid on cycle 1), so its games name 'none'.
+// The default rule's own behaviour is tested in balance-rules.test.ts.
+const fixtureGame: typeof fixtureGameWithDefaults = (terrain, units, extra = {}) =>
+  fixtureGameWithDefaults(terrain, units, { firstMoverRule: 'none', ...extra });
 
 const END: Action = { kind: 'endTurn' };
 const CAPTURE: Then = { kind: 'capture' };

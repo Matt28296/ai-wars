@@ -37,6 +37,15 @@ export interface ObservedPlayer {
   defeated: boolean;
 }
 
+/**
+ * A unit as the viewer is told about it: the engine's Unit plus `loaded`. The viewer's own and allied units are in full, cargo
+ * included. An ENEMY transport shows `cargo: []` whatever it carries (what is inside is not public), and `loaded` says whether it
+ * carries anything at all. `loaded` is true exactly when the real cargo list is not empty, on every unit.
+ */
+export interface ObservedUnit extends Unit {
+  loaded: boolean;
+}
+
 /** Everything the agent is told about the battle. Plain data: it survives JSON.stringify / parse unchanged. */
 export interface Observation {
   /** The player this view belongs to. */
@@ -48,8 +57,8 @@ export interface Observation {
   tiles: ObservedTile[][];
   /** visible[y][x]: would a unit standing here be seen? (fog.ts visibility). All true with fog off. */
   visible: boolean[][];
-  /** The viewer's own and allied units in full (cargo included), and enemy units only where canSeeUnit says so. */
-  units: Unit[];
+  /** The viewer's own and allied units in full (cargo included), and enemy units only where canSeeUnit says so (cargo hidden, see ObservedUnit). */
+  units: ObservedUnit[];
   players: ObservedPlayer[];
   cycle: number;
   current: PlayerIndex;
@@ -82,6 +91,13 @@ function visibleUnits(state: GameState, player: PlayerIndex, grid: Uint8Array | 
   return state.units.filter((u) => canSeeUnit(state, player, u, grid));
 }
 
+/** The copy of a visible unit the viewer's team may hold: an enemy's cargo is emptied (M3.2), everyone else's is kept in full. */
+function shownUnit(state: GameState, team: number, u: Unit): ObservedUnit {
+  const copy = structuredClone(u);
+  if (teamOf(state, u.owner) === team) return { ...copy, loaded: copy.cargo.length > 0 };
+  return { ...copy, cargo: [], loaded: u.cargo.length > 0 };
+}
+
 /** What the agent is told about the battle, from `player`'s point of view. Never mutates `state`; the result shares nothing with it. */
 export function observe(state: GameState, player: PlayerIndex): Observation {
   checkViewer(state, player);
@@ -100,7 +116,7 @@ export function observe(state: GameState, player: PlayerIndex): Observation {
     height: state.height,
     tiles,
     visible: state.tiles.map((row, y) => row.map((_, x) => seen(x, y))),
-    units: structuredClone(visibleUnits(state, player, grid)),
+    units: visibleUnits(state, player, grid).map((u) => shownUnit(state, team, u)),
     players: state.players.map((p): ObservedPlayer => ({
       index: p.index, faction: p.faction, commander: p.commander, team: p.team,
       funds: p.funds, power: p.power, powerState: p.powerState, defeated: p.defeated,
@@ -119,8 +135,8 @@ export function observe(state: GameState, player: PlayerIndex): Observation {
 }
 
 /**
- * A copy of the state as `player` knows it: enemy units the player cannot see are gone and capture progress on tiles the player
- * neither sees nor owns is reset to untouched. Run the engine's queries on this, never on the true state, for that player's view.
+ * A copy of the state as `player` knows it: enemy units the player cannot see are gone, the cargo of the enemy transports that remain
+ * is emptied, and capture progress on tiles the player neither sees nor owns is reset to untouched. Run the engine's queries on this, never on the true state, for that player's view.
  * With fog off the copy is the whole state. The input is not modified.
  */
 export function observedState(state: GameState, player: PlayerIndex): GameState {
@@ -130,6 +146,8 @@ export function observedState(state: GameState, player: PlayerIndex): GameState 
   const keep = new Set(visibleUnits(state, player, grid).map((u) => u.id));
   const copy = structuredClone(state);
   copy.units = copy.units.filter((u) => keep.has(u.id));
+  // What an enemy transport carries is not public (M3.2): the queries run on this copy must not be able to read it either.
+  for (const u of copy.units) if (teamOf(state, u.owner) !== team) u.cargo = [];
   for (let y = 0; y < copy.height; y++) {
     for (let x = 0; x < copy.width; x++) {
       if (!knowsTile(state, grid, team, x, y)) copy.tiles[y][x].capture = CAPTURE_POINTS;

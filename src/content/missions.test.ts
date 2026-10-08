@@ -76,7 +76,8 @@ function setupFor(m: Mission, seed: number): CreateGameOptions {
   const players: PlayerSetup[] = m.players.map((p) => ({
     faction: p.faction, commander: p.commander, controller: p.controller, team: p.team, ...(p.funds !== undefined ? { funds: p.funds } : {}),
   }));
-  return { map: mapOf(m), players, fog: m.fog, weather: m.weather, objective: m.objective, seed };
+  // M3.2: the campaign setups are built under the original first-player rule ('none'); the createGame default now compensates the first mover.
+  return { map: mapOf(m), players, fog: m.fog, weather: m.weather, objective: m.objective, seed, firstMoverRule: 'none' };
 }
 
 // ---------------------------------------------------------------- the dialogue rules (STORY.md "Writing rules for dialogue")

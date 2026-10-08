@@ -11,7 +11,7 @@ const at = (s: GameState, x: number, y: number) => unitAt(s, { x, y });
 
 describe('createGame', () => {
   it('builds tiles, units and players and pays player 0 its first income', () => {
-    const s = fixtureGame(['F.C.', '...F'], [{ type: 'trooper', owner: 0, x: 1, y: 0 }], { owners: ['0.0.', '...1'] });
+    const s = fixtureGame(['F.C.', '...F'], [{ type: 'trooper', owner: 0, x: 1, y: 0 }], { owners: ['0.0.', '...1'], firstMoverRule: 'none' });
     expect(s.width).toBe(4);
     expect(s.height).toBe(2);
     expect(s.tiles[0][0]).toEqual({ terrain: 'fabricator', owner: 0, capture: 20 });
@@ -100,7 +100,7 @@ describe('attack', () => {
 
 describe('build, end turn and income', () => {
   it('builds at an owned fabricator, then passes the turn and pays the next player', () => {
-    const s = fixtureGame(['F..F'], [], { owners: ['0..1'], startFunds: 5000 });
+    const s = fixtureGame(['F..F'], [], { owners: ['0..1'], startFunds: 5000, firstMoverRule: 'none' });
     expect(s.players[0].funds).toBe(6000);
     const built = applyAction(s, { kind: 'build', at: { x: 0, y: 0 }, unitType: 'trooper' }).state;
     expect(built.players[0].funds).toBe(5000);

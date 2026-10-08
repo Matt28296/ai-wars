@@ -8,11 +8,14 @@
 import type { Unit } from '../../../game/aw';
 import type { ViewFrame } from '../../watch/timeline';
 
+/** A unit as a frame carries it (observe.ts ObservedUnit: the engine's Unit plus `loaded`). */
+type FrameUnit = ViewFrame['units'][number];
+
 export interface Safe {
   /** The frame with every unit the viewer cannot see removed. */
   frame: ViewFrame;
   /** The units that were refused (empty for a well-formed frame). */
-  refused: Unit[];
+  refused: FrameUnit[];
 }
 
 export function onBoard(frame: ViewFrame, u: Unit): boolean {
@@ -35,8 +38,8 @@ const cache = new WeakMap<ViewFrame, Safe>();
 export function safeFrame(frame: ViewFrame): Safe {
   const hit = cache.get(frame);
   if (hit) return hit;
-  const units: Unit[] = [];
-  const refused: Unit[] = [];
+  const units: FrameUnit[] = [];
+  const refused: FrameUnit[] = [];
   for (const u of frame.units) (isViewable(frame, u) ? units : refused).push(u);
   const out: Safe = refused.length === 0 ? { frame, refused } : { frame: { ...frame, units }, refused };
   cache.set(frame, out);

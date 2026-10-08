@@ -82,7 +82,8 @@ export function omniscientFrame(state: GameState): ViewFrame {
     mapId: state.mapId, width: state.width, height: state.height,
     tiles,
     visible: state.tiles.map((row) => row.map(() => true)),
-    units: state.units,
+    // The omniscient view sees every cargo, so `loaded` is simply whether the list is non-empty (observe.ts ObservedUnit).
+    units: state.units.map((u) => ({ ...u, loaded: u.cargo.length > 0 })),
     players,
     cycle: state.cycle, current: state.current, weather: state.weather,
     fog: state.fog, fogActive: false,

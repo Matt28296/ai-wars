@@ -579,7 +579,7 @@ describe('createGame on the shipped maps', () => {
   it('builds each map with commander-less players and pays player 0 exactly 1000 per income property on turn one', () => {
     for (const m of Object.values(MAPS)) {
       const startFunds = m.recommended?.startFunds ?? 0;
-      const s = createGame({ map: m, players: setupFor(m.players), seed: 1, startFunds, fog: m.recommended?.fog });
+      const s = createGame({ map: m, players: setupFor(m.players), seed: 1, startFunds, fog: m.recommended?.fog, firstMoverRule: 'none' }); // M3.2: this test is about the original income rule
       expect(s.mapId, m.id).toBe(m.id);
       expect(s.width, m.id).toBe(m.terrain[0].length);
       expect(s.height, m.id).toBe(m.terrain.length);
@@ -599,7 +599,7 @@ describe('createGame on the shipped maps', () => {
     const m = clone(FIX);
     setCell(m.terrain, 4, 2, 'U');
     setCell(m.owners, 4, 2, '0');
-    const s = createGame({ map: m, players: setupFor(2), seed: 1, startFunds: 0 });
+    const s = createGame({ map: m, players: setupFor(2), seed: 1, startFunds: 0, firstMoverRule: 'none' }); // M3.2: the original income rule
     expect(incomeFor(m, 0)).toBe(2000); // spire + fabricator; the uplink pays 0
     expect(s.players[0].funds).toBe(2000);
     expect(s.players[0].funds).not.toBe(3000);

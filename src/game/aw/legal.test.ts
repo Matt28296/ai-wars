@@ -141,7 +141,7 @@ describe('exact action lists on hand-built positions', () => {
   it('a fabricator and 7000 funds: exactly the ground units that cost 7000 or less, and nothing from a rival property', () => {
     // Income pays 1000 first (one fabricator): 6000 + 1000. Ground units at or under 7000 are trooper 1000, breacher 3000,
     // skimmer 4000, mule 5000, arc 6000, lancer 7000: six builds, plus endTurn. The enemy fabricator at (3,0) is not ours.
-    const s = fixtureGame(['F..F'], [], { owners: ['0..1'], startFunds: 6000 });
+    const s = fixtureGame(['F..F'], [], { owners: ['0..1'], startFunds: 6000, firstMoverRule: 'none' });
     expect(s.players[0].funds).toBe(7000);
     const affordable = UNIT_LIST.filter((u) => u.domain === 'ground' && u.cost <= 7000).map((u) => u.id);
     expect(affordable).toHaveLength(6);
@@ -154,7 +154,7 @@ describe('exact action lists on hand-built positions', () => {
   it('a skyport and a dock build only their own domain: 11000 funds buys one wasp and no ship', () => {
     // 9000 + 2000 income = 11000. Air units: wasp 9000 (raptor 20000, anvil 22000 are too dear). Sea units: barge 12000,
     // picket 18000, dreadnought 28000 are all too dear. One build, plus endTurn.
-    const s = fixtureGame(['A.D'], [], { owners: ['0.0'], startFunds: 9000 });
+    const s = fixtureGame(['A.D'], [], { owners: ['0.0'], startFunds: 9000, firstMoverRule: 'none' });
     expect(s.players[0].funds).toBe(11000);
     expect(keys(legalActions(s))).toEqual(['build:0,0:wasp', 'endTurn']);
     const rich = fixtureGame(['A.D'], [], { owners: ['0.0'], startFunds: 40000 });

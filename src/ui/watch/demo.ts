@@ -26,6 +26,9 @@ export function demoSetup(): CreateGameOptions {
     fog: true,
     seed: DEMO_GAME_SEED,
     startFunds: map.recommended?.startFunds ?? 1000,
+    // The demo is a curated match, chosen (seeds and cycle cap) under the original first-turn income rule, so it keeps that rule
+    // explicitly rather than following the skirmish default (D-019).
+    firstMoverRule: 'none',
   };
 }
 
