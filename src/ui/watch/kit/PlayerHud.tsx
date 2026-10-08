@@ -1,4 +1,5 @@
 import type { ReactElement, ReactNode } from 'react';
+import type { Mood } from '../../../content/types';
 import { CommanderPortrait } from './CommanderPortrait';
 import { Frame } from './Frame';
 import { PowerMeter } from './PowerMeter';
@@ -7,7 +8,7 @@ import { creditsText, cx, inkOf, pad2 } from './roles';
 import type { Faction } from './roles';
 
 export interface PlayerHudProps {
-  commander: { name: string; faction: Faction | null; initials?: string; src?: string; state?: 'surge' | 'overclock' };
+  commander: { name: string; faction: Faction | null; id?: string; mood?: Mood; initials?: string; src?: string; state?: 'surge' | 'overclock' };
   funds?: number;
   power?: PowerMeterProps;
   cycle?: number;
