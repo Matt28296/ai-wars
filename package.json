@@ -3,13 +3,18 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Ascendant Wars — an original futuristic turn-based tactics game.",
+  "description": "Ascendant Wars: an original futuristic turn-based tactics game where the player's agent is the Commanding Officer.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "guard": "node scripts/guard.mjs",
     "tokens": "node design-system/tools/build.mjs"
   },
   "dependencies": {
@@ -17,6 +22,7 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
+    "@types/node": "22.10.2",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "@vitejs/plugin-react": "4.3.4",

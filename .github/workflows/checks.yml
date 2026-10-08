@@ -1,0 +1,54 @@
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # A build is not a migration: nothing in CI may reach a database.
+      DATABASE_URL: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Guard (originality, no manual unit control)
+        run: pnpm guard
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build embeds this commit
+        run: |
+          if grep -rqF "$GITHUB_SHA" dist; then
+            echo "build carries $GITHUB_SHA"
+          else
+            echo "::error::build output does not contain $GITHUB_SHA"
+            exit 1
+          fi
