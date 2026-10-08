@@ -16,7 +16,8 @@
     "test": "vitest run",
     "guard": "node scripts/guard.mjs",
     "balance": "node scripts/balance.mjs",
-    "tokens": "node design-system/tools/build.mjs"
+    "tokens": "node design-system/tools/build.mjs",
+    "agent": "node scripts/agent.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",
