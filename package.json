@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "guard": "node scripts/guard.mjs",
+    "balance": "node scripts/balance.mjs",
     "tokens": "node design-system/tools/build.mjs"
   },
   "dependencies": {
