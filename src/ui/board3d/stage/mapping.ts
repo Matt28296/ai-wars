@@ -8,13 +8,15 @@
 //   - the shot that LEADS a hit: a muzzle flash and a tracer (direct fire) or an arcing shell (indirect fire), derived from the plan's
 //     hit beats plus the shooter's position in the frames. They are drawn INSIDE the hit beat's own time window, so the plan's timing
 //     is untouched; the impact starts when the shot lands.
+//   - the movement trails (G10): dust, wake or contrail behind every unit that is gliding, by its move type and what it glides over;
+//   - the camera's three beats (G10): the attack layer's strength and where it looks, the explosion's shake, and the power sweep.
 // Only the viewer's frames and the viewer's filtered events are read (D-016).
 import { Vector3 } from 'three';
 import { CAPTURE_POINTS, displayHp } from '../../../game/aw';
-import type { Coord, FactionId, GameEvent, Unit } from '../../../game/aw';
+import type { Coord, FactionId, GameEvent, MoveType, TerrainId, Unit } from '../../../game/aw';
 import { UNSEEN_UNIT } from '../../../game/aw/view-events';
 import { UNIT_TYPES, isIndirect } from '../../../data';
-import { glideEase } from '../../watch/timing';
+import { TIMINGS, glideEase } from '../../watch/timing';
 import { findUnit } from '../../watch/timeline';
 import type { ViewFrame } from '../../watch/timeline';
 import { actorIds, focusOf, isSpent, unitStatus } from '../../watch/unitview';
@@ -23,7 +25,12 @@ import { pointAlongPath } from '../../watch/layout';
 import type { FxKind, MoveBeat, TransitionPlan, TransitionSample } from '../../watch/transition';
 import { TILE } from '../contract';
 import type { Fx3dKind, FxItem, NumberItem, UnitLook, UnitPose } from '../contract';
-import { FACTION_ACCENT } from '../palette';
+import { FACTION_ACCENT, TERRAIN_COLOR, terrainFamily } from '../palette';
+import { WATER_Y } from '../terrain/layout';
+import { attackStrength, attackWindow } from './attack';
+import { SHAKE_MS, SHAKE_WEIGHT, shakeEnvelope } from './shake';
+import type { ShakeSpec } from './shake';
+import type { SweepSpec } from './sweep';
 import { safeFrame } from './guard';
 
 // ---------------------------------------------------------------- small helpers
@@ -255,6 +262,74 @@ export function moveState(plan: TransitionPlan, unitId: number, t: number): Move
   return { progress, heading: headingOf(beat.path[i], beat.path[i + 1]) ?? (at.dx ? (at.dx > 0 ? 0 : Math.PI) : undefined), moving: true };
 }
 
+// ---------------------------------------------------------------- movement trails
+
+export type TrailKind = 'dust' | 'wake' | 'contrail';
+
+/**
+ * What a mover leaves behind, from how it moves and what it moves over: aircraft contrails, ships and barges a wake, hover craft a wake
+ * over water and dust over land, everything else dust. (The rules let hover craft cross rivers, never open sea; both read as water.)
+ */
+export function trailKindFor(moveType: MoveType, over: TerrainId): TrailKind {
+  switch (moveType) {
+    case 'air': return 'contrail';
+    case 'sea': case 'barge': return 'wake';
+    case 'hover': return over === 'sea' || over === 'river' ? 'wake' : 'dust';
+    default: return 'dust'; // foot, exo, tread, walker
+  }
+}
+
+/**
+ * How far behind the mover a trail reaches, in tiles (the effects kit reads the length as how hard the mover works its surroundings, and
+ * draws more dust, a fuller V or a longer streak for a longer one): a tread kicks up the most, a foot soldier less, a hover craft skims
+ * (over land a faint dust, over a river ripples: the length is under what a V needs); a ship's wake is long; contrails fade within about a
+ * second of flight.
+ */
+export const TRAIL_REACH: Record<MoveType, number> = { tread: 1.5, walker: 1.4, exo: 1.2, foot: 1.0, hover: 0.9, sea: 2.2, barge: 1.8, air: 4.5 };
+
+/** The lift of each kind's effects over the surface: dust at the feet, a contrail at the height aircraft fly (the units kit hangs them at 0.36). */
+export const DUST_LIFT = 0.02;
+export const CONTRAIL_LIFT = 0.4;
+/** A wake lies on the water surface, a hair over it. */
+export const WAKE_LEVEL = WATER_Y + 0.012;
+/** The dry sand a dust cloud is mixed with: dust is the ground's own colour, dried and paled. */
+const DRY = 0xe6d8ae;
+
+const mix8 = (a: number, b: number, t: number): number => Math.round(a + (b - a) * t);
+
+/** The tint of the dust a mover raises over this terrain: the terrain's own colour, paled with dry sand. */
+export function dustTint(over: TerrainId): number {
+  const base = TERRAIN_COLOR[terrainFamily(over)].base;
+  const r = mix8((base >> 16) & 255, (DRY >> 16) & 255, 0.7);
+  const g = mix8((base >> 8) & 255, (DRY >> 8) & 255, 0.7);
+  const b = mix8(base & 255, DRY & 255, 0.7);
+  return (r << 16) | (g << 8) | b;
+}
+
+/**
+ * The trail of a unit gliding along a move beat at plan time `t`, or null when it is not gliding or has not yet left its tile. `at` is the
+ * unit's own place (tile coordinates, as the plan samples it) and `to` the point `reach` tiles behind it along the path it walked, so a
+ * trail starts short and grows to its reach. `progress` is how far through the glide's TIME it is (0..1): the kit follows the glide's speed
+ * with it, so the trail builds as the unit gets going and dies away as it comes to rest.
+ */
+export function trailOf(beat: MoveBeat, t: number, moveType: MoveType, terrainAt: (x: number, y: number) => TerrainId): Omit<FxSpec, 'seed'> | null {
+  const segs = beat.path.length - 1;
+  if (segs < 1 || !(t >= beat.startMs) || !(t < beat.startMs + beat.durMs)) return null;
+  const tau = clamp01((t - beat.startMs) / beat.durMs);
+  const p = glideEase(tau);
+  const at = pointAlongPath(beat.path, p);
+  const over = terrainAt(Math.round(at.x), Math.round(at.y));
+  const kind = trailKindFor(moveType, over);
+  const reach = Math.min(p * segs, TRAIL_REACH[moveType]);
+  if (!(reach > 0.02)) return null;
+  const back = pointAlongPath(beat.path, Math.max(0, p * segs - reach) / segs);
+  const spec: Omit<FxSpec, 'seed'> = { kind, at: { x: at.x, y: at.y }, to: { x: back.x, y: back.y }, lift: 0, progress: tau };
+  if (kind === 'wake') spec.level = WAKE_LEVEL;
+  else if (kind === 'dust') { spec.lift = DUST_LIFT; spec.color = dustTint(over); }
+  else spec.lift = CONTRAIL_LIFT;
+  return spec;
+}
+
 // ---------------------------------------------------------------- the stage state
 
 export interface UnitState {
@@ -281,6 +356,8 @@ export interface FxSpec {
   at: Coord;
   /** Lift above the surface at `at`, world units. */
   lift: number;
+  /** World Y the effect sits at instead of the surface plus the lift (a wake lies on the water, whatever the bed is). */
+  level?: number;
   to?: Coord;
   toLift?: number;
   /** For a shot: the unit whose weapon the shot leaves from (its muzzle replaces `at` when the view can say where it is). */
@@ -296,9 +373,15 @@ export interface StageState {
   units: UnitState[];
   fx: FxSpec[];
   numbers: NumberSpec[];
-  /** How hard the camera should shake this frame, 0..1 (an ambush or an explosion, decaying). */
-  shake: number;
+  /** The camera shake running now (an explosion, or an ambush at half strength), or null. Deterministic from the beat's seed and age. */
+  shake: ShakeSpec | null;
+  /** The attack camera: how strongly it applies now, 0..1 (eased), and the two tiles it looks between; null when no attack is running. */
+  attack: AttackSpec | null;
+  /** The power sweep: the commander's faction, the level and how far through the cut-in; null when no power is running. */
+  sweep: SweepSpec | null;
 }
+
+export interface AttackSpec { strength: number; from: Coord; to: Coord }
 
 /**
  * How far above the tile surface each plan effect is placed (the effects kit's convention). Ground-bound kinds draw their ring, scorch
@@ -316,6 +399,12 @@ export interface MapInput {
   t: number;
   info: StepInfo;
   step: number;
+}
+
+/** The terrain at a tile of a frame, clamped to the board (a unit gliding off the edge of the map still stands over its last tile). */
+function terrainOf(frame: ViewFrame, x: number, y: number): TerrainId {
+  const row = frame.tiles[Math.max(0, Math.min(frame.height - 1, y))];
+  return (row?.[Math.max(0, Math.min(frame.width - 1, x))]?.terrain ?? 'flats') as TerrainId;
 }
 
 /** The whole picture for one animation frame, in tile coordinates. Only units the viewer may see are in it. */
@@ -339,6 +428,7 @@ export function mapStage(input: MapInput): StageState {
       if (phase.hit !== null) poses.set(shot.targetId, { pose: 'hit', t: phase.hit });
     }
   }
+  const trails: FxSpec[] = [];
   const aim = new Map<number, number>();
   for (const l of live) {
     const h = headingOf(l.shot.from, l.shot.to);
@@ -361,6 +451,12 @@ export function mapStage(input: MapInput): StageState {
     } else if (mv?.moving) {
       pose = 'move';
       poseT = mv.progress;
+    }
+    if (mv?.moving && plan) {
+      const beat = activeMove(plan, u.id, t);
+      const mt = UNIT_TYPES[u.type]?.moveType;
+      const trail = beat && mt ? trailOf(beat, t, mt, (x, y) => terrainOf(ctx, x, y)) : null;
+      if (trail) trails.push({ ...trail, seed: hashSeed(step, 'trail', u.id) });
     }
     const faction = ctx.players[u.owner]?.faction ?? 'helion';
     units.push({
@@ -431,12 +527,64 @@ export function mapStage(input: MapInput): StageState {
     numbers.push({ at: n.at, text: n.text, tone: n.tone, progress: n.progress });
   }
 
-  let shake = 0;
-  for (const f of sample?.fx ?? []) {
-    if (f.kind === 'ambush') shake = Math.max(shake, (1 - f.progress) * (f.progress < 0.5 ? 1 : 0.4));
-    else if (f.kind === 'explosion') shake = Math.max(shake, 0.7 * (1 - f.progress) * (1 - f.progress));
+  fx.push(...trails);
+
+  // The camera's beats. All three read the plan's own clock and beats, so they scrub and replay exactly.
+  return { units, fx, numbers, shake: shakeAt(plan, sample ? t : null, step), attack: attackAt(plan, info, sample ? t : null), sweep: sweepOf(sample) };
+}
+
+// ---------------------------------------------------------------- the camera's beats
+
+/** The base length of the beat that drives each shake, at 1x, so the shake's window scales with the speed the plan was made at. */
+const SHAKE_BEAT_MS: Record<'explosion' | 'ambush', number> = { explosion: TIMINGS.explosionMs, ambush: TIMINGS.ambushMs };
+
+/**
+ * The shake running at plan time `t`: an explosion's (a unit destroyed) at full strength or an ambush's at half, lasting SHAKE_MS at 1x
+ * (shorter at 2x and 4x, with the beat). Hits give none. When several run at once the strongest wins. The seed is the beat's own (its step,
+ * its kind and its tile), so the same beat always shakes the same way.
+ */
+export function shakeAt(plan: TransitionPlan | null, t: number | null, step: number): ShakeSpec | null {
+  if (!plan || t === null) return null;
+  let best: ShakeSpec | null = null;
+  let bestPower = 0;
+  for (const b of plan.fx) {
+    if (b.kind !== 'explosion' && b.kind !== 'ambush') continue;
+    const base = SHAKE_BEAT_MS[b.kind];
+    const u = (t - b.startMs) / (SHAKE_MS * (b.durMs / base));
+    const weight = SHAKE_WEIGHT[b.kind];
+    const power = shakeEnvelope(u) * weight;
+    if (power > bestPower) {
+      bestPower = power;
+      best = { seed: hashSeed(step, 'shake', b.kind, b.at.x, b.at.y), u, weight };
+    }
   }
-  return { units, fx, numbers, shake: clamp01(shake) };
+  return best;
+}
+
+/**
+ * The attack camera at plan time `t`: its strength and the two tiles it looks between. The window runs from just before the first strike
+ * the stage could pair with a shooter to just after the last, and only a plan with glides (not 4x, not reduced motion) has one.
+ */
+export function attackAt(plan: TransitionPlan | null, info: StepInfo, t: number | null): AttackSpec | null {
+  if (!plan || t === null || !plan.tween || !info.shots.length) return null;
+  const beats = info.shots.map((sh) => plan.fx[sh.beat]).filter((b) => !!b);
+  const win = attackWindow(beats, plan.durationMs);
+  if (!win) return null;
+  const strength = attackStrength(win, t);
+  if (!(strength > 0)) return null;
+  // the strike under way (or the next one, or the last): its two tiles are the shot's ends
+  let pick = info.shots[info.shots.length - 1];
+  for (const sh of info.shots) {
+    const b = plan.fx[sh.beat];
+    if (b && t < b.startMs + b.durMs) { pick = sh; break; }
+  }
+  return { strength, from: pick.from, to: pick.to };
+}
+
+/** The power running at this sample, if any: the cut-in's faction, level and progress. */
+export function sweepOf(sample: TransitionSample | null): SweepSpec | null {
+  const c = sample?.cutIn;
+  return c ? { faction: c.beat.faction, player: c.beat.player, level: c.beat.level, progress: c.progress } : null;
 }
 
 // ---------------------------------------------------------------- spec -> world
@@ -456,8 +604,12 @@ export function toFxItems(specs: readonly FxSpec[], env: WorldEnv): FxItem[] {
     let at: Vector3 | null = null;
     if (s.fromUnit !== undefined) at = env.muzzleOf(s.fromUnit, new Vector3());
     at ??= worldPoint(env, s.at, s.lift);
+    if (s.level !== undefined) at.y = s.level;
     const item: FxItem = { kind: s.kind, at, progress: s.progress, seed: s.seed };
-    if (s.to) item.to = worldPoint(env, s.to, s.toLift ?? s.lift);
+    if (s.to) {
+      item.to = worldPoint(env, s.to, s.toLift ?? s.lift);
+      if (s.level !== undefined) item.to.y = s.level;
+    }
     if (s.color !== undefined) item.color = s.color;
     return item;
   });

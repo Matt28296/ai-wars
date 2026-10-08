@@ -88,12 +88,18 @@ export type CreateUnitView = (type: UnitTypeId, faction: FactionId) => UnitView;
 
 // ---------------------------------------------------------------- effects
 
-/** The transition plan's effect kinds, plus the 3D-only ones the renderer derives from attacks. */
-export type Fx3dKind = FxKind | 'muzzle' | 'tracer' | 'shell';
+/**
+ * The transition plan's effect kinds, plus the 3D-only ones the renderer derives: 'muzzle', 'tracer' and 'shell' from attacks, and the
+ * movement trails from moves: 'dust' (ground units), 'wake' (sea units, and hover units over water), 'contrail' (air units).
+ */
+export type Fx3dKind = FxKind | 'muzzle' | 'tracer' | 'shell' | 'dust' | 'wake' | 'contrail';
 
 export interface FxItem {
   kind: Fx3dKind;
-  /** Where it happens (world). For 'tracer' and 'shell' this is the start; `to` is the end. */
+  /**
+   * Where it happens (world). For 'tracer' and 'shell' this is the start; `to` is the end. For the trails ('dust', 'wake', 'contrail')
+   * `at` is where the mover is now and `to` is a point behind it on its path, so the trail streams away from its direction of travel.
+   */
   at: Vector3;
   to?: Vector3;
   /** 0..1 through the effect. Effects are drawn from (kind, progress, seed) alone, so scrubbing and replays are exact. */

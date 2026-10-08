@@ -6,12 +6,14 @@
 //
 // Colours are linear light and often above 1 on purpose: the additive layer is HDR, and the renderer's high-threshold bloom
 // makes the hot parts glow. World units: a tile is 1. `at.y` is where the effect sits (hits and shots at the point itself; the
-// ground-bound kinds ground their rings and scorch there and lift their own glow).
+// ground-bound kinds ground their rings and scorch there and lift their own glow). The movement trails (dust, wake, contrail) live in
+// trails.ts: they stream from `at` toward `to` and are described there.
 import type { FxItem } from '../contract';
 import type { DebrisBatch, SpriteBatch } from './batches';
 import type { LightPool } from './lights';
 import { Rng } from './rng';
 import { MODE, SHAPE } from './shaders';
+import { contrail, dust, wake } from './trails';
 import { clamp01, easeOutBack, easeOutCubic, lerp, mixRgb, rgbOf, setHex, smoothstep, TAU } from './util';
 import type { Rgb } from './util';
 
@@ -480,5 +482,8 @@ export function buildEffect(c: FxContext, it: FxItem, p: number): void {
     case 'pulse': return pulse(c, it, p);
     case 'ambush': return ambush(c, it, p);
     case 'spawn': return spawn(c, it, p);
+    case 'dust': return dust(c, it, p);
+    case 'wake': return wake(c, it, p);
+    case 'contrail': return contrail(c, it, p);
   }
 }

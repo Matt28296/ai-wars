@@ -1281,8 +1281,8 @@ const nullSpire: Mission = {
   act: 4,
   order: 14,
   title: 'Null Spire',
-  location: 'The Lattice Core',
-  summary: 'Four nations take four fronts around the Null Spire while ECHO goes into the Lattice to sing VESPER quiet. Hold the line and take the core.',
+  location: 'Inside the Lattice',
+  summary: 'Four nations hold four fronts around the Null Spire while ECHO goes inside alone. Hold the line, and take the core.',
   mapId: 'm14-null-spire',
   players: [
     agent(4000), // Helion, the west front

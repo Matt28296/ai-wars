@@ -1,10 +1,11 @@
 // DEV ONLY: the effects gallery (gallery-fx.html). A standalone scene with its own renderer, the art-direction camera, lights,
 // ACES tone mapping and the same kind of bloom the battlefield uses, so effects can be judged on their own.
 //
-//   ?kind=<kind>&p=<0..1>     one effect at one progress (kind: muzzle tracer shell hit explosion pulse ambush spawn numbers all)
+//   ?kind=<kind>&p=<0..1>     one effect at one progress (kind: muzzle tracer shell hit explosion pulse ambush spawn dust wake contrail numbers all)
 //   ?strip=<kind>             the same effect at progress 0.1 0.3 0.5 0.7 0.9, side by side (kind may be `numbers`)
 //   ?play=1                   every kind animating on a loop (add &t=<seconds> to freeze the clock)
 //   ?bench=<n>[&nums=<k>]     n mixed effects (and k numbers, default 6): draw() time and the renderer's draw calls for them alone
+//   the trails take &len=<world length of the trail> (default: dust 1.4, wake 2.2, contrail 4.5); `?kind=wake&len=0.9` is a hover craft's ripple
 //   optional: &seed=<n>  &color=<hex>  &reduced=1  &bloom=<strength>  &w=<world width to frame>
 import {
   ACESFilmicToneMapping, BoxGeometry, Color, DirectionalLight, GridHelper, HalfFloatType, HemisphereLight, Mesh,
@@ -17,9 +18,11 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import type { Fx3dKind, FxItem, NumberItem } from '../contract';
 import { createFxKit } from './index';
 
-const KINDS: readonly Fx3dKind[] = ['muzzle', 'tracer', 'shell', 'hit', 'explosion', 'pulse', 'ambush', 'spawn'];
-/** Seconds each kind lasts in ?play=1, from the transition plan's TIMINGS (the shot kinds are chosen by the renderer core). */
-const SECONDS: Record<Fx3dKind, number> = { muzzle: 0.3, tracer: 0.35, shell: 0.8, hit: 0.38, explosion: 0.52, pulse: 0.5, ambush: 0.65, spawn: 0.36 };
+const KINDS: readonly Fx3dKind[] = ['muzzle', 'tracer', 'shell', 'hit', 'explosion', 'pulse', 'ambush', 'spawn', 'dust', 'wake', 'contrail'];
+/** Seconds each kind lasts in ?play=1, from the transition plan's TIMINGS (the shot kinds are chosen by the renderer core; a trail lasts as long as its move). */
+const SECONDS: Record<Fx3dKind, number> = { muzzle: 0.3, tracer: 0.35, shell: 0.8, hit: 0.38, explosion: 0.52, pulse: 0.5, ambush: 0.65, spawn: 0.36, dust: 0.9, wake: 0.9, contrail: 0.9 };
+/** How long each trail is by default, as the renderer core would hand it over for a tread, a ship and an aircraft. */
+const TRAIL_LEN: Record<'dust' | 'wake' | 'contrail', number> = { dust: 1.4, wake: 2.2, contrail: 4.5 };
 const STRIP_P = [0.1, 0.3, 0.5, 0.7, 0.9];
 
 const q = new URLSearchParams(location.search);
@@ -88,11 +91,27 @@ function itemFor(kind: Fx3dKind, cx: number, cz: number, p: number): FxItem {
     case 'tracer': return { ...base, at: new Vector3(cx - 1.0, 0.4, cz), to: new Vector3(cx + 1.0, 0.3, cz) };
     case 'shell': return { ...base, at: new Vector3(cx - 1.0, 0.3, cz + 0.2), to: new Vector3(cx + 1.0, 0.15, cz - 0.2) };
     case 'hit': return { ...base, at: new Vector3(cx, 0.4, cz) };
+    case 'dust': case 'wake': case 'contrail': {
+      // a mover heading east: `at` is where it is, `to` is a point behind it (west)
+      const len = Number(q.get('len') ?? TRAIL_LEN[kind]);
+      const y = kind === 'contrail' ? 0.45 : kind === 'wake' ? 0.01 : 0.03;
+      return { ...base, at: new Vector3(cx + len * 0.5, y, cz), to: new Vector3(cx - len * 0.5, y, cz) };
+    }
     default: return { ...base, at: new Vector3(cx, 0.12, cz) };
   }
 }
 
+/** A patch of what the trail runs over, so its colours are judged against the right ground: grass for dust, water for a wake. */
+function addGround(color: number, cx: number, cz: number, w: number): void {
+  const m = new Mesh(new PlaneGeometry(w, 2), new MeshStandardMaterial({ color, roughness: 0.85, metalness: 0 }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(cx, 0.001, cz);
+  scene.add(m);
+}
+
 function addStands(kind: Fx3dKind | 'numbers', cx: number, cz: number): void {
+  if (kind === 'dust') addGround(0x86a86c, cx, cz, 2.1);
+  else if (kind === 'wake') addGround(0x1d4a73, cx, cz, 2.1);
   if (kind === 'muzzle') stand(cx - 0.9, 0.15, cz);
   else if (kind === 'tracer') { stand(cx - 1.2, 0.15, cz); stand(cx + 1.2, 0.15, cz); }
   else if (kind === 'shell') { stand(cx - 1.2, 0.15, cz + 0.2); stand(cx + 1.2, 0.15, cz - 0.2); }
