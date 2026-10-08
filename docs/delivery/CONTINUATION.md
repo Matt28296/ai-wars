@@ -6,7 +6,7 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
 
 ## Decisions waiting (Matthew or Edgy)
 
-1. **Make Matt28296/ai-wars private (D-003).** It blocks M2, the platform fork (accounts, saves, a hosted MCP server). GitHub: Settings → General → Danger Zone → Change visibility → Private.
+1. **Make Matt28296/ai-wars private (D-003).** It blocks M2 (accounts, cloud saves). Since D-025 (PvE) M2 is optional: the game finishes without it. GitHub: Settings → General → Danger Zone → Change visibility → Private.
 2. **Set the default branch to `main`.** CodeRabbit skips every ai-wars PR until it is. GitHub: Settings → General → Default branch.
 3. **Publish the game to npm when A1 and G17 are ready (D-023).** It makes the connect step one line (`claude mcp add ascendant-wars -- npx ascendant-wars`). It is a public release, so it needs a yes.
 
@@ -56,4 +56,6 @@ Items 1 and 2 under *Decisions waiting*: the repository is public (D-003), and i
 1. Verify P1, then merge G18 and P1 together (D-023, D-024).
 2. Orders from the page to a connected agent.
 3. A frozen-clock "beauty pass" of the integrated game at 1280 and 390; fix what reads cheap.
-4. When D-003 clears: M2 platform fork, then a hosted MCP server for ranked play (A1's server runs locally).
+4. **Going live (Matthew: "I want GPT to put the game live"):** after G18 and P1 merge, a tested static build (`dist/`, 1.8 MB, no outside requests) and a paste prompt go to Matthew for ChatGPT hosting. The live site plays the whole PvE campaign. Its connect screen says connecting your own agent is coming soon; local copies keep the three steps.
+5. **Saves (D-025):** campaign progress (cleared missions, best rank) kept in the player's browser, before the live launch.
+6. Optional, later: M2 (accounts, cloud saves) when D-003 clears.

@@ -254,3 +254,12 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
      - G18's bigger board dropped the software-rendered frame rate from 5.5 to 4.0 fps on desktop and from 16 to 10.3 on phone, at the 'low' tier, which has no step below it.
      - G18 is held until P1 adds render-scale steps below 'low' and shows the bigger board is at least as smooth as main's.
 - **Reversible:** the budgets are; the measuring is not optional.
+
+### D-025: Ascendant Wars is PvE (2026-10-08, RULED)
+- **Matthew, in this session (~22:xxZ):** *"It's supposed to be pve"*, answering how many people can test together.
+- **Decided:**
+  1. Every battle is the player (their orders, or their own connected AI) with any allies, against computer-controlled sides. There is no head-to-head.
+  2. **Unchanged rules:** the PvP clauses of D-006 (orders lock at match entry) and D-013 (head-to-head day limit) stay written but have no screen. They are not built.
+  3. **The online platform (M2) is not needed to finish the game.** Its head-to-head and ranked-play reasons are gone. Saves are kept in each player's own browser. Accounts or cloud saves can come later, and they would still wait on D-003.
+  4. **Testing:** any number of people can play at once, each their own campaign in their own browser; nothing is shared or online.
+- **Reversible:** yes; a later PvP mode would be new work.
