@@ -89,7 +89,8 @@ export function effectiveRange(state: GameState, unit: Unit, at: Coord = unit): 
 export function effectiveVision(state: GameState, unit: Unit, at: Coord = unit): number {
   const t = unitType(unit.type);
   let v = t.vision + sumField(unitModifiers(state, unit, at), 'vision');
-  if (terrainIdAt(state, at) === 'ridge' && (t.moveType === 'foot' || t.moveType === 'exo')) v += 1;
+  // D-012.2 / mechanics.md 9.1: foot and exo units on a ridge see +3 further (walkers get no bonus).
+  if (terrainIdAt(state, at) === 'ridge' && (t.moveType === 'foot' || t.moveType === 'exo')) v += 3;
   if (state.weather === 'ionstorm') v -= 1;
   return Math.max(1, v);
 }

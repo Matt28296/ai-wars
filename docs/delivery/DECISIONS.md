@@ -70,3 +70,7 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
 - **Decided:** `GameState.turnLimit` means a versus-style day limit (mechanics.md §13): when it ends, the team with the most properties wins, then the most unit value (cost × display HP), then the team that moves later. A campaign "win within N cycles or fail" condition is a different rule and gets an explicit deadline field on the mission objective in M1.6, so the two can never be confused from state alone.
 - **Why:** the salvage made any turn limit an automatic loss for player 0, which is wrong for versus play; the M1.5 builder found the ambiguity and asked.
 - **Reversible:** yes.
+
+### D-014: activating a power empties the whole meter (2026-10-08, DECIDED)
+- **Decided:** Surge and Overclock both reset the meter to 0; leftover charge does not carry over. This keeps the choice real: spend on Surge now, or save the whole bar for Overclock. (mechanics.md §10.2 describes a carry-over variant; this is the deliberate exception.)
+- **Reversible:** yes; one line in `activatePower` (`pl.power -= cost`).
