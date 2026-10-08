@@ -13,7 +13,7 @@ import { applyBuild } from './production';
 import { seedRng } from './rng';
 import { CAPTURE_POINTS, MAX_HP, cloneUnit, displayHp, draft, emit, inBounds, neighbours, removeUnit, resetCapture, unitAt, unitById, unitType } from './state';
 import type { Ctx } from './state';
-import { advanceTurn, endTurn, startTurn } from './turn';
+import { advanceTurn, endTurn, incomeOf, startTurn } from './turn';
 import { checkGameOver, checkRout, defeatPlayer } from './victory';
 import type {
   Action, ApplyResult, CommanderId, Coord, Deadline, FactionId, GameState, Objective, Player, Then, Tile, Unit, Weather,
@@ -48,21 +48,34 @@ export interface PlayerSetup {
 /**
  * How the player who moves first is paid back (M3.2). Measured with Doctrine against Doctrine: with no compensation seat 0 won 17 of
  * 20 on calder-fields, and swapping who owns what still gave 6 to 6, so the cause is the seat.
- *   'none'          no compensation: the original rule, kept for tests and for replays recorded before M3.2.
+ *   'none'          no compensation: the original rule, kept for tests, for the campaign and for replays recorded before M3.2.
  *   'noFirstIncome' player 0 collects no income when cycle 1 starts (the one start of turn that createGame runs). Every other
  *                   start of turn, player 0's later ones included, pays as usual.
+ *   'gradedFirstIncome'
+ *                   (M3.3) player 0 collects part of that income: (n - 2) / (n - 1) of it in an n-player game, rounded to 100 funds. With
+ *                   two players that is none of it (the same as 'noFirstIncome'); with three, half; with four, two thirds. The more
+ *                   players there are, the less a turn's head start is worth to the one who has it, so the fine shrinks as they grow.
  *   'secondBonus'   every seat after player 0 starts with extra funds: seat k (k >= 1) gets 1000 x k on top of its starting funds,
  *                   so seat 1 gets +1000, seat 2 +2000, seat 3 +3000 -- each later seat gets 1000 more than the one before it.
  *                   Player 0 gets nothing. It is a flat sum paid at setup, before anybody's first income.
  */
-export type FirstMoverRule = 'none' | 'noFirstIncome' | 'secondBonus';
-export const FIRST_MOVER_RULES: readonly FirstMoverRule[] = ['none', 'noFirstIncome', 'secondBonus'];
+export type FirstMoverRule = 'none' | 'noFirstIncome' | 'gradedFirstIncome' | 'secondBonus';
+export const FIRST_MOVER_RULES: readonly FirstMoverRule[] = ['none', 'noFirstIncome', 'gradedFirstIncome', 'secondBonus'];
 /**
- * The rule a game gets when its options do not name one. Chosen by `pnpm balance` (Doctrine against Doctrine, 30 mirrored games on each
- * of calder-fields, tether-ridges and canopy-highlands, M3.2): player 0's share of the decided games, averaged over the three maps, was
- * 74% under 'none', 69% under 'secondBonus' and 59% under 'noFirstIncome', the nearest to a fair seat. The table is in the M3.2 receipt.
+ * The rule a TWO-player game gets when its options do not name one. Chosen by `pnpm balance` (Doctrine against Doctrine, 30 mirrored games
+ * on each of calder-fields, tether-ridges and canopy-highlands, M3.2): player 0's share of the decided games, averaged over the three
+ * maps, was 74% under 'none', 69% under 'secondBonus' and 59% under 'noFirstIncome', the nearest to a fair seat. The table is in D-019.
+ * Games of three or more players get `defaultFirstMoverRule(n)`.
  */
 export const DEFAULT_FIRST_MOVER_RULE: FirstMoverRule = 'noFirstIncome';
+/** The rule a game of `playerCount` players gets when its options do not name one (M3.3): DEFAULT_FIRST_MOVER_RULE for two, 'gradedFirstIncome' for more. */
+export function defaultFirstMoverRule(playerCount: number): FirstMoverRule {
+  return playerCount <= 2 ? DEFAULT_FIRST_MOVER_RULE : 'gradedFirstIncome';
+}
+/** Under 'gradedFirstIncome', the share of player 0's first income that is paid in an n-player game: (n - 2) / (n - 1). */
+export function gradedFirstIncomeShare(playerCount: number): number {
+  return playerCount < 2 ? 1 : (playerCount - 2) / (playerCount - 1);
+}
 /** Extra starting funds per seat index under 'secondBonus'. */
 export const SECOND_BONUS_PER_SEAT = 1000;
 
@@ -77,7 +90,7 @@ export interface CreateGameOptions {
   seed?: number;
   startFunds?: number;
   incomePerProperty?: number;
-  /** Compensation for moving first (see FirstMoverRule). Absent = DEFAULT_FIRST_MOVER_RULE; name 'none' for the old rule. */
+  /** Compensation for moving first (see FirstMoverRule). Absent = defaultFirstMoverRule(players.length); name 'none' for the old rule. */
   firstMoverRule?: FirstMoverRule;
 }
 
@@ -96,7 +109,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     if (!players.some((p) => p.team === dl.team)) throw new Error(`map ${map.id}: deadline.team ${dl.team} is not a team in this game`);
   }
 
-  const rule = opts.firstMoverRule ?? DEFAULT_FIRST_MOVER_RULE;
+  const rule = opts.firstMoverRule ?? defaultFirstMoverRule(players.length);
   if (!FIRST_MOVER_RULES.includes(rule)) throw new Error(`map ${map.id}: unknown firstMoverRule ${String(rule)} (use ${FIRST_MOVER_RULES.join(', ')})`);
 
   const tiles: Tile[][] = map.terrain.map((row, y) => {
@@ -153,8 +166,14 @@ export function createGame(opts: CreateGameOptions): GameState {
     ...(dl ? { deadline: { team: dl.team, cycles: dl.cycles } } : {}),
     ...(opts.incomePerProperty !== undefined ? { incomePerProperty: opts.incomePerProperty } : {}),
   };
+  // 'gradedFirstIncome': player 0's first start of turn pays a share of its income, paid in here and not through startTurn, which then pays
+  // none. The share is in the funds before the repairs run, as income is in startTurn, so what the first turn can afford is the same.
+  if (rule === 'gradedFirstIncome') {
+    const paid = Math.round((incomeOf(state, 0) * gradedFirstIncomeShare(players.length)) / 100) * 100;
+    state.players[0].funds += paid;
+  }
   const ctx = draft(state);
-  startTurn(ctx, 0, { noIncome: rule === 'noFirstIncome' });
+  startTurn(ctx, 0, { noIncome: rule === 'noFirstIncome' || rule === 'gradedFirstIncome' });
   return ctx.s;
 }
 

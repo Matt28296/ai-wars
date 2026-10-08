@@ -483,18 +483,33 @@ describe('what each map is about', () => {
     expect(Math.min(...fabs.map((f) => d[f.y][f.x]))).toBeLessThan(Math.max(...fabs.map((f) => d[f.y][f.x])));
     expect(m.recommended?.fog).not.toBe(true);
   });
-  it('Saltglass Bay is a bay: sea and shoals in the middle, islet cities reachable only by landing, and a long walk round', () => {
+  it('Saltglass Bay is a bay: sea and shoals in the middle, islet cities reachable only by landing, and two ways round (M3.3)', () => {
     const m = MAPS['saltglass-bay'];
-    expect(countOf(m, '~')).toBeGreaterThan(40);
+    expect(countOf(m, '~')).toBeGreaterThanOrEqual(36);
     expect(countOf(m, 's')).toBeGreaterThanOrEqual(10);
     const [a, b] = spiresOf(m);
+    const straight = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
     const walk = distances(m, a, onFoot)[b.y][b.x];
-    expect(walk, 'the only foot route round the bay').toBeGreaterThan(1.5 * (Math.abs(a.x - b.x) + Math.abs(a.y - b.y)));
-    // Some neutral city can only be taken by sea: no foot path from either spire.
+    expect(walk, 'the shortest foot route goes round the bay, not across it').toBeGreaterThan(straight);
+    // M3.3: the original map had the north-shore march only (33 steps for 19 in a line, 65-80% of the games undecided at the cap). The
+    // causeway along the south edge brings the shortest route down to 23.
+    expect(walk, 'the south causeway keeps the march short').toBeLessThanOrEqual(1.3 * straight);
+    // The causeway is two tiles wide: every column between the shores is walkable on both of its rows.
+    for (const y of [12, 13]) for (let x = 7; x <= 14; x++) expect(onFoot(cell(m, x, y)), `causeway tile (${x},${y}) can be walked`).toBe(true);
+    // Known-bad twin: sea over the causeway (rows 12 and 13 between the shores) and the north shore is the long way round again.
+    const closed = clone(m);
+    for (const y of [12, 13]) for (let x = 7; x <= 14; x++) setCell(closed.terrain, x, y, '~');
+    expect(distances(closed, a, onFoot)[b.y][b.x], 'without the causeway the walk is the north-shore march').toBeGreaterThan(1.5 * straight);
+    // Some neutral city can only be taken by sea: no foot path from either spire (the island's two and the two islets of the north bay).
     const fromA = distances(m, a, onFoot);
     const fromB = distances(m, b, onFoot);
     const seaOnly = tilesOf(m, (c, o, x, y) => c === 'C' && o === '.' && fromA[y][x] === -1 && fromB[y][x] === -1);
     expect(seaOnly.length).toBeGreaterThanOrEqual(4);
+    // ... and each of them has a shoal beside it to land from, so a Barge can reach it.
+    for (const c of seaOnly) {
+      const shoal = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => cell(m, c.x + dx, c.y + dy) === 's');
+      expect(shoal, `sea-only arcology (${c.x},${c.y}) has a landing shoal beside it`).toBe(true);
+    }
   });
   it('Canopy Highlands is over half canopy, with ridges to see from, and asks for fog', () => {
     const m = MAPS['canopy-highlands'];
