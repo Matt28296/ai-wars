@@ -47,7 +47,8 @@ export const actInput = z.strictObject({
 
 export const SERVER_INSTRUCTIONS =
   'You command one side in Ascendant Wars, a turn-based tactics game. Start with list_missions and start_mission (unit_info gives the unit stats). Each turn: observe, then legal_actions, then act '
-  + 'with one id at a time, then end_turn. Follow get_orders. You only ever see what your side sees.';
+  + 'with one id at a time, then end_turn. Follow get_orders. You only ever see what your side sees. After start_mission, give your person the live.watch link: '
+  + 'it opens the battle in their browser.';
 
 export const DESCRIPTIONS = {
   list_missions:
@@ -55,7 +56,8 @@ export const DESCRIPTIONS = {
   start_mission:
     'Starts a campaign mission, or restarts the match, with you commanding seat 0 (your side). Every other seat is played by the built-in Doctrine rules, '
     + 'which take their turns when you call end_turn. Returns your seat and team, the map size, the cycle cap (the match ends undecided when it is passed), '
-    + 'and the addresses on this machine where a person can watch the battle live (a running match shows only your own view there; the whole record is served when it is over). Call observe next.',
+    + 'and live, the addresses on this machine where a person can watch the battle (a running match shows only your own view there; the whole record is served when it is over). '
+    + 'Give your person live.watch: it opens the battle in their browser. Call observe next.',
   unit_info:
     'Returns the static table of unit types, public game data that never changes: for each type its name, role, domain (ground, air or sea), cost, move (movement points) and '
     + 'moveType, vision (tiles), range = [min, max] (min above 1 means indirect fire that cannot hit adjacent tiles; null = no attack), ammo (null = no primary weapon), fuel '

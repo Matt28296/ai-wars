@@ -59,8 +59,11 @@ describe('the tool surface', () => {
     const { client } = await session();
     expect(client.getServerVersion()?.name).toBe('ascendant-wars');
     expect(client.getInstructions()).toMatch(/list_missions/);
+    // G17: the person watches through the one link the agent hands them
+    expect(client.getInstructions()).toMatch(/give your person the live\.watch link/);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toStrictEqual([...TOOLS].sort());
+    expect(tools.find((t) => t.name === 'start_mission')!.description).toMatch(/Give your person live\.watch/);
     for (const t of tools) {
       expect(t.description, t.name).toBeTruthy();
       expect(t.description!.length, t.name).toBeGreaterThan(80);
