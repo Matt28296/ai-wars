@@ -1,0 +1,26 @@
+<!doctype html>
+<!-- Dev-only: the unit miniatures on a standalone stage. Not part of the product build (vite build only builds index.html).
+     ?view=sheet            16 types x 5 factions (add &faction=helion for one faction, &cols=8 to wrap)
+     ?unit=lancer           a turntable of one type at 3 angles (add &faction=choir)
+     &pose=fire|hit|move  &t=0.15   &spent=1   &hp=5   &status=capturing   &focus=1   &muzzle=1   &time=1.0   &anim=1   &bloom=1 -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Ascendant Wars - unit gallery</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0e14; overflow: hidden; font-family: system-ui, sans-serif; }
+      canvas { display: block; }
+      #labels { position: fixed; inset: 0; pointer-events: none; }
+      #labels span { position: absolute; transform: translate(-50%, -50%); color: #e8edf3; font-size: 11px; letter-spacing: 0.03em; text-shadow: 0 1px 2px #000, 0 0 4px #000; white-space: nowrap; }
+      #labels span.row { transform: translate(0, -50%); font-weight: 700; }
+      #info { position: fixed; left: 8px; bottom: 6px; color: #9aa8ba; font-size: 11px; text-shadow: 0 1px 2px #000; }
+    </style>
+  </head>
+  <body>
+    <div id="labels"></div>
+    <div id="info"></div>
+    <script type="module" src="/src/ui/board3d/units/gallery.ts"></script>
+  </body>
+</html>
