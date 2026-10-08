@@ -1163,12 +1163,13 @@ describe('Modifier fields', () => {
   });
 });
 
-// ---------------------------------------------------------------- known divergences (code outside this order's TOUCHES)
-// `it.fails` passes while the divergence exists and goes red the day it is fixed: then change it to `it`.
-// The M1.2 combat change (meter from INTERNAL HP lost) makes the 10.1 test below pass: flip it to `it` when M1.2 is merged.
+// ---------------------------------------------------------------- former divergences (code outside this order's TOUCHES)
+// Both were expected-failure markers while the divergence existed; M1.2 (combat) and M1.3 (turn order)
+// fixed them, so they are plain regression tests now.
 
-describe('known divergences from mechanics.md', () => {
-  it.fails('10.1: the meter value uses INTERNAL HP lost (combat.ts strike() counts display HP instead)', () => {
+describe('former divergences from mechanics.md, now fixed', () => {
+  // Fixed by M1.2 (combat.ts feeds the meter from internal HP lost).
+  it('10.1: the meter value uses INTERNAL HP lost', () => {
     // arc (base 90) on a trooper standing on flats (1 star): 81 internal HP lost
     const s = game(['...'], [{ type: 'arc', owner: 0, x: 0, y: 0 }, { type: 'trooper', owner: 1, x: 2, y: 0 }],
       { a: mkCo(A, { passive: [NO_LUCK] }), b: mkCo(B, { passive: [NO_LUCK] }) });
