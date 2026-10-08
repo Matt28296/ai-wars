@@ -8,6 +8,10 @@ import { BRIEFING_ORBIT, NARROW_ASPECT, TITLE_ORBIT, orbitDistance, orbitPose, s
 import type { OrbitSpec } from './orbit';
 import { missionScene } from './missionScene';
 import { faceTheEnemy, headingToward, sceneFromMap, titleScene } from './scene';
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { StaticBoard } from './StaticBoard';
+import { UNMARKED_PATH } from '../watch/kit/roles';
 
 describe('heading toward the enemy', () => {
   it('snaps to the four compass directions, by the larger axis', () => {
@@ -71,6 +75,16 @@ describe('a mission\'s own board', () => {
     // known-bad twin: the same map without the mask marks every unit
     const map = MISSION_MAPS[fl.mapId];
     expect(sceneFromMap(map, fl.players.map((p) => p.faction)).units.some((u) => u.unmarked)).toBe(false);
+  });
+  it('the flat board behind the Deploy card draws the unmarked mark on exactly those counters (G16)', () => {
+    const fl = MISSIONS.find((m) => m.id === 'first-light')!;
+    const scene = missionScene(fl);
+    const drones = scene.units.filter((u) => u.unmarked).length;
+    const marks = (html: string): number => html.split(UNMARKED_PATH).length - 1;
+    expect(marks(renderToString(createElement(StaticBoard, { scene }))), 'one mark per drone').toBe(drones);
+    // known-bad twin: the same board without the flags draws no unmarked mark at all
+    const plain = { ...scene, units: scene.units.map(({ unmarked: _u, ...u }) => u) };
+    expect(marks(renderToString(createElement(StaticBoard, { scene: plain })))).toBe(0);
   });
   it('leaves out a unit whose owner has no faction, and refuses a code it does not know', () => {
     const map = MAPS['calder-fields'];
