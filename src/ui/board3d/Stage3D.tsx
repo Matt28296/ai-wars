@@ -4,7 +4,7 @@
 //
 // This is a viewer's camera and nothing more: wheel and +/- zoom, drag pans, and nothing selects or commands a unit (D-004, D-007).
 // Only the viewer's own frame and filtered events reach the runtime, so a fogged viewer's board can only show what it was told (D-016).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { CutIn } from '../watch/CutIn';
 import { TurnBanner } from '../watch/kit';
@@ -12,6 +12,7 @@ import { commanderNameOf } from '../watch/format';
 import { ownerOf } from '../watch/seats';
 import { VictoryChip } from '../watch/VictoryChip';
 import type { StageProps } from '../watch/Stage';
+import { maskedOwnersOf } from './stage/masked';
 import { StageRuntime } from './stage/runtime';
 import type { Overlay } from './stage/runtime';
 import type { QualityTier } from './stage/quality';
@@ -71,9 +72,14 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
     };
   }, []);
 
+  // The players whose nation the mission does not name (G15): their units wear no nation sigil. Held in an array that keeps its identity, keyed on the
+  // indices themselves, so a re-render that changes nothing does not hand the runtime a new view.
+  const maskedKey = maskedOwnersOf(seats, frame.players).join(',');
+  const maskedOwners = useMemo(() => (maskedKey === '' ? [] : maskedKey.split(',').map(Number)), [maskedKey]);
+
   useEffect(() => {
-    runtime.current?.setView({ timeline, step, plan, reducedMotion });
-  }, [timeline, step, plan, reducedMotion]);
+    runtime.current?.setView({ timeline, step, plan, reducedMotion, maskedOwners });
+  }, [timeline, step, plan, reducedMotion, maskedOwners]);
 
   const bannerFaction = frame.players[frame.current]?.faction ?? 'helion';
   const bannerCommander = commanderNameOf(frame.players[frame.current]?.commander ?? '');

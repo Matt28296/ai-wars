@@ -2,7 +2,7 @@
 // wide halo. The numbers here come from the stage's own source and from the geometry the kit really builds; the halo itself was measured in the
 // real stage (docs in track.ts and index.ts), because bloom is a GPU pass that node cannot run.
 import { readFileSync } from 'node:fs';
-import { Color, type BufferAttribute, type BufferGeometry, type Mesh, type Object3D } from 'three';
+import { Color, type BufferAttribute, type BufferGeometry, type Mesh, type MeshStandardMaterial, type Object3D } from 'three';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FACTION_ACCENT } from '../palette';
 import { BEACON_MAX_LUMA, GLOW_PULSE, createTerrainKit } from './index';
@@ -141,6 +141,70 @@ describe('the other emissive terrain', () => {
   it('an unowned beacon stays a dull lens, far under the cap', () => {
     const k = createTerrainKit(boardInput(['~~~', '~H~', '~~~']));
     expect(Math.max(...lumas(glowOf(k.group)!))).toBeLessThan(0.7);
+    k.dispose();
+  });
+});
+
+// ORDER G16: the glow pulse (the rails', beacons' and cracks' emissive breathing) is motion, so reduced motion holds it with the rest of the living board.
+describe('the glow pulse follows the living clock: reduced motion holds it, and it resumes without a jump', () => {
+  const FRAME = 1 / 60;
+  const TRACK_BOARD = ['.=.', '.=.', '.=.'];
+  const pulse = (k: ReturnType<typeof createTerrainKit>): number => (k.debug.materials().glow as MeshStandardMaterial).emissiveIntensity;
+  /** The pulse the kit shows after one update at stage time `t`. */
+  const at = (k: ReturnType<typeof createTerrainKit>, t: number): number => { k.update(FRAME, t); return pulse(k); };
+
+  it('with motion on the pulse moves between stage times, within the 10% the bloom budget allows', () => {
+    const k = createTerrainKit(boardInput(TRACK_BOARD));
+    const seen = [1.0, 2.0, 3.1, 4.4, 5.0].map((t) => at(k, t));
+    expect(new Set(seen.map((v) => v.toFixed(4))).size, 'the pulse moves').toBeGreaterThan(3);
+    for (const v of seen) {
+      expect(v).toBeLessThanOrEqual(1 + GLOW_PULSE + 1e-9);
+      expect(v).toBeGreaterThanOrEqual(1 - GLOW_PULSE - 1e-9);
+    }
+    k.dispose();
+  });
+
+  it('with motion off it holds exactly where it was, whatever stage time arrives', () => {
+    const k = createTerrainKit(boardInput(TRACK_BOARD));
+    const before = at(k, 1.0);
+    k.setMotion(false);
+    const held = at(k, 1.0 + FRAME);
+    expect(held).toBeCloseTo(before, 1); // a frame on, still where it was
+    for (const t of [2.0, 3.1, 9.9, 47.3, 600.1]) expect(at(k, t), `stage time ${t}`).toBe(held);
+    k.dispose();
+  });
+
+  it('known-bad: a pulse on the stage clock (what it was) is NOT held by the same check', () => {
+    const stageClock = createTerrainKit(boardInput(TRACK_BOARD)); // never switched off: its pulse follows the stage's time
+    const first = at(stageClock, 1.0);
+    expect([2.0, 3.1, 9.9, 47.3].some((t) => at(stageClock, t) !== first), 'a pulse that follows the stage time moves').toBe(true);
+    stageClock.dispose();
+  });
+
+  it('back on it carries on from where it stopped: one frame of pulse after the held value, not a leap to the stage\'s time', () => {
+    const k = createTerrainKit(boardInput(TRACK_BOARD));
+    const never = createTerrainKit(boardInput(TRACK_BOARD)); // follows the stage's time the whole way
+    at(k, 1.0);
+    k.setMotion(false);
+    const held = at(k, 1.0 + FRAME);
+    for (let t = 1.0 + 2 * FRAME; t < 101; t += 0.25) at(k, t);
+    expect(at(k, 101.0)).toBe(held);
+    k.setMotion(true);
+    const first = at(k, 101.0 + FRAME);
+    expect(Math.abs(first - held), 'one frame of pulse').toBeLessThan(0.01);
+    expect(Math.abs(first - at(never, 101.0 + FRAME)), 'not where the stage clock would have it').toBeGreaterThan(0.01);
+    // and it goes on pulsing
+    const later = [1.5, 2.2, 3.4].map((dt) => at(k, 101.0 + dt));
+    expect(new Set(later.map((v) => v.toFixed(4))).size).toBeGreaterThan(1);
+    k.dispose();
+    never.dispose();
+  });
+
+  it('off before the first frame: the pulse holds at its first value (no glow breathing on a board that opens under reduced motion)', () => {
+    const k = createTerrainKit(boardInput(TRACK_BOARD));
+    k.setMotion(false);
+    const first = at(k, 7.3);
+    for (const t of [8.0, 20.5, 99.9]) expect(at(k, t)).toBe(first);
     k.dispose();
   });
 });

@@ -13,6 +13,8 @@ export interface PreviewUnit {
   y: number;
   /** Radians; 0 faces east (+X), PI/2 faces south (+Z) (src/ui/board3d/contract.ts). Always a multiple of PI/2: formations face square. */
   heading: number;
+  /** The owner's nation is not named in this mission (G15's masked seat): the unit is drawn with no nation sigil (G16). */
+  unmarked?: boolean;
 }
 
 export interface PreviewScene {
@@ -60,8 +62,11 @@ export function faceTheEnemy(units: { owner: number; x: number; y: number }[]): 
   });
 }
 
-/** A scene from a map definition. A unit whose owner has no faction in `factions` is left out. */
-export function sceneFromMap(map: MapDef, factions: (FactionId | null)[], weather: Weather = 'clear'): PreviewScene {
+/**
+ * A scene from a map definition. A unit whose owner has no faction in `factions` is left out. `masked[p]` true draws player p's units
+ * unmarked (no nation sigil), for a mission that does not name that side's nation.
+ */
+export function sceneFromMap(map: MapDef, factions: (FactionId | null)[], weather: Weather = 'clear', masked: readonly boolean[] = []): PreviewScene {
   const terrain = map.terrain.map((row, y) => [...row].map((ch, x) => {
     const t = TERRAIN_CODES[ch];
     if (!t) throw new Error(`scene ${map.id}: unknown terrain code '${ch}' at (${x},${y})`);
@@ -78,7 +83,9 @@ export function sceneFromMap(map: MapDef, factions: (FactionId | null)[], weathe
     owners,
     factions,
     weather,
-    units: placed.map((u, i) => ({ type: u.type, faction: factions[u.owner]!, x: u.x, y: u.y, heading: headings[i] })),
+    units: placed.map((u, i) => ({
+      type: u.type, faction: factions[u.owner]!, x: u.x, y: u.y, heading: headings[i], ...(masked[u.owner] ? { unmarked: true } : {}),
+    })),
   };
 }
 
