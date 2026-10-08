@@ -7,7 +7,7 @@ import type { Ctx } from './state';
 import type { Coord, GameState, UnitTypeId } from './types';
 
 export function buildOptions(state: GameState, at: Coord): { type: UnitTypeId; cost: number; affordable: boolean }[] {
-  if (state.winnerTeam !== null || !inBounds(state, at)) return [];
+  if (state.winnerTeam !== null || !Number.isInteger(at.x) || !Number.isInteger(at.y) || !inBounds(state, at)) return [];
   const tile = state.tiles[at.y][at.x];
   const domain = TERRAIN_TYPES[tile.terrain].builds;
   if (!domain || tile.owner !== state.current || unitAt(state, at)) return [];
