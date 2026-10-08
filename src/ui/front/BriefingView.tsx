@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import type { Mission } from '../../content/types';
+import type { StandingOrders } from '../../game/doctrine';
 import { FACTIONS } from '../../data';
 import { Button, Sigil, inkOf } from '../watch/kit';
 import { BoardPreview } from './BoardPreview';
@@ -17,6 +18,8 @@ import { BRIEFING_ORBIT } from './orbit';
 import { Portrait } from './Portrait';
 import { hrefs } from './router';
 import { missionScene } from './missionScene';
+import { OrdersCard } from './OrdersCard';
+import { loadOrders, saveOrders } from './ordersStore';
 
 const NARROW = '(max-width: 640px)';
 
@@ -97,6 +100,12 @@ export function DialogueBox({ view, shown, index, total, narrow = false, compact
 export function ObjectiveCard({ mission, onReplay }: { mission: Mission; onReplay: () => void }): ReactElement {
   const groups = teamGroups(mission);
   const chips = objectiveChips(mission);
+  // G14: the orders for this mission, saved as they are changed so Deploy begins under them (ordersStore.ts).
+  const [orders, setOrders] = useState(() => loadOrders(mission.id));
+  const onOrders = useCallback((next: StandingOrders) => {
+    setOrders(next);
+    saveOrders(mission.id, next);
+  }, [mission.id]);
   return (
     <section className="awf-objective awf-cut" tabIndex={-1} aria-labelledby="awf-objective-h" data-phase="objective">
       <div className="awf-objective-main">
@@ -106,6 +115,7 @@ export function ObjectiveCard({ mission, onReplay }: { mission: Mission; onRepla
           <li className="awf-pill awf-pill--goal caption">{goalOf(mission.objective)}</li>
           {chips.map((c) => <li key={c.label} className={c.tone === 'warn' ? 'awf-pill awf-pill--warn caption' : 'awf-pill caption'}>{c.label}</li>)}
         </ul>
+        <OrdersCard orders={orders} onChange={onOrders} />
         <div className="awf-objective-actions">
           <span className="awf-deploy-wrap">
             <a className="aw-btn aw-btn--primary label awf-deploy-btn" href={hrefs.deploy(mission.id)} data-action="deploy">
@@ -113,8 +123,8 @@ export function ObjectiveCard({ mission, onReplay }: { mission: Mission; onRepla
             </a>
           </span>
           <Button variant="ghost" onClick={onReplay} data-action="replay">Replay briefing</Button>
+          <p className="awf-objective-note caption">Doctrine (local rules) on every side; you watch.</p>
         </div>
-        <p className="awf-objective-note caption">Deploy plays this mission with Doctrine (local rules) on every side. Your agent commands; you watch.</p>
       </div>
       <div className="awf-objective-sides">
         {groups.map((g) => (

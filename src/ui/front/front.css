@@ -221,7 +221,7 @@ a.awf-choice--primary:focus-visible { --edge: var(--ink); --fill: var(--signal);
 }
 
 /* ================================================================ briefing */
-.awf-briefing { display: flex; flex-direction: column; overflow: hidden; user-select: none; -webkit-user-select: none; }
+.awf-briefing { display: flex; flex-direction: column; overflow: hidden; overflow: clip; /* clip, not hidden: a scroll container would stop Deploy sticking to the screen (G14) */ user-select: none; -webkit-user-select: none; }
 .awf-brief-scrim {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
   background:
@@ -282,7 +282,10 @@ a.awf-choice--primary:focus-visible { --edge: var(--ink); --fill: var(--signal);
 .awf-objective-main { padding: 30px 34px 28px; display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 .awf-objective-text { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: clamp(25px, 2.7vw, 36px); line-height: 1.14; letter-spacing: 0.005em; }
 .awf-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.awf-objective-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-2); }
+.awf-objective-actions {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-2) -34px calc(-28px + var(--space-1)); padding: var(--space-2) 34px var(--space-3);
+  position: sticky; bottom: 0; z-index: 2; background: var(--panel); border-top: 1px solid var(--line); /* G14: Deploy stays in sight when the orders are opened up and the card outgrows the screen */
+}
 .awf-deploy-wrap { display: inline-flex; outline-offset: 4px; }
 .awf-deploy-wrap:focus-within { outline: 2px solid var(--signal); }
 .awf-deploy-btn {
@@ -290,7 +293,7 @@ a.awf-choice--primary:focus-visible { --edge: var(--ink); --fill: var(--signal);
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
 }
 .awf-deploy-btn:focus-visible { box-shadow: none; filter: brightness(1.12); }
-.awf-objective-note { margin: 0; color: var(--ink-muted); max-width: 52ch; }
+.awf-objective-note { margin: 0; flex: 1 1 100%; color: var(--ink-muted); }
 .awf-objective-sides { padding: 28px 30px 26px; border-left: 1px solid var(--line); background: color-mix(in srgb, var(--panel-raised) 55%, transparent); display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
 .awf-team-h { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 var(--space-3); color: var(--ink-muted); text-transform: uppercase; }
 .awf-team[data-yours='yes'] .awf-team-h { color: var(--signal); }
@@ -322,6 +325,7 @@ a.awf-choice--primary:focus-visible { --edge: var(--ink); --fill: var(--signal);
   .awf-dlg-hint .aw-key { display: none; }
   .awf-objective { grid-template-columns: minmax(0, 1fr); }
   .awf-objective-main { padding: 22px 20px 20px; }
+  .awf-objective-actions { margin: var(--space-2) -20px calc(-20px + var(--space-1)); padding: var(--space-2) 20px var(--space-3); }
   .awf-objective-sides { border-left: 0; border-top: 1px solid var(--line); padding: 20px; }
   .awf-deploy-btn { height: 52px; padding: 0 36px; }
 }
@@ -444,4 +448,122 @@ a.awf-choice--primary:focus-visible { --edge: var(--ink); --fill: var(--signal);
 @media (prefers-reduced-motion: reduce) {
   .awf-story { animation: none; }
   .awf-debrief { animation: none; }
+}
+
+/* ================================================================ orders (G14): the card on the objective screen and the panel in the battle */
+.awf-orders { --ord-name: 112px; display: flex; flex-direction: column; min-width: 0; }
+.awf-orders[data-variant='panel'] { --ord-name: 96px; }
+.awf-orders-head { display: flex; align-items: center; gap: var(--space-3); min-height: 28px; }
+.awf-orders-title { margin: 0; color: var(--ink-muted); text-transform: uppercase; }
+.awf-orders-pending { color: var(--signal); margin-left: auto; }
+.awf-orders-head .awf-orders-hint { flex: 1 1 0; margin: 0; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.awf-orders .awf-quiet {
+  height: 26px; padding: 0 var(--space-2); margin: 0; border: 0; border-radius: var(--radius-xs); background: none; cursor: pointer;
+  color: var(--ink-muted); text-transform: uppercase; font-family: var(--font-display); font-size: 12px; letter-spacing: 0.08em; white-space: nowrap;
+}
+.awf-quiet:hover:not(:disabled) { color: var(--ink); }
+.awf-quiet:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
+.awf-quiet:disabled { opacity: 0.4; cursor: default; }
+.awf-quiet[aria-expanded='true'] { color: var(--signal); }
+
+.awf-orders-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.awf-ord { border-top: 1px solid var(--line); }
+.awf-ord-row { display: grid; grid-template-columns: var(--ord-name) minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-3); min-height: 36px; }
+.awf-ord--powers .awf-ord-row { grid-template-columns: var(--ord-name) minmax(0, 1fr); }
+.awf-ord-name { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; color: var(--ink); }
+.awf-ord-name .heading { font-size: 15px; line-height: 20px; }
+.awf-ord-icon { flex: none; color: var(--signal); }
+.awf-ord-more { justify-self: end; }
+.awf-ord-note { margin: -2px 0 6px calc(var(--ord-name) + var(--space-3)); color: var(--warn); }
+
+/* a row of choices: a radio group of equal buttons, one lit */
+.awf-seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); min-width: 0; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.awf-orders .awf-seg-opt {
+  height: 26px; padding: 0 var(--space-2); margin: 0; border: 0; border-left: 1px solid var(--line); background: transparent; cursor: pointer; min-width: 0;
+  color: var(--ink-muted); font-family: var(--font-display); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+}
+.awf-seg-opt:first-child { border-left: 0; }
+.awf-seg-opt:hover { color: var(--ink); background: var(--panel-raised); }
+.awf-seg-opt[aria-checked='true'] { color: var(--signal); background: var(--signal-soft); box-shadow: inset 0 -2px 0 var(--signal); }
+.awf-seg-opt:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); position: relative; z-index: 1; }
+
+/* More: one group's mission, retreat and targets */
+.awf-ord-detail { padding: var(--space-1) 0 var(--space-3) calc(var(--ord-name) + var(--space-3)); display: flex; flex-direction: column; gap: var(--space-2); }
+.awf-more { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.awf-field { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; column-gap: var(--space-2); min-height: 28px; }
+.awf-field--targets { align-items: start; }
+.awf-field-name { color: var(--ink-muted); text-transform: uppercase; font-size: 11px; }
+.awf-more .awf-seg { display: flex; flex-wrap: wrap; border: 0; gap: 4px; overflow: visible; justify-self: start; }
+.awf-more .awf-seg-opt { flex: none; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
+.awf-step { display: inline-flex; align-items: center; gap: 4px; }
+.awf-orders .awf-step-btn {
+  width: 26px; height: 26px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink); font-size: 16px; line-height: 1; cursor: pointer;
+}
+.awf-step-btn:hover:not(:disabled) { background: var(--panel-raised); }
+.awf-step-btn:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
+.awf-step-btn:disabled { opacity: 0.35; cursor: default; }
+.awf-step-val { min-width: 56px; text-align: center; color: var(--ink); }
+.awf-chips-pick { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.awf-orders .awf-pick {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 var(--space-2); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink-muted); font-family: var(--font-display); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; cursor: pointer; white-space: nowrap;
+}
+.awf-pick:hover { color: var(--ink); background: var(--panel-raised); }
+.awf-pick[aria-pressed='true'] { color: var(--signal); border-color: var(--signal); background: var(--signal-soft); }
+.awf-pick[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; }
+.awf-pick:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
+.awf-pick-rank { display: inline-grid; place-items: center; width: 16px; height: 16px; background: var(--signal); color: var(--on-signal); border-radius: 2px; font-size: 11px; line-height: 16px; }
+.awf-orders .awf-types-toggle { align-self: flex-start; padding-left: 0; }
+.awf-types { list-style: none; margin: 0; padding: 0 0 0 var(--space-3); border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: var(--space-1); }
+.awf-type-row { display: flex; align-items: center; gap: var(--space-2); min-height: 30px; }
+.awf-type-name { min-width: 84px; color: var(--ink); }
+.awf-orders .awf-type-row .awf-follows { margin-left: auto; padding-right: 0; }
+.awf-type-body { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-1) 0 var(--space-2); }
+.awf-type-body > .awf-field > .awf-seg { max-width: 260px; }
+.awf-type[data-own='yes'] .awf-type-name { color: var(--signal); }
+.awf-orders-hint { color: var(--ink-muted); }
+.awf-orders > .awf-orders-hint { margin: var(--space-2) 0 0; min-height: 16px; }
+
+/* the objective card carries it between the facts and Deploy: no panel of its own */
+.awf-objective-main .awf-orders { margin-top: var(--space-1); }
+
+/* the battle's Orders button and its panel */
+.awf-orders-slot { position: relative; display: inline-flex; }
+.awf-orders-btn { gap: var(--space-2); }
+.awf-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 0 2px var(--panel-raised); }
+.awf-orders-pop {
+  position: absolute; top: calc(100% + var(--space-2)); right: 0; z-index: 30; width: min(440px, calc(100vw - 32px)); max-height: min(72vh, 680px); overflow-y: auto;
+  padding: var(--space-2) var(--space-4) var(--space-3); box-sizing: border-box; background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line-strong); box-shadow: var(--shadow-panel); animation: awf-fade 120ms ease-out both;
+}
+@media (max-width: 640px) {
+  .awf-orders { --ord-name: 92px; }
+  /* a phone: the name and More share a line and the choices take the whole width under them */
+  .awf-ord-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; padding: 4px 0 6px; min-height: 0; }
+  .awf-ord--powers .awf-ord-row { grid-template-columns: minmax(0, 1fr); }
+  .awf-ord-row > .awf-seg { grid-column: 1 / -1; grid-row: 2; }
+  .awf-orders .awf-seg-opt, .awf-orders .awf-step-btn, .awf-orders .awf-pick { height: 30px; }
+  .awf-orders .awf-quiet { height: 28px; }
+  .awf-orders-head { flex-wrap: wrap; }
+  .awf-orders-title { margin-right: auto; }
+  .awf-field { grid-template-columns: minmax(0, 1fr); row-gap: 2px; padding-bottom: 4px; }
+  .awf-type-body > .awf-field > .awf-seg { max-width: none; }
+  .awf-orders-head .awf-orders-hint { order: 3; flex: 1 1 100%; min-height: 16px; text-align: left; margin-top: -4px; }
+  .awf-orders-pop { position: fixed; top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 74vh; z-index: 50; }
+  .awf-ord-detail { padding-left: var(--space-2); }
+  .awf-ord-note { margin-left: 0; }
+  .awf-seg-opt { padding: 0 4px; font-size: 11px; letter-spacing: 0.03em; }
+}
+@media (prefers-reduced-motion: reduce) { .awf-orders-pop { animation: none; } }
+
+/* the debrief's one line of orders, between the numbers and the rule */
+.awf-result[data-orders='yes'] { grid-template-areas: "rank stats" "orders orders" "rule rule" "actions actions"; }
+.awf-result-orders { grid-area: orders; margin: 0; padding: 8px 24px 8px 22px; display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; border-top: 1px solid var(--line); }
+.awf-result-orders-name { color: var(--ink-muted); text-transform: uppercase; flex: none; }
+.awf-result-orders-text { color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) {
+  .awf-result[data-orders='yes'] { grid-template-areas: "rank" "stats" "orders" "rule" "actions"; }
+  .awf-result-orders { padding: 8px 16px; flex-wrap: wrap; }
+  .awf-result-orders-text { white-space: normal; }
 }
