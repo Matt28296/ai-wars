@@ -3,7 +3,7 @@
 // is allowed, so the guard is not simply refusing everything.
 import { Object3D, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import type { GameEvent, Unit } from '../../../game/aw';
+import type { GameEvent } from '../../../game/aw';
 import { sampleTransition } from '../../watch/transition';
 import type { ViewFrame } from '../../watch/timeline';
 import { pt } from '../../watch/testing';
@@ -19,7 +19,7 @@ const mine = fieldTimeline(UNITS, 0, true).steps[0].frame; // player 0, fog on: 
 const truth = fieldTimeline(UNITS, 'all', false).steps[0].frame; // the omniscient post-match frame
 const LANCER = idOf(truth, 'lancer');
 const TROOPER = idOf(truth, 'trooper');
-const hiddenTrooper = truth.units.find((u) => u.id === TROOPER) as Unit;
+const hiddenTrooper = truth.units.find((u) => u.id === TROOPER) as ViewFrame['units'][number];
 /** The planted leak: the fogged frame with the unit it was never told about put back in. */
 const leaked: ViewFrame = { ...mine, units: [...mine.units, hiddenTrooper] };
 
@@ -76,7 +76,7 @@ describe('the guard', () => {
   });
 
   it('treats an allied unit as known and an enemy-team unit as unknown, by team and not by owner', () => {
-    const ally: Unit = { ...hiddenTrooper, owner: 0 };
+    const ally: ViewFrame['units'][number] = { ...hiddenTrooper, owner: 0 };
     const withAlly: ViewFrame = { ...mine, units: [...mine.units, ally] };
     expect(isViewable(withAlly, ally)).toBe(true);
   });
