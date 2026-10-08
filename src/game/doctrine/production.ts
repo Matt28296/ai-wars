@@ -10,11 +10,12 @@
 //   - what the army already has too much of
 // A category whose weight is 0 is never built. The composition weights are shares of the money spent on the army.
 // In pressure (a won game being closed out, see eval.ts pressureOf) it builds nothing once it fields PRESSURE_BUILD_LIMIT units.
+// A transport whose mission is stayBack (M3.4) is never built: it would carry no one.
 import { TERRAIN_TYPES, UNIT_LIST, UNIT_TYPES } from '../../data';
 import type { Action, Unit, UnitTypeId } from '../aw/types';
 import { areEnemies, manhattan } from '../aw/state';
 import type { Category, Ctx } from './eval';
-import { INF, PRESSURE_BUILD_LIMIT, baseDamage, categoryOf, foeAnchors, pressureOf, reachFrom, unitValue } from './eval';
+import { INF, PRESSURE_BUILD_LIMIT, baseDamage, categoryOf, foeAnchors, pressureOf, reachFrom, unitOrders, unitValue } from './eval';
 import type { Composition } from './orders';
 
 type BuildAction = Extract<Action, { kind: 'build' }>;
@@ -151,6 +152,7 @@ export function chooseBuild(ctx: Ctx, actions: Action[], pick: (n: number) => nu
     const cat = categoryOf(ut.id);
     if (comp[cat] <= 0 || !avail.has(cat)) continue;
     const isUtility = UTILITY.has(ut.id);
+    if (isUtility && unitOrders(ctx, ut.id).mission === 'stayBack') continue; // told to stay back (M3.4): a transport that carries no one is not built
     if (cat === 'naval' && !isUtility && !foeNavalSeen && comp.naval < 6) continue;
     if (cat === 'air' && ctx.cycle < 3) continue;
     let s = Math.max(0, eff.get(ut.id) ?? 0) / maxEff;

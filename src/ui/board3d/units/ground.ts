@@ -1,5 +1,6 @@
 // The eight vehicles: skimmer, lancer, bastion, colossus, mule, arc, salvo, warden. Model space: feet at y = 0, +X forward.
 import type { FactionId } from '../../../game/aw';
+import type { UnitViewOptions } from '../contract';
 import { cab, dress } from './factions';
 import type { Anchors } from './factions';
 import { Kit, taperPoints } from './kit';
@@ -12,7 +13,7 @@ const PI = Math.PI;
 const SIDES = [-1, 1] as const;
 
 /** Skimmer: a sleek hover scout. Arrowhead fuselage, two fan pods, a bubble canopy, tail fins and a light nose gun. */
-export function skimmer(f: FactionId): Recipe {
+export function skimmer(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   k.hull('paint', [
     [0.3, 0.15, 0], [0.3, 0.12, 0],
@@ -43,7 +44,7 @@ export function skimmer(f: FactionId): Recipe {
     scale: 0.7,
     reach: 0.06,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const gun = new Kit();
   gun.box('dark', [0.05, 0.032, 0.04], [0.015, 0, 0]);
   gun.barrel('dark', 0.013, 0.011, 0.02, 0.12, 0, 0, 5);
@@ -55,7 +56,7 @@ export function skimmer(f: FactionId): Recipe {
 }
 
 /** Lancer: a hover tank. Wedge hull on side skirts, a low turret and one long lance of a gun. */
-export function lancer(f: FactionId): Recipe {
+export function lancer(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   k.hull('paint', [
     [-0.3, 0.085, 0.22], [-0.3, 0.085, -0.22], [0.3, 0.085, 0.17], [0.3, 0.085, -0.17],
@@ -86,7 +87,7 @@ export function lancer(f: FactionId): Recipe {
     scale: 0.8,
     reach: 0.08,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const gun = new Kit();
   gun.barrel('dark', 0.022, 0.017, 0, 0.24, 0, 0, 6);
   gun.axial('trim', 0.027, 0.028, 6, [0.225, 0, 0]);
@@ -98,7 +99,7 @@ export function lancer(f: FactionId): Recipe {
 }
 
 /** Bastion: a heavy grav-tank. Wide tracks, a slab hull, a square turret and one fat gun with a bore bulge. */
-export function bastion(f: FactionId): Recipe {
+export function bastion(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   trackPair(k, { len: 0.7, z: 0.235, w: 0.13, h: 0.16, wheels: 4, wheelR: 0.052 });
   k.hull('paint', [
@@ -122,7 +123,7 @@ export function bastion(f: FactionId): Recipe {
     scale: 1,
     reach: 0.08,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const gun = new Kit();
   gun.barrel('dark', 0.034, 0.028, 0, 0.2, 0, 0, 6);
   gun.axial('paint', 0.043, 0.06, 6, [0.07, 0, 0]);
@@ -136,7 +137,7 @@ export function bastion(f: FactionId): Recipe {
 }
 
 /** Colossus: a siege walker. Four splayed legs, a tall battery hull and twin cannons. The tallest ground unit. */
-export function colossus(f: FactionId): Recipe {
+export function colossus(f: FactionId, o?: UnitViewOptions): Recipe {
   const rig = new Rig();
   const hipY = 0.44;
   const torso = new Kit();
@@ -160,7 +161,7 @@ export function colossus(f: FactionId): Recipe {
     scale: 1,
     reach: 0.0,
   };
-  dress(torso, f, a);
+  dress(torso, f, a, o);
   rig.node('torso', null, [0, hipY, 0], [0, 0, 0], torso);
   const legs: [number, number][] = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
   legs.forEach(([sx, sz], i) => {
@@ -191,7 +192,7 @@ export function colossus(f: FactionId): Recipe {
 }
 
 /** Mule: a hover transport. A cab up front, a big ribbed cargo container behind it, four fan skirts. Carries and resupplies. */
-export function mule(f: FactionId): Recipe {
+export function mule(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   k.chamfer('dark', [0.66, 0.06, 0.4], 0.012, [0, 0.085, 0]);
   for (const sx of SIDES) {
@@ -223,7 +224,7 @@ export function mule(f: FactionId): Recipe {
     scale: 1,
     reach: 0.07,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const bump = new Kit();
   bump.box('dark', [0.03, 0.045, 0.3], [0, 0, 0]);
   bump.box('trim', [0.012, 0.012, 0.26], [0.014, 0, 0]);
@@ -235,7 +236,7 @@ export function mule(f: FactionId): Recipe {
 }
 
 /** Arc Battery: rail artillery. A low tracked carrier under one long raised rail gun with glowing coils. */
-export function arc(f: FactionId): Recipe {
+export function arc(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   trackPair(k, { len: 0.56, z: 0.21, w: 0.12, h: 0.14, wheels: 3, wheelR: 0.045 });
   k.chamfer('paint', [0.5, 0.1, 0.3], 0.02, [0, 0.19, 0]);
@@ -261,7 +262,7 @@ export function arc(f: FactionId): Recipe {
     scale: 0.9,
     reach: 0.07,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const gun = new Kit();
   gun.box('paint', [0.46, 0.045, 0.05], [0.12, 0, 0]);
   for (const s of SIDES) gun.box('dark', [0.46, 0.026, 0.026], [0.13, 0, s * 0.036]);
@@ -275,7 +276,7 @@ export function arc(f: FactionId): Recipe {
 }
 
 /** Salvo: a missile platform. A cab on a tracked carrier and a tilted 2 x 3 rack of missile tubes with glowing noses. */
-export function salvo(f: FactionId): Recipe {
+export function salvo(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   trackPair(k, { len: 0.6, z: 0.22, w: 0.12, h: 0.14, wheels: 4, wheelR: 0.045 });
   k.chamfer('paint', [0.56, 0.1, 0.34], 0.02, [0, 0.19, 0]);
@@ -296,7 +297,7 @@ export function salvo(f: FactionId): Recipe {
     scale: 0.95,
     reach: 0.07,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const rack = new Kit();
   rack.chamfer('paint', [0.34, 0.24, 0.34], 0.02, [0.17, 0.05, 0]);
   for (const y of [0, 0.1]) {
@@ -315,7 +316,7 @@ export function salvo(f: FactionId): Recipe {
 }
 
 /** Warden: a point-defence laser. A round turret with a fat finned emitter and glowing lens, and a spinning radar mast. */
-export function warden(f: FactionId): Recipe {
+export function warden(f: FactionId, o?: UnitViewOptions): Recipe {
   const k = new Kit();
   trackPair(k, { len: 0.58, z: 0.2, w: 0.12, h: 0.14, wheels: 3, wheelR: 0.045 });
   k.chamfer('paint', [0.52, 0.1, 0.32], 0.02, [0, 0.19, 0]);
@@ -336,7 +337,7 @@ export function warden(f: FactionId): Recipe {
     scale: 0.9,
     reach: 0.07,
   };
-  dress(k, f, a);
+  dress(k, f, a, o);
   const radar = new Kit();
   radar.cyl('dark', 0.03, 0.03, 0.03, 6, [0, 0, 0]);
   radar.box('dark', [0.04, 0.012, 0.24], [0, 0.016, 0]);

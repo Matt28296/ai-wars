@@ -23,6 +23,9 @@ const focus = q.get('focus') === '1';
 const showMuzzle = q.get('muzzle') === '1' || pose === 'fire';
 const timeSec = num('time', 1.0);
 const anim = q.get('anim') === '1';
+// G16: `unmarked=1` draws every unit without its nation's sigil (a seat whose nation the mission does not name); `view=marks` draws each nation
+// twice, a marked row above an unmarked one, to see exactly what the sigil was.
+const unmarkedAll = q.get('unmarked') === '1';
 // the faction rim (G7): 0 turns it off for a before-and-after look at the paint alone; the default is the game's. Set before any unit is built.
 if (q.has('rim')) setRimStrength(num('rim', 0.25));
 
@@ -71,10 +74,10 @@ function tile(x: number, z: number, sea: boolean): void {
 
 const muzzleMarks: { view: UnitView; mark: Mesh }[] = [];
 
-function place(type: UnitTypeId, faction: FactionId, x: number, z: number, heading: number, index: number): void {
+function place(type: UnitTypeId, faction: FactionId, x: number, z: number, heading: number, index: number, unmarked = unmarkedAll): void {
   const naval = UNIT_TYPES[type].domain === 'sea';
   tile(Math.floor(x), Math.floor(z), naval);
-  const v = createUnitViewWithPhase(type, faction, index * 0.9);
+  const v = createUnitViewWithPhase(type, faction, index * 0.9, unmarked ? { unmarked: true } : undefined);
   v.object.position.set(x, naval ? -0.08 : 0, z);
   v.setLook({ hp, spent, heading, status, focused: focus });
   v.update(0.016, timeSec);
@@ -133,7 +136,8 @@ function frame(cx: number, cz: number, width: number, depth: number): void {
   scene.add(fill);
 }
 
-const typeOrder = UNIT_IDS;
+// the marks view takes `unit=skimmer,lancer` to show only those types (larger on screen)
+const typeOrder = view === 'marks' && q.has('unit') ? (q.get('unit') as string).split(',').filter((t): t is UnitTypeId => (UNIT_IDS as string[]).includes(t)) : UNIT_IDS;
 const info = document.getElementById('info') as HTMLElement;
 
 if (view === 'turntable') {
@@ -158,22 +162,25 @@ if (view === 'turntable') {
 } else {
   const only = q.get('faction');
   const factions = only ? FACTION_IDS.filter((f) => f === only) : FACTION_IDS;
-  const cols = Math.max(1, Math.min(16, num('cols', 16)));
+  const cols = Math.max(1, Math.min(16, num('cols', Math.min(16, typeOrder.length))));
   const bands = Math.ceil(typeOrder.length / cols);
   const rowsPerFaction = bands;
-  factions.forEach((f, fi) => {
+  // one line per faction; the marks view gives each faction a marked line and an unmarked one under it
+  const lines = factions.flatMap((f) => (view === 'marks' ? [{ f, unmarked: false }, { f, unmarked: true }] : [{ f, unmarked: unmarkedAll }]));
+  lines.forEach(({ f, unmarked }, li) => {
+    const fi = factions.indexOf(f);
     typeOrder.forEach((t, i) => {
       const col = i % cols;
-      const row = fi * rowsPerFaction + Math.floor(i / cols);
-      place(t, f, col + 0.5, row + 0.5, 0, i + fi * 3);
-      if (cols === 16 ? fi === 0 : true) label(t, new Vector3(col + 0.5, 0, cols === 16 ? -0.45 : row + 0.95));
+      const row = li * rowsPerFaction + Math.floor(i / cols);
+      place(t, f, col + 0.5, row + 0.5, 0, i + fi * 3, unmarked);
+      if (cols === 16 ? li === 0 : true) label(t, new Vector3(col + 0.5, 0, cols === 16 ? -0.45 : row + 0.95));
     });
-    label(f, new Vector3(-1.6, 0, fi * rowsPerFaction + 0.5), 'left');
+    label(unmarked && view === 'marks' ? `${f}, unmarked` : f, new Vector3(-1.6, 0, li * rowsPerFaction + 0.5), 'left');
   });
-  const rows = factions.length * rowsPerFaction;
-  const wide = factions.length > 1 || cols === 16;
+  const rows = lines.length * rowsPerFaction;
+  const wide = lines.length > 1 || cols === 16;
   frame(cols / 2 - (wide ? 0.9 : 0), rows / 2 - 0.2, cols + (wide ? 3.0 : 0.8), rows + 1.2);
-  info.textContent = `sheet: ${typeOrder.length} types x ${factions.length} faction(s)`;
+  info.textContent = `sheet: ${typeOrder.length} types x ${factions.length} faction(s)${view === 'marks' ? ', each marked and unmarked' : unmarkedAll ? ', unmarked' : ''}`;
 }
 
 function positionLabels(): void {

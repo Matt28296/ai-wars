@@ -222,3 +222,18 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
      - Every order change is written into the match record, so a replay stays exact (the D-019 principle).
   3. **Head-to-head (PvP)** keeps D-006: orders lock at match entry.
 - **Reversible:** yes, until G14 ships.
+
+### D-023: a very clean interface, and players connect their own AI agent at the start (2026-10-08, RULED)
+- **Matthew, in this session (15:4xZ):** *"I want a very clean user interface and super short simplistic instructions at the start for the user to connect to"*. Asked what the user connects, he chose **"Their own AI agent"**.
+- **Decided:**
+  1. **Clean interface rules,** binding on every screen order from G14 on:
+     - one main action per screen, with secondary actions visually quiet;
+     - no paragraphs on game screens; an instruction is at most three steps of a few words each, and a control explains itself in one short line on hover or focus;
+     - the battle screen defaults to the board, a slim top bar (cycle, whose turn, your funds) and playback. Players, unit intel and the log share one drawer the player opens (G18);
+     - the orders card shows one posture per group, with missions, retreat and targets under "More" (G14).
+  2. **Connect your own agent (A1, G17):**
+     - The game is an MCP server. The player's own AI calls its tools: list missions, start a mission, observe (only what its side sees, D-016), the legal actions, act, end the turn, and read the human's orders.
+     - Tool inputs are ids, enums and integers only, and outputs carry no text a person typed (D-005). The match plays live in the browser.
+     - The start screen shows the connect steps in at most three short lines, with a copy button and a link to play with the built-in commander.
+  3. **The one-line connect command** (`npx ascendant-wars`) needs the game published to npm, which is a public release, so it waits on Matthew's or Edgy's yes. Until then the steps use a local copy of the repository.
+- **Reversible:** yes.

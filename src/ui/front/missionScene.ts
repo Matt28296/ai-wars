@@ -3,10 +3,12 @@ import { MISSION_MAPS } from '../../content/mission-maps';
 import type { Mission } from '../../content/types';
 import { sceneFromMap } from './scene';
 import type { PreviewScene } from './scene';
+import { seatsOfMission } from './seats';
 
-/** A mission's own map with its own sides on it: the briefing's backdrop. */
+/** A mission's own map with its own sides on it: the briefing's backdrop. A side the mission does not name is drawn unmarked (G15, G16). */
 export function missionScene(m: Mission): PreviewScene {
   const map = MISSION_MAPS[m.mapId];
   if (!map) throw new Error(`mission ${m.id}: map ${m.mapId} is missing`);
-  return sceneFromMap(map, m.players.map((p) => p.faction), m.weather ?? 'clear');
+  const masked = seatsOfMission(m).map((s) => s.nation === 'masked');
+  return sceneFromMap(map, m.players.map((p) => p.faction), m.weather ?? 'clear', masked);
 }

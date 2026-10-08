@@ -19,7 +19,7 @@ import type { Timeline, TimelineStep, ViewFrame } from '../../watch/timeline';
 import { fieldSetup, pt } from '../../watch/testing';
 import { planTransition } from '../../watch/transition';
 import type { TransitionPlan } from '../../watch/transition';
-import type { CreateFx, CreateTerrain, CreateUnitView, FxView, TerrainView, UnitView } from '../contract';
+import type { CreateFx, CreateTerrain, CreateUnitView, FxView, TerrainView, UnitView, UnitViewOptions } from '../contract';
 import { createFxKit } from '../fx';
 import type { FxKit } from '../fx';
 import { FACTION_ACCENT } from '../palette';
@@ -34,6 +34,9 @@ import { TIER_ORDER, passNames } from './quality';
 import type { QualitySignals, QualityTier } from './quality';
 import { stormCount } from './storm';
 import { fieldFrame, idOf } from './testing';
+import { createUnitView as realUnitView } from '../units';
+import type { UnitKit } from '../units';
+import { modelOf, visibleTriangles, worldPositions } from '../units/measure';
 
 // ---------------------------------------------------------------- the stand-in page
 
@@ -129,11 +132,13 @@ const tilesOf = (f: (x: number, y: number) => boolean, w: number, h: number): st
   return out;
 };
 
-function unitViews(): { create: CreateUnitView; made: string[]; live: () => number } {
+function unitViews(): { create: CreateUnitView; made: string[]; calls: { type: string; faction: string; opts: UnitViewOptions | undefined }[]; live: () => number } {
   const made: string[] = [];
+  const calls: { type: string; faction: string; opts: UnitViewOptions | undefined }[] = [];
   let live = 0;
-  const create: CreateUnitView = (type) => {
+  const create: CreateUnitView = (type, faction, opts) => {
     made.push(type);
+    calls.push({ type, faction, opts });
     live++;
     const v: UnitView = {
       object: new Object3D(), type, setLook: () => undefined, setPose: () => undefined, muzzleWorld: (out) => out.set(0, 0, 0),
@@ -141,7 +146,7 @@ function unitViews(): { create: CreateUnitView; made: string[]; live: () => numb
     };
     return v;
   };
-  return { create, made, live: () => live };
+  return { create, made, calls, live: () => live };
 }
 
 const plainFx: CreateFx = () => {
@@ -1447,5 +1452,221 @@ describe('quality tiers: the adaptive step in the stage', () => {
     r.rt.dispose();
     expect([...freed].sort()).toEqual(['ao', 'denoise', 'normal+depth']);
     r.rt.dispose(); // twice is fine
+  });
+});
+
+
+// ---------------------------------------------------------------- G16: masked owners' units are unmarked
+
+describe('units of a masked owner are made without a sigil, and everyone else\'s with it', () => {
+  const timeline = timelineOf([frame0]);
+  // frame0: a lancer (player 0), a trooper (player 1) and a mule (player 0)
+  const unmarkedOf = (r: Rig): Record<string, boolean | undefined> => Object.fromEntries(r.views.calls.map((c) => [c.type, c.opts?.unmarked]));
+
+  it('maskedOwners [1]: the trooper (player 1) is created `{ unmarked: true }`; the lancer and the mule (player 0) are created marked', () => {
+    const r = make();
+    r.view({ timeline, maskedOwners: [1] });
+    r.page.frames(2);
+    expect(unmarkedOf(r)).toEqual({ lancer: undefined, trooper: true, mule: undefined });
+    // marked units are asked for with two arguments, exactly as before G16
+    expect(r.views.calls.find((c) => c.type === 'lancer')!.opts).toBeUndefined();
+  });
+
+  it('maskedOwners [0]: the other way round (the check follows the owner, not the unit type or its place in the list)', () => {
+    const r = make();
+    r.view({ timeline, maskedOwners: [0] });
+    r.page.frames(2);
+    expect(unmarkedOf(r)).toEqual({ lancer: true, trooper: undefined, mule: true });
+  });
+
+  it.each([['absent', {}], ['empty', { maskedOwners: [] }]])('no masked owners (%s): nobody is unmarked', (_name, partial) => {
+    const r = make();
+    r.view({ timeline, ...partial });
+    r.page.frames(2);
+    expect(unmarkedOf(r)).toEqual({ lancer: undefined, trooper: undefined, mule: undefined });
+  });
+
+  it('the nation is still handed to the unit view: an unmarked unit keeps its colours', () => {
+    const r = make();
+    r.view({ timeline, maskedOwners: [1] });
+    r.page.frames(2);
+    const trooper = r.views.calls.find((c) => c.type === 'trooper')!;
+    expect(trooper.faction).toBe(frame0.players[1].faction);
+    expect(r.views.calls.find((c) => c.type === 'lancer')!.faction).toBe(frame0.players[0].faction);
+  });
+
+  it('a change in who is masked rebuilds exactly the units it concerns, and frees the views it replaced', () => {
+    const r = make();
+    r.view({ timeline, maskedOwners: [] });
+    r.page.frames(2);
+    expect(r.views.made).toEqual(['lancer', 'trooper', 'mule']);
+    r.view({ timeline, maskedOwners: [1] });
+    r.page.frames(2);
+    expect(r.views.made).toEqual(['lancer', 'trooper', 'mule', 'trooper']); // only player 1's unit
+    expect(r.views.calls[3].opts).toEqual({ unmarked: true });
+    expect(r.views.live()).toBe(3); // the first trooper view was freed
+    r.view({ timeline, maskedOwners: [1] }); // the same again: nothing rebuilt
+    r.page.frames(2);
+    expect(r.views.made).toHaveLength(4);
+    r.view({ timeline, maskedOwners: [] }); // the story names the nation: marked again
+    r.page.frames(2);
+    expect(r.views.made).toEqual(['lancer', 'trooper', 'mule', 'trooper', 'trooper']);
+    expect(r.views.calls[4].opts).toBeUndefined();
+    expect(r.views.live()).toBe(3);
+  });
+
+  it('with the real unit kit, the masked owner\'s units are drawn without the decal and the others\' with it', () => {
+    const f = fieldFrame([{ type: 'lancer', owner: 0, x: 2, y: 1 }, { type: 'lancer', owner: 1, x: 5, y: 1 }]);
+    const kits: { owner: number; view: UnitKit }[] = [];
+    const create: CreateUnitView = (type, faction, opts) => {
+      const view = realUnitView(type, faction, opts) as UnitKit;
+      kits.push({ owner: faction === f.players[0].faction ? 0 : 1, view });
+      return view;
+    };
+    const r = make({ createUnitView: create });
+    r.view({ timeline: timelineOf([f]), maskedOwners: [1] });
+    r.page.frames(2);
+    expect(kits.map((k) => [k.owner, k.view.unmarked])).toEqual([[0, false], [1, true]]);
+    // the triangles say it too: the marked lancer is the unmarked one plus its nation's decal, in the same nation or another
+    const marked = realUnitView('lancer', f.players[1].faction);
+    const bare = kits[1].view;
+    marked.setLook({ hp: 10, spent: false, heading: 0, status: null, focused: false });
+    expect(visibleTriangles(modelOf(marked))).toBeGreaterThan(visibleTriangles(modelOf(bare)));
+    marked.dispose();
+    // and the other one is drawn exactly as a plain marked lancer is
+    const plain = realUnitView('lancer', f.players[0].faction);
+    plain.setLook({ hp: 10, spent: false, heading: 0, status: null, focused: false });
+    expect(visibleTriangles(modelOf(plain))).toBe(visibleTriangles(modelOf(kits[0].view)));
+    plain.dispose();
+  });
+});
+
+// ---------------------------------------------------------------- G16: reduced motion reaches the units
+
+describe('reduced motion holds every unit\'s idle motion still, and lets it carry on again', () => {
+  // five classes on one field: a tread, a hover craft, a walker, a gunship and a foot squad
+  const units: FixtureUnit[] = [
+    { type: 'lancer', owner: 0, x: 1, y: 1 }, { type: 'skimmer', owner: 0, x: 3, y: 1 }, { type: 'colossus', owner: 0, x: 5, y: 1 },
+    { type: 'wasp', owner: 1, x: 7, y: 1 }, { type: 'trooper', owner: 1, x: 8, y: 1 },
+  ];
+  const field = fieldFrame(units);
+
+  /** The real unit kit, every view kept, so what the stage did to them can be read back. */
+  function realKit(): { create: CreateUnitView; kits: UnitKit[] } {
+    const kits: UnitKit[] = [];
+    const create: CreateUnitView = (type, faction, opts) => { const v = realUnitView(type, faction, opts) as UnitKit; kits.push(v); return v; };
+    return { create, kits };
+  }
+  /** Every vertex of a unit in world space, and its idle group: where the renderer draws it now. */
+  function stance(v: UnitView): Float64Array {
+    v.object.updateMatrixWorld(true);
+    const lists: ArrayLike<number>[] = [];
+    modelOf(v).traverse((o) => { if ((o as { isMesh?: boolean }).isMesh) lists.push(worldPositions(o as never)); });
+    const idle = v.object.getObjectByName('idle')!;
+    lists.push([idle.position.x, idle.position.y, idle.position.z, idle.rotation.x, idle.rotation.y, idle.rotation.z]);
+    const out = new Float64Array(lists.reduce((n, l) => n + l.length, 0));
+    let at = 0;
+    for (const l of lists) for (let i = 0; i < l.length; i++) out[at++] = l[i];
+    return out;
+  }
+  const distance = (a: Float64Array, b: Float64Array): number => a.reduce((d, v, i) => Math.max(d, Math.abs(v - b[i])), 0);
+
+  it('under reduced motion six seconds of frames leave every unit exactly where it was; with motion on, every one of them moves', () => {
+    const { create, kits } = realKit();
+    const r = make({ createUnitView: create });
+    const timeline = timelineOf([field]);
+    r.view({ timeline, reducedMotion: false });
+    r.page.frames(20);
+    expect(kits).toHaveLength(5);
+    const a = kits.map(stance);
+    r.page.frames(60);
+    const b = kits.map(stance);
+    kits.forEach((k, i) => expect(distance(a[i], b[i]), `${k.type} moves with motion on`).toBeGreaterThan(0));
+
+    r.view({ timeline, reducedMotion: true });
+    r.page.frames(1);
+    const held = kits.map(stance);
+    for (let s = 0; s < 6; s++) {
+      r.page.frames(60);
+      kits.forEach((k, i) => expect(distance(held[i], stance(k)), `${k.type} after ${s + 1} s of reduced motion`).toBe(0));
+    }
+    expect(kits.every((k) => !k.motion)).toBe(true);
+    expect(r.hooks.failed).toEqual([]);
+  });
+
+  it('a page that opens under reduced motion never lets a unit start moving', () => {
+    const { create, kits } = realKit();
+    const r = make({ createUnitView: create });
+    r.view({ timeline: timelineOf([field]), reducedMotion: true });
+    r.page.frames(2);
+    const held = kits.map(stance);
+    r.page.frames(300);
+    kits.forEach((k, i) => expect(distance(held[i], stance(k)), `${k.type} on a page that opens reduced`).toBe(0));
+  });
+
+  it('a unit that appears while motion is off is held from its first frame', () => {
+    const { create, kits } = realKit();
+    const r = make({ createUnitView: create });
+    const fewer = fieldFrame(units.slice(0, 3));
+    const timeline = timelineOf([fewer, field]);
+    r.view({ timeline, step: 0, reducedMotion: true });
+    r.page.frames(30);
+    expect(kits).toHaveLength(3);
+    r.view({ timeline, step: 1, reducedMotion: true });
+    r.page.frames(2);
+    expect(kits).toHaveLength(5);
+    const held = kits.map(stance);
+    r.page.frames(240);
+    kits.forEach((k, i) => expect(distance(held[i], stance(k)), `${k.type}`).toBe(0));
+  });
+
+  it('a move still plays under reduced motion: the unit leans and strides while the others stay held', () => {
+    const { create, kits } = realKit();
+    const r = make({ createUnitView: create });
+    const MULE_AT = { type: 'mule', owner: 0, x: 1, y: 2 } as FixtureUnit;
+    const f0 = fieldFrame([...units, MULE_AT]);
+    const mule = idOf(f0, 'mule');
+    const next = moved(f0, mule, 0, 2);
+    const events: GameEvent[] = [{ kind: 'moved', unitId: mule, path: [pt(1, 2), pt(0, 2)], cost: 1, fuel: 0 } as GameEvent];
+    const plan = planOf(f0, next, events); // a plan with a glide, as a page that is not reduced would have made
+    expect(plan.moves.length).toBeGreaterThan(0);
+    const timeline = timelineOf([f0, next], [[], events]);
+    r.view({ timeline, step: 0, reducedMotion: true });
+    r.page.frames(30);
+    const muleKit = kits.find((k) => k.type === 'mule')!;
+    const others = kits.filter((k) => k !== muleKit);
+    const heldOthers = others.map(stance);
+    r.view({ timeline, step: 1, plan, reducedMotion: true });
+    const m = plan.moves[0];
+    r.page.advance(m.startMs + m.durMs * 0.4);
+    const first = stance(muleKit);
+    const lean = muleKit.object.getObjectByName('pose')!.rotation.z;
+    r.page.advance(50);
+    expect(muleKit.object.getObjectByName('pose')!.rotation.z, 'the mule leans into its move').toBeLessThan(0);
+    expect(lean).toBeLessThan(0);
+    expect(distance(first, stance(muleKit)), 'the mule is moving').toBeGreaterThan(0);
+    others.forEach((k, i) => expect(distance(heldOthers[i], stance(k)), `${k.type} stays held while the mule moves`).toBe(0));
+  });
+
+  it('turning reduced motion off again resumes with no jump: one frame of motion after the held picture, then moving again', () => {
+    const { create, kits } = realKit();
+    const r = make({ createUnitView: create });
+    const timeline = timelineOf([field]);
+    r.view({ timeline, reducedMotion: false });
+    r.page.frames(30);
+    r.view({ timeline, reducedMotion: true });
+    r.page.frames(2);
+    const held = kits.map((k) => k.object.getObjectByName('idle')!.position.y);
+    r.page.frames(600); // ten seconds held: the stage's own clock runs on
+    r.view({ timeline, reducedMotion: false });
+    r.page.frames(1);
+    const first = kits.map((k) => k.object.getObjectByName('idle')!.position.y);
+    // the bob of a hover craft and a gunship moves by well under a centimetre of tile in one frame; ten seconds of the stage's time would be a leap
+    kits.forEach((k, i) => expect(Math.abs(first[i] - held[i]), `${k.type} idle y one frame after resuming`).toBeLessThan(0.01));
+    expect(kits.every((k) => k.motion)).toBe(true);
+    r.page.frames(90);
+    const later = kits.map(stance);
+    r.page.frames(37);
+    kits.forEach((k, i) => expect(distance(later[i], stance(k)), `${k.type} moves again`).toBeGreaterThan(0));
   });
 });

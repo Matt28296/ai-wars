@@ -38,14 +38,15 @@ function drop<T>(map: Map<string, Counted<T>>, key: string, dispose: (value: T) 
 // ---------------------------------------------------------------- model geometry
 
 const recipes = new Map<string, Counted<Recipe>>();
-const recipeKey = (type: UnitTypeId, faction: FactionId) => `${type}:${faction}`;
+/** One model per (type, faction, marked or not): an unmarked look (G16) is its own geometry, without the sigil decal and nothing else different. */
+const recipeKey = (type: UnitTypeId, faction: FactionId, unmarked: boolean) => `${type}:${faction}${unmarked ? ':unmarked' : ''}`;
 
-export function acquireRecipe(type: UnitTypeId, faction: FactionId): Recipe {
-  return take(recipes, recipeKey(type, faction), () => MODELS[type](faction));
+export function acquireRecipe(type: UnitTypeId, faction: FactionId, unmarked = false): Recipe {
+  return take(recipes, recipeKey(type, faction, unmarked), () => MODELS[type](faction, unmarked ? { unmarked: true } : undefined));
 }
 
-export function releaseRecipe(type: UnitTypeId, faction: FactionId): void {
-  drop(recipes, recipeKey(type, faction), (r) => {
+export function releaseRecipe(type: UnitTypeId, faction: FactionId, unmarked = false): void {
+  drop(recipes, recipeKey(type, faction, unmarked), (r) => {
     r.geometry.dispose();
     for (const n of r.nodes) n.blur?.dispose();
   });
