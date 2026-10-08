@@ -207,3 +207,18 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
   2. **Authority:** an instruction from Edgy for ai-wars counts as Matthew's, the hard gates included: money, repository visibility, public deploys and paid services.
   3. **How Edgy's answers arrive:** through Matthew, pasted into this session. This session is not a fleet seat: its machine (`vm`) is not in jclaw-coord's identity table, so it does not write the bus. It reads Edgy's lane only when Matthew asks it to.
 - **Reversible:** yes. A two-way lane on the bus would need the head to add a route and an identity row for this session.
+
+### D-022: orders per unit group, types on demand, changeable during the battle from the player's next turn (2026-10-08, RULED)
+- **Matthew, in this session (14:4xZ–15:0xZ):**
+  - *"We need more specific control over the various types of units in the game."*
+  - On the orders screen he chose six groups, with each unit type available on demand.
+  - On timing he asked *"Does each player move all of their units before the other player moves their units?"* (yes: each player's agent acts with all of its units on its own turn, then the next player's turn begins; a cycle is one round of every player's turn). He then said *"It doesn't matter if the agent will only act during their own turn, correct?"* (correct: the timing only matters for a change made during the player's own turn).
+- **Decided:**
+  1. **Granularity:** orders by group: Infantry, Armour, Artillery, Air, Navy, Transports. Each group has a posture, a mission from its own fixed list, a retreat HP and a target priority. A group can be expanded to give one unit type its own orders. The engine half is M3.4.
+  2. **Timing:**
+     - The battle plays live, and the player can change orders at any time while watching.
+     - A change takes effect when the player's next turn starts, so each of the player's turns runs under one set of orders.
+     - The player's turn N is computed only when playback reaches its start, with the orders in force at that moment. Other players' turns may be computed ahead.
+     - Every order change is written into the match record, so a replay stays exact (the D-019 principle).
+  3. **Head-to-head (PvP)** keeps D-006: orders lock at match entry.
+- **Reversible:** yes, until G14 ships.

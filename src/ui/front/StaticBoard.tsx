@@ -78,7 +78,7 @@ export function StaticBoard({ scene, tile = 40, shift = { x: 0, y: 0 }, shiftNar
         </div>
         {scene.units.map((u, i) => (
           <div key={i} className="awf-still-unit" style={{ left: u.x * tile, top: u.y * tile, width: tile, height: tile }}>
-            <UnitToken unit={u.type} faction={u.faction} size={tile} facing={Math.cos(u.heading) < -0.5 ? 'left' : 'right'} decorative />
+            <UnitToken unit={u.type} faction={u.faction} size={tile} facing={Math.cos(u.heading) < -0.5 ? 'left' : 'right'} masked={u.unmarked} decorative />
           </div>
         ))}
       </div>

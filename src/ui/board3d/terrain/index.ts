@@ -80,10 +80,11 @@ export interface TerrainDebug {
 
 export interface TerrainKit extends TerrainView {
   /**
-   * Switch the board's ambient motion on or off (reduced motion). Off, the cloud shadows, the gust, the trees' sway and the caustics hold exactly
-   * where they are; on again, they carry on from there. This is on the kit, not on TerrainView: the stage calls it when its reduced-motion setting
-   * changes, the same way it hands the effects kit its own (`typeof kit.setMotion === 'function'`). The water's waves keep following the time
-   * `update` is given, as they always have. A kit starts with motion on.
+   * Switch the board's ambient motion on or off (reduced motion). Off, the cloud shadows, the gust, the trees' sway, the caustics and the glow
+   * pulse of the rails, beacons and cracks hold exactly where they are; on again, they carry on from there. This is on the kit, not on
+   * TerrainView: the stage calls it when its reduced-motion setting changes, the same way it hands the effects kit its own
+   * (`typeof kit.setMotion === 'function'`). The water's waves keep following the time `update` is given, as they always have. A kit starts
+   * with motion on.
    */
   setMotion(on: boolean): void;
   readonly board: Board;
@@ -331,9 +332,11 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
       }
       if (moved) occMap.needsUpdate = true;
       uniforms.uTime.value = timeSec;
-      uniforms.uLive.value = clock.advance(timeSec);
+      const live = clock.advance(timeSec);
+      uniforms.uLive.value = live;
       uniforms.uStorm.value += (stormTarget - uniforms.uStorm.value) * (1 - Math.exp(-dt * 3));
-      mats.glow.emissiveIntensity = 1 + GLOW_PULSE * Math.sin(timeSec * 2.3);
+      // The rails', beacons' and cracks' glow breathes on the living clock, so `setMotion(false)` holds it (G16) and it resumes without a jump.
+      mats.glow.emissiveIntensity = 1 + GLOW_PULSE * Math.sin(live * 2.3);
     },
     dispose() {
       group.clear();

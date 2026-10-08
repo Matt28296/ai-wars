@@ -2,6 +2,7 @@
 // trim placement and a sigil decal on top of that same shape. Owner is never colour alone: paint + sigil + trim.
 import { OctahedronGeometry } from 'three';
 import type { FactionId } from '../../../game/aw';
+import type { UnitViewOptions } from '../contract';
 import { Kit } from './kit';
 import type { P2, V3 } from './kit';
 
@@ -63,6 +64,12 @@ function hexSegments(): P2[][] {
   return segs;
 }
 
+/** One faction's sigil as flat pieces (x forward, z; in a unit box). The first piece owns the holes. Read-only: the tests measure the decal against it. */
+export function sigilShapes(faction: FactionId): { outline: readonly P2[]; holes: readonly (readonly P2[])[] }[] {
+  const s = SIGILS[faction];
+  return s.outline.map((outline, i) => ({ outline, holes: i === 0 && s.holes ? s.holes : [] }));
+}
+
 /** The sigil decal, flat on the deck, pointing forward. */
 export function sigil(k: Kit, faction: FactionId, at: { x: number; y: number; size: number }): void {
   const s = SIGILS[faction];
@@ -83,9 +90,13 @@ export function cab(k: Kit, faction: FactionId, pos: V3, size: V3, wSeg = 6, hSe
 
 // ---------------------------------------------------------------- the dressing
 
-/** Add the faction's fins, trim placement and sigil to a model that offers these anchors. */
-export function dress(k: Kit, faction: FactionId, a: Anchors): void {
-  sigil(k, faction, a.sigil);
+/**
+ * Add the faction's fins, trim placement and sigil to a model that offers these anchors.
+ * `unmarked` (a seat whose nation the mission does not name, G16): no sigil decal, and nothing in its place. Everything else the nation adds
+ * is paint, trim and shape, which are colours and silhouettes and not a name, so they stay.
+ */
+export function dress(k: Kit, faction: FactionId, a: Anchors, opts?: UnitViewOptions): void {
+  if (!opts?.unmarked) sigil(k, faction, a.sigil);
   switch (faction) {
     case 'helion': return helion(k, a);
     case 'tidewell': return tidewell(k, a);

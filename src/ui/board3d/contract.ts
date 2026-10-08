@@ -84,7 +84,16 @@ export interface UnitView {
   dispose(): void;
 }
 
-export type CreateUnitView = (type: UnitTypeId, faction: FactionId) => UnitView;
+/** How a unit is drawn beyond its type and nation. */
+export interface UnitViewOptions {
+  /**
+   * The seat's nation is not named in this mission (G15's masked seat, e.g. mission 1's "Unmarked drones"): no nation sigil on the unit.
+   * Paint and trim keep their colours, because colour is not a name.
+   */
+  unmarked?: boolean;
+}
+
+export type CreateUnitView = (type: UnitTypeId, faction: FactionId, opts?: UnitViewOptions) => UnitView;
 
 // ---------------------------------------------------------------- effects
 

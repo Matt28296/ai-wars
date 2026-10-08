@@ -14,7 +14,7 @@
 // painted with, are shared by every unit of the same look; the paint is in the vertices (skin.ts, shading.ts).
 import { Bone, Euler, Group, Matrix4, Mesh, Object3D, Skeleton, SkinnedMesh, Sphere, Sprite, Vector3 } from 'three';
 import type { FactionId, UnitTypeId } from '../../../game/aw';
-import type { UnitLook, UnitPose, UnitView } from '../contract';
+import type { UnitLook, UnitPose, UnitView, UnitViewOptions } from '../contract';
 import type { UnitStatusKind } from '../../watch/unitview';
 import type { ChipKey } from './chips';
 import { squadSize } from './recipe';
@@ -58,6 +58,25 @@ export function recoilCurve(t: number): number {
   return u * u;
 }
 
+/**
+ * A unit view as this kit makes it: the contract's view, plus what the stage may ask of it beyond the contract (it asks with `typeof
+ * view.setMotion === 'function'`, as it does of the terrain kit and the effects kit, so a stand-in view without it is simply not asked).
+ */
+export interface UnitKit extends UnitView {
+  /** Drawn without a sigil decal: the seat's nation is not named in the mission (G16). */
+  readonly unmarked: boolean;
+  /** False while the unit's idle motion is held still. */
+  readonly motion: boolean;
+  /**
+   * Reduced motion (G16). Off, the unit's clock holds: the hover and air bob, the ship's roll, the walker's shift, a squad's breathing, the
+   * spinning rotors and radars and the focus ring's breath all stay exactly where they are. The poses that show an action still play, because
+   * they are the battle: fire and hit are drawn from their own t, and a unit that is moving keeps its stride, rumble and spin (the clock runs
+   * while it moves and holds again, where it stopped, when it does). On again, the clock carries on from where it stopped, so nothing jumps.
+   * A view starts with motion on.
+   */
+  setMotion(on: boolean): void;
+}
+
 interface Rigged {
   root: Group;
   nodes: Map<string, Bone>;
@@ -70,8 +89,9 @@ const BIND = new Matrix4();
 /** How far past the rest-pose bounds the animated parts (a bobbing hull, a swinging leg) can reach, for frustum culling. */
 const CULL_MARGIN = 0.25;
 
-export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, phase: number): UnitView {
-  const recipe: Recipe = acquireRecipe(type, faction);
+export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, phase: number, opts?: UnitViewOptions): UnitKit {
+  const unmarked = opts?.unmarked === true;
+  const recipe: Recipe = acquireRecipe(type, faction, unmarked);
   const mats: MaterialSet = acquireMaterials(faction);
   let disposed = false;
 
@@ -185,7 +205,14 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
   let statusKey: ChipKey = 'blank';
   let poseName: UnitPose = 'idle';
   let poseT = 0;
-  let timeSec = 0;
+  /**
+   * The unit's own clock, which every animated transform reads. It follows the time update() is given while motion is on, or while the unit
+   * is moving (an action), holds while motion is off and it is not, and carries on from where it stopped: `clockOffset` is the time it has
+   * lost to being held, so the clock never jumps.
+   */
+  let clockSec = 0;
+  let clockOffset = 0;
+  let motion = true;
 
   const setChip = (sprite: Sprite, current: ChipKey, next: ChipKey): ChipKey => {
     if (current === next) return current;
@@ -208,8 +235,8 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
   const moving = (): boolean => poseName === 'move';
   const trackValue = (tr: Track): number => {
     const mv = moving() ? tr.move ?? 1 : 1;
-    if (tr.kind === 'spin') return (tr.base ?? 0) + timeSec * tr.hz * mv + phase;
-    return (tr.base ?? 0) + (tr.amp ?? 0) * mv * Math.sin(TAU * tr.hz * timeSec + (tr.phase ?? 0) + phase);
+    if (tr.kind === 'spin') return (tr.base ?? 0) + clockSec * tr.hz * mv + phase;
+    return (tr.base ?? 0) + (tr.amp ?? 0) * mv * Math.sin(TAU * tr.hz * clockSec + (tr.phase ?? 0) + phase);
   };
 
   const evaluateRig = (rig: Rigged): void => {
@@ -237,7 +264,7 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
   };
 
   const evaluateIdle = (): void => {
-    const t = timeSec;
+    const t = clockSec;
     const p = phase;
     let y = 0;
     let rx = 0;
@@ -303,9 +330,15 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
   };
   evaluate();
 
-  const view: UnitView = {
+  const view: UnitKit = {
     object,
     type,
+    get unmarked() { return unmarked; },
+    get motion() { return motion; },
+    setMotion(on: boolean) {
+      if (disposed) return;
+      motion = on;
+    },
     setLook(look: UnitLook) {
       if (disposed) return;
       yaw.rotation.y = -look.heading;
@@ -335,10 +368,11 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
       return muzzle.getWorldPosition(out ?? new Vector3());
     },
     update(_dtSec: number, t: number) {
-      if (disposed) return;
-      timeSec = t;
+      if (disposed || !Number.isFinite(t)) return;
+      if (motion || moving()) clockSec = t - clockOffset;
+      else clockOffset = t - clockSec;
       evaluate();
-      if (ring.visible) ring.scale.setScalar(1 + 0.035 * Math.sin(TAU * 1.2 * t));
+      if (ring.visible) ring.scale.setScalar(1 + 0.035 * Math.sin(TAU * 1.2 * clockSec));
     },
     dispose() {
       if (disposed) return;
@@ -349,7 +383,7 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
       releaseChip(statusKey);
       releaseRing();
       releaseMaterials(faction);
-      releaseRecipe(type, faction);
+      releaseRecipe(type, faction, unmarked);
     },
   };
   return view;
@@ -357,7 +391,7 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
 
 const AXES = ['x', 'y', 'z'] as const;
 
-/** Create the miniature for a unit type in a faction's livery. */
-export function createUnitView(type: UnitTypeId, faction: FactionId): UnitView {
-  return createUnitViewWithPhase(type, faction, nextPhase());
+/** Create the miniature for a unit type in a faction's livery. `opts.unmarked`: no sigil decal (the seat's nation is not named). */
+export function createUnitView(type: UnitTypeId, faction: FactionId, opts?: UnitViewOptions): UnitKit {
+  return createUnitViewWithPhase(type, faction, nextPhase(), opts);
 }
