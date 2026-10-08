@@ -3,7 +3,9 @@
 //   per-vertex `aShore`  distance-like value, 0 at the waterline, growing into open water. It drives shallow-to-deep colour and the foam
 //                        band, so foam hugs every wall, river bank and shoal edge without any per-tile special case in the shader;
 //   waves/glints         animated normals (broad swell plus fine ripples) catch the key light as moving glints; rivers scroll their
-//                        ripples along `aFlow`, so the current visibly runs down the channel.
+//                        ripples along `aFlow`, so the current visibly runs down the channel;
+//   caustics (G11)       a soft moving web of light on the shallows (shoal edges and the sea beside them, never rivers), clipped by the same
+//                        `aShore` value to where the water is shallow, applied after the fog grade with the cloud shadows (living.ts).
 import { BufferAttribute, BufferGeometry, MeshPhysicalMaterial } from 'three';
 import { WATER_Y, shoreAt, type Board } from './layout';
 import { patchMaterial, swap, type Shader, type TerrainUniforms } from './shading';
@@ -102,6 +104,7 @@ export function createWaterMaterial(u: TerrainUniforms): MeshPhysicalMaterial {
   const mat = new MeshPhysicalMaterial({ roughness: 0.24, metalness: 0, specularIntensity: 0.55 });
   patchMaterial(mat, u, {
     key: 'water',
+    live: 'water',
     extra(shader: Shader) {
       const what = 'MeshPhysicalMaterial (water)';
       let vs = shader.vertexShader;
