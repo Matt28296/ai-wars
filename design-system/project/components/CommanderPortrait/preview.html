@@ -11,7 +11,7 @@
 <script>
   var A = window.Ascendant, h = React.createElement;
 
-  var cs = A.data.commanders.filter(function (c) { return ['ren', 'sefa', 'maru', 'corvin', 'cantor', 'echo'].indexOf(c.id) > -1; });
+  var cs = A.data.commanders.filter(function (c) { return ['rook', 'sefa', 'maru', 'corvin', 'cantor', 'echo'].indexOf(c.id) > -1; });
   ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
     cs.map(function (c, i) { return h(A.CommanderPortrait, { key: c.id, name: c.name, faction: c.faction, initials: c.initials, state: i === 1 ? 'surge' : i === 3 ? 'overclock' : undefined }); }),
     h(A.CommanderPortrait, { name: 'Juno Reyes-Abara', faction: 'verdant', initials: 'JR', size: 48 })));

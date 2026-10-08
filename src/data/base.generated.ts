@@ -575,8 +575,8 @@ export const TERRAIN = [
 
 export const COMMANDER_BASE = [
   {
-    "id": "ren",
-    "name": "Ren Okafor",
+    "id": "rook",
+    "name": "Rook Okafor",
     "initials": "RO",
     "faction": "helion",
     "title": "Field Captain"

@@ -103,7 +103,7 @@ const P = {
     h(A.BattleForecast, { attacker: { unit: 'lancer', faction: 'helion', hp: 10 }, defender: { unit: 'trooper', faction: 'tidewell', hp: 10 }, damage: [56, 64], counter: [4, 6] }),
     h(A.BattleForecast, { attacker: { unit: 'arc', faction: 'helion', hp: 9 }, defender: { unit: 'warden', faction: 'choir', hp: 4 }, damage: [68, 76], counter: null })));`],
   CommanderPortrait: ['<!-- @dsCard group="Commanders" height=152 subtitle="frame and monogram until painted art lands" -->', `
-  var cs = A.data.commanders.filter(function (c) { return ['ren', 'sefa', 'maru', 'corvin', 'cantor', 'echo'].indexOf(c.id) > -1; });
+  var cs = A.data.commanders.filter(function (c) { return ['rook', 'sefa', 'maru', 'corvin', 'cantor', 'echo'].indexOf(c.id) > -1; });
   ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
     cs.map(function (c, i) { return h(A.CommanderPortrait, { key: c.id, name: c.name, faction: c.faction, initials: c.initials, state: i === 1 ? 'surge' : i === 3 ? 'overclock' : undefined }); }),
     h(A.CommanderPortrait, { name: 'Juno Reyes-Abara', faction: 'verdant', initials: 'JR', size: 48 })));`],
@@ -114,7 +114,7 @@ const P = {
     h(A.PowerMeter, { value: 7, surge: 3, max: 7 })));`],
   PlayerHud: ['<!-- @dsCard group="Commanders" height=112 subtitle="top corner of the battlefield" -->', `
   ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
-    h(A.PlayerHud, { commander: { name: 'Ren Okafor', faction: 'helion', initials: 'RO' }, funds: 12400, cycle: 4, power: { value: 2.3, surge: 3, max: 6 } }),
+    h(A.PlayerHud, { commander: { name: 'Rook Okafor', faction: 'helion', initials: 'RO' }, funds: 12400, cycle: 4, power: { value: 2.3, surge: 3, max: 6 } }),
     h(A.PlayerHud, { commander: { name: 'Cantor', faction: 'choir', initials: 'C' }, funds: 31000, power: { value: 7, surge: 3, max: 7 } })));`],
   DialogueBox: ['<!-- @dsCard group="Story" height=360 subtitle="the story voice; ECHO speaks in signal" -->', `
   ReactDOM.createRoot(document.getElementById('root')).render(h('div', { style: { display: 'flex', flexDirection: 'column', gap: 16, width: '100%' } },
@@ -124,7 +124,7 @@ const P = {
       'The tide does not hurry, Captain. It simply arrives.')));`],
   TurnBanner: ['<!-- @dsCard group="Story" height=280 subtitle="sweeps across at the start of each turn" -->', `
   ReactDOM.createRoot(document.getElementById('root')).render(h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10, width: '100%' } },
-    h(A.TurnBanner, { cycle: 4, faction: 'helion', commander: 'Ren Okafor' }),
+    h(A.TurnBanner, { cycle: 4, faction: 'helion', commander: 'Rook Okafor' }),
     h(A.TurnBanner, { cycle: 4, faction: 'kestrel', commander: 'Corvin Ashgrave' }),
     h(A.TurnBanner, { cycle: 12, faction: 'choir', commander: 'VESPER' })));`],
   Skirmish: ['<!-- @dsCard group="Showcase" height=640 page subtitle="the components together on a battlefield" -->', `
@@ -151,7 +151,7 @@ const P = {
     });
     return h('div', { style: { position: 'relative', width: 528 + 8 + 360, display: 'flex', gap: 16, alignItems: 'flex-start' } },
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
-        h(A.PlayerHud, { commander: { name: 'Ren Okafor', faction: 'helion', initials: 'RO' }, funds: 12400, cycle: 4, power: { value: 2.3, surge: 3, max: 6 } }),
+        h(A.PlayerHud, { commander: { name: 'Rook Okafor', faction: 'helion', initials: 'RO' }, funds: 12400, cycle: 4, power: { value: 2.3, surge: 3, max: 6 } }),
         h('div', { style: { boxShadow: '0 0 0 1px var(--line-strong)' } }, grid),
         h(A.DialogueBox, { speaker: { name: 'ECHO', faction: null, initials: 'E' }, channel: 'Tactical channel' }, 'Lancer in range of the Trooper on the ridge. Ridge is four stars. Expect less than you hope.')),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },

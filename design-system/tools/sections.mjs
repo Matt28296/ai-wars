@@ -18,7 +18,7 @@ writeFileSync(join(proj, '01-world.md'), world + '\n');
 // Commanders + writing rules
 const cos = ['# Commanders', '',
   'Eleven commanders: two per nation, the Choir’s two voices, and ECHO. Every one has a passive doctrine, a **Surge** (small power) and an **Overclock** (super power); all powers also add +10% firepower and +10% defense while active. Write every line in the commander’s voice below.', '',
-  between('### Ren Okafor', '## Writing rules for dialogue').replace(/^### /gm, '## '), '',
+  between('### Rook Okafor', '## Writing rules for dialogue').replace(/^### /gm, '## '), '',
   between('## Writing rules for dialogue'),
 ].join('\n');
 writeFileSync(join(proj, '02-commanders.md'), cos + '\n');

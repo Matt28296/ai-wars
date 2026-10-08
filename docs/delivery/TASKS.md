@@ -28,5 +28,5 @@ Work is split by **owner area**. Areas never share a file, so builders in separa
 | M1.4 | Powers: meter charge, star costs and scaling, every Modifier and InstantEffect | M1.0 | M1.0 | after M1.0 | `pnpm test src/game/aw/power.test.ts` |
 | M1.5 | Fog, victory (rout, spire, objectives), score card | M1.0 | M1.0 | after M1.0 | `pnpm test src/game/aw/fog.test.ts src/game/aw/victory.test.ts` |
 | M1.6 | `applyAction` integration, legality, determinism and immutability, seeded simulations | M1.1–M1.5 | M1.1–M1.5 | no | `pnpm test src/game/aw` + sims in CI |
-| M1.7 | Rename Ren Okafor → Rook Okafor everywhere (D-007) | M0.1 | — | after M0.1 | `git grep -n "Ren Okafor"` returns nothing |
+| M1.7 | Rename Ren Okafor → Rook Okafor everywhere (D-007) | `84f49aa` | — | yes (lead) | `git grep -n -w Ren -- ':!docs/delivery' ':!docs/research'` returns nothing |
 | M2 | Platform fork (R01, R02, R09, R10, R35) | M1 | D-003 cleared | **no — blocked** | see milestone plan |
