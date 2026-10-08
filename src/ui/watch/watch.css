@@ -63,6 +63,26 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aww-capture { position: absolute; height: 5px; margin: 0 3px; width: calc(100% - 6px); background: var(--map-shade); pointer-events: none; }
 .aww-capture > span { display: block; height: 100%; background: var(--warn); }
 
+/* ---- the 3D stage (board3d/Stage3D): one canvas in a frame the size of the stage ---- */
+.aww-toolbar-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2) var(--space-4); }
+.aww-stage3d {
+  position: relative; width: 100%; aspect-ratio: var(--aww-3d-ratio, 1.6);
+  min-height: 280px; max-height: max(280px, calc(100vh - 210px));
+  border: 1px solid var(--line-strong); background: var(--map-shade); overflow: hidden;
+}
+.aww-stage3d-canvas { display: block; width: 100%; height: 100%; outline: none; }
+.aww-stage3d--loading, .aww-stage3d-fail { display: grid; place-items: center; color: var(--ink-muted); text-align: center; padding: var(--space-4); }
+.aww-stage3d-fail { position: absolute; inset: 0; background: var(--map-shade); }
+.aww-zoom { position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 3; display: flex; flex-direction: column; gap: 1px; }
+.aww-zoom-btn {
+  width: 32px; height: 32px; padding: 0; display: grid; place-items: center;
+  border: 1px solid var(--line-strong); background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--ink);
+  font: inherit; font-size: 18px; line-height: 1; cursor: pointer;
+}
+.aww-zoom-btn:hover:not(:disabled) { background: var(--signal-soft); }
+.aww-zoom-btn:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
+.aww-zoom-btn:disabled { opacity: .4; cursor: default; }
+
 /* ---- effects ---- */
 .aww-fx { position: absolute; pointer-events: none; transform-origin: 50% 50%; }
 .aww-fx-hit { background: #fff; box-shadow: inset 0 0 0 2px var(--warn); }
