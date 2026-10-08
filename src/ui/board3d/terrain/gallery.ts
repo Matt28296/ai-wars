@@ -5,12 +5,16 @@
 //   ?fog=1           hide the east half of the board (fog of war)        ?storm=1   ion-storm weather
 //   ?cap=1           show capture rings on a few properties              ?units=0   hide the stand-in miniatures
 //   ?time=<s>        freeze animation at this time (screenshots)         ?bloom=1   add the stage's own bloom (strength 0.6, radius 0.4, threshold 0.9)
+//   ?probe=living&time=<s>&storm=<0..1>   no board: runs the living board's GLSL on a grid and compares it with the CPU mirror in living.ts
+//                    (window.__probe = { maxErr: { cover, gust, caustic, live }, samples })
+//                    window.__project(x, y, z) -> [px, py] and window.__tiles (x, y, terrain) let a script read the pixel of a tile
+//   ?motion=0        reduced motion: the kit's ambient motion (cloud shadows, gusts, sway, caustics) holds still
 //   ?occupied=x,y;x,y  put a unit on those tiles (properties show their low form)   ?occupied=all  a unit on every property
 //   ?rows=a|b|c      a custom board from map codes, optionally &owners=... in the same shape (digits and dots)
 //   ?w=<px>&h=<px>   canvas size (default: the window)                   ?hud=0     hide the stats overlay
 import {
-  ACESFilmicToneMapping, BoxGeometry, Color, DirectionalLight, Group, HemisphereLight, Mesh, MeshStandardMaterial, PCFShadowMap,
-  PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer,
+  ACESFilmicToneMapping, BoxGeometry, Color, DirectionalLight, Group, HemisphereLight, Mesh, MeshStandardMaterial, NoBlending, PCFShadowMap,
+  PerspectiveCamera, PlaneGeometry, Scene, ShaderMaterial, Vector2, Vector3, WebGLRenderTarget, WebGLRenderer,
 } from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
@@ -24,6 +28,9 @@ import type { FactionId } from '../../../game/aw';
 import type { TerrainInput } from '../contract';
 import { FACTION_ACCENT, FACTION_COLOR, UI } from '../palette';
 import { createTerrainKit } from './index';
+import {
+  CAUSTIC_GLSL, CLOCK_GLSL, CLOUD_GLSL, GUST_GLSL, LIVE_CEIL, LIVE_FLOOR, causticWeb, cloudCover, cloudDarkening, gust, livingMultiplier,
+} from './living';
 import { stressRows } from './testing';
 
 const FACTION_BY_PLAYER: FactionId[] = ['helion', 'tidewell', 'verdant', 'kestrel', 'choir'];
@@ -65,6 +72,65 @@ const input: TerrainInput = {
   weather: flag('storm') ? 'ionstorm' : 'clear',
 };
 
+/**
+ * ?probe=living: the living board's GLSL (the very strings the materials are patched with) drawn over a grid of world positions into a render
+ * target, read back, and compared with the CPU mirror in living.ts. This is the check that the shader and the tests' mirror agree.
+ */
+function runLivingProbe(): void {
+  const time = num('time', 0);
+  const storm = num('storm', 0);
+  const NX = 100; const NZ = 76; const STEP = 0.25;
+  const probeRenderer = new WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  probeRenderer.setSize(64, 64);
+  const target = new WebGLRenderTarget(NX, NZ);
+  const mat = new ShaderMaterial({
+    uniforms: { uLive: { value: time }, uStorm: { value: storm } },
+    vertexShader: 'void main() { gl_Position = vec4( position.xy, 0.0, 1.0 ); }',
+    fragmentShader: `
+      uniform float uStorm;
+      ${CLOCK_GLSL}${GUST_GLSL}${CLOUD_GLSL}${CAUSTIC_GLSL}
+      void main() {
+        vec2 xz = gl_FragCoord.xy * ${STEP.toFixed(4)};
+        float g = trnGust( xz );
+        float c = trnCaustic( xz );
+        float m = trnLive( xz, g, c );
+        gl_FragColor = vec4( trnCloud( xz ), g * 0.5 + 0.5, c, ( m - ${LIVE_FLOOR.toFixed(5)} ) / ${(LIVE_CEIL - LIVE_FLOOR).toFixed(5)} );
+      }`,
+    blending: NoBlending,
+    depthTest: false,
+  });
+  const quad = new Mesh(new PlaneGeometry(2, 2), mat);
+  const probeScene = new Scene();
+  probeScene.add(quad);
+  quad.frustumCulled = false;
+  probeRenderer.setRenderTarget(target);
+  probeRenderer.render(probeScene, new PerspectiveCamera());
+  const px = new Uint8Array(NX * NZ * 4);
+  probeRenderer.readRenderTargetPixels(target, 0, 0, NX, NZ, px);
+  const maxErr = { cover: 0, gust: 0, caustic: 0, live: 0 };
+  for (let j = 0; j < NZ; j++) {
+    for (let i = 0; i < NX; i++) {
+      const x = i + 0.5; const z = j + 0.5;
+      const wx = x * STEP; const wz = z * STEP;
+      const o = (j * NX + i) * 4;
+      const cover = cloudCover(wx, wz, time);
+      const g = gust(wx, wz, time);
+      const c = causticWeb(wx, wz, time);
+      const live = livingMultiplier(cloudDarkening(wx, wz, time, storm), g, c);
+      maxErr.cover = Math.max(maxErr.cover, Math.abs(px[o] / 255 - cover));
+      maxErr.gust = Math.max(maxErr.gust, Math.abs(px[o + 1] / 255 - (g * 0.5 + 0.5)) * 2);
+      maxErr.caustic = Math.max(maxErr.caustic, Math.abs(px[o + 2] / 255 - c));
+      maxErr.live = Math.max(maxErr.live, Math.abs((px[o + 3] / 255) * (LIVE_CEIL - LIVE_FLOOR) + LIVE_FLOOR - live));
+    }
+  }
+  (window as unknown as { __probe?: unknown }).__probe = { time, storm, samples: NX * NZ, maxErr };
+  quad.geometry.dispose();
+  mat.dispose();
+  target.dispose();
+  probeRenderer.dispose();
+}
+if (q.get('probe') === 'living') runLivingProbe(); // the page then goes on to draw its board as usual; a probe run passes &w=64&h=64
+
 const renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setSize(W, H);
 renderer.setPixelRatio(1);
@@ -105,6 +171,7 @@ const kit = createTerrainKit(input);
 scene.add(kit.group);
 kit.setOwners(input.ownerAt);
 if (flag('fog')) kit.setVisible((x) => x < width / 2);
+kit.setMotion(flag('motion', true));
 if (flag('storm')) kit.setWeather('ionstorm');
 if (flag('cap')) {
   const props: [number, number][] = [];
@@ -172,6 +239,12 @@ function fitCamera(): void {
   }
 }
 fitCamera();
+{
+  const w = window as unknown as { __project?: (x: number, y: number, z: number) => [number, number]; __tiles?: unknown };
+  camera.updateMatrixWorld();
+  w.__project = (x, y, z) => { const p = new Vector3(x, y, z).project(camera); return [(p.x * 0.5 + 0.5) * W, (1 - (p.y * 0.5 + 0.5)) * H]; };
+  w.__tiles = kit.board.tiles.map((t) => ({ x: t.x, y: t.y, terrain: t.terrain, y0: t.walk }));
+}
 
 const composer = flag('bloom') ? new EffectComposer(renderer) : null;
 if (composer) {

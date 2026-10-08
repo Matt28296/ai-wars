@@ -7,12 +7,12 @@
 import { describe, expect, it } from 'vitest';
 import { UNIT_TYPES } from '../../data';
 import { MAX_UNITS_PER_PLAYER, applyAction, attackRangeTiles, createGame, forecast } from '../aw';
-import type { PlayerSetup } from '../aw';
+import type { CreateGameOptions, PlayerSetup } from '../aw';
 import { agentActions, observe, observedState } from '../aw/observe';
 import { fixtureGame, fixtureMap } from '../aw/testing';
 import type { FixtureUnit } from '../aw/testing';
 import type { Action, Coord, GameState, UnitTypeId } from '../aw/types';
-import { AHEAD_MIN_VALUE, AHEAD_RATIO, CAP_MARGIN, PRESSURE_BUILD_LIMIT, buildCtx, pressureOf } from './eval';
+import { AHEAD_MIN_VALUE, AHEAD_RATIO, CAP_MARGIN, FIELD_LEAD_RATIO, FIELD_SHARE, PRESSURE_BUILD_LIMIT, buildCtx, pressureOf } from './eval';
 import { DEFAULT_ORDERS, decide, validateOrders } from './index';
 import type { StandingOrders } from './index';
 
@@ -132,6 +132,82 @@ describe('pressureOf: ahead means a clear margin over the strongest single enemy
   it('the cap does not care about fog: a full army presses in the dark too', () => {
     const dark = fixtureGame(grid(20, 14), [...block('trooper', 0, MAX_UNITS_PER_PLAYER - CAP_MARGIN, 0, 0, 20), unit('trooper', 1, 19, 13)], { fog: true });
     expect(pressureFor(dark)).toMatchObject({ on: true, reason: 'cap' });
+  });
+});
+
+describe('pressureOf: with two or more enemy players, a smaller lead over the strongest is enough if it is also a big share of all of them (M3.3)', () => {
+  // Every army is troopers (1000 each at full HP), so values are counts. `enemies` lists the enemy players' army sizes, seats 1, 2, ...
+  const E = 10;
+  const mineAtEdge = Math.ceil(FIELD_LEAD_RATIO * E);
+  const field = (mine: number, enemies: number[], extra: Partial<CreateGameOptions> = {}): GameState => createGame({
+    map: fixtureMap(grid(24, 16), [...block('trooper', 0, mine, 0, 0, 8), ...enemies.flatMap((n, i) => block('trooper', i + 1, n, 0, 3 + 3 * i, 8))]),
+    players: [mine, ...enemies].map((_, i): PlayerSetup => ({ faction: 'helion', commander: 'none', controller: 'ai', team: i })),
+    seed: 1, ...extra,
+  });
+
+  it('the constants say what the tests assume: a lead smaller than AHEAD_RATIO, and a share that is a real fraction', () => {
+    expect(FIELD_LEAD_RATIO).toBeGreaterThan(1);
+    expect(FIELD_LEAD_RATIO).toBeLessThan(AHEAD_RATIO);
+    expect(FIELD_SHARE).toBeGreaterThan(0);
+    expect(FIELD_SHARE).toBeLessThan(1);
+    expect(mineAtEdge / E, 'the premise: the lead is under the two-player margin, so only the new rule can switch pressure on').toBeLessThan(AHEAD_RATIO);
+    expect(value('trooper', mineAtEdge)).toBeGreaterThanOrEqual(AHEAD_MIN_VALUE);
+  });
+
+  it('exactly at the margin over the strongest of two enemies it is on, and one trooper short of it it is off', () => {
+    const on = pressureFor(field(mineAtEdge, [E, 6]));
+    expect(on).toMatchObject({ on: true, reason: 'ahead' });
+    expect(on.ratio, 'the ratio reported is still mine over the strongest single enemy').toBeCloseTo(mineAtEdge / E, 10);
+    expect(pressureFor(field(mineAtEdge - 1, [E, 6])), 'one short').toMatchObject({ on: false, reason: null });
+    expect(pressureFor(field(mineAtEdge, [E + 1, 6])), 'or the strongest enemy one trooper bigger').toMatchObject({ on: false });
+  });
+
+  it('what is compared is the strongest single enemy: a second enemy as big as the first changes the share, not the lead', () => {
+    expect(pressureFor(field(mineAtEdge, [E, E]))).toMatchObject({ on: FIELD_SHARE * 2 * E <= mineAtEdge });
+  });
+
+  it('known-bad twin: the same two armies with one enemy only are not ahead (the two-player rule is unchanged)', () => {
+    const two = pressureFor(field(mineAtEdge, [E]));
+    expect(two.ratio).toBeCloseTo(mineAtEdge / E, 10);
+    expect(two).toMatchObject({ on: false, reason: null });
+  });
+
+  it('known-bad twin: with enough enemies the lead over the strongest is not a share of the field, and it is off', () => {
+    const enemies = [E, E, E, E]; // five players
+    expect(FIELD_SHARE * enemies.reduce((a, b) => a + b, 0), 'the premise: mine is under the required share of the four armies').toBeGreaterThan(mineAtEdge);
+    expect(pressureFor(field(mineAtEdge, enemies))).toMatchObject({ on: false, reason: null });
+    // and the same lead against fewer enemies is the share it needs
+    expect(pressureFor(field(mineAtEdge, [E, 1]))).toMatchObject({ on: true });
+  });
+
+  it('a lead over next to nothing is still not a lead: under AHEAD_MIN_VALUE it is off', () => {
+    const tiny = pressureFor(field(3, [2, 1]));
+    expect(tiny.ratio).toBeGreaterThanOrEqual(FIELD_LEAD_RATIO);
+    expect(value('trooper', 3)).toBeLessThan(AHEAD_MIN_VALUE);
+    expect(tiny.on).toBe(false);
+  });
+
+  it('under fog nobody is ahead, whatever the field: the same board with the fog down is on', () => {
+    expect(pressureFor(field(mineAtEdge, [E, 6], { fog: true })), 'fog up').toMatchObject({ on: false });
+    expect(pressureFor(field(mineAtEdge, [E, 6]))).toMatchObject({ on: true });
+  });
+
+  it('the two-player margin still switches it on whatever the share: AHEAD_RATIO over the strongest of four is ahead', () => {
+    const big = Math.ceil(AHEAD_RATIO * E);
+    expect(pressureFor(field(big, [E, E, E, E]))).toMatchObject({ on: true, reason: 'ahead' });
+  });
+
+  it("an enemy player's army is its own: two enemies on one team are not one army (each is compared on its own), as in the two-player rule", () => {
+    const team = createGame({
+      map: fixtureMap(grid(24, 16), [...block('trooper', 0, mineAtEdge, 0, 0, 8), ...block('trooper', 1, E, 0, 3, 8), ...block('trooper', 2, E, 0, 6, 8)]),
+      players: [
+        { faction: 'helion', commander: 'none', controller: 'ai', team: 0 },
+        { faction: 'helion', commander: 'none', controller: 'ai', team: 1 },
+        { faction: 'helion', commander: 'none', controller: 'ai', team: 1 },
+      ],
+      seed: 1,
+    });
+    expect(pressureFor(team)).toMatchObject({ on: FIELD_SHARE * 2 * E <= mineAtEdge });
   });
 });
 

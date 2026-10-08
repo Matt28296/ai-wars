@@ -147,3 +147,55 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
   - in 3- and 4-player games no single side gets 1.6× the strongest enemy, the 48-unit cap never fires (units peak at 40), and `noFirstIncome` over-penalises seat 0 there (it won 0 of 23 decided games): the rule should apply to 2-player games only, or scale by seat;
   - canopy and saltglass keep a seat bias under all three rules.
 - **Reversible:** yes; the rule is one option with a default, and pressure is one function in `eval.ts`.
+
+### D-020: the first-mover rule depends on the seat count, Doctrine counts a lead over the whole field, and two maps change (2026-10-08, DECIDED)
+- **Measured problem (D-019's open items):**
+  - In 3- and 4-player games, `noFirstIncome` over-penalised seat 0.
+  - No single side ever reached 1.6× the strongest enemy, so Doctrine never pressed.
+  - Saltglass's only land route was a ~40-tile march.
+  - Canopy kept a seat bias under every rule.
+- **Decided:**
+  1. **The default rule depends on the player count** (`defaultFirstMoverRule(n)`):
+     - two players keep `noFirstIncome`;
+     - three or more get the new `'gradedFirstIncome'`, where player 0 collects (n − 2)/(n − 1) of its first income, rounded to 100: half with three players, two thirds with four.
+     - An explicit option still wins, and campaign missions keep passing `'none'`.
+     - Evidence is weak and stated as such. Arcology seat-0 share of decided games over three seed sets, where 25% is fair: `none` 35% (9/26), graded 27% (9/33), `noFirstIncome` 19% (6/31).
+     - It is seat 0 only. Scaling every seat k by k/(n − 1) would need later seats' start of turn in `turn.ts` and a state field.
+  2. **A recorded match carries its rule.**
+     - `resolvedSetup(setup)` writes the rule a game is played under into its setup, and `recordMatch` keeps that form, so a record replays the same after the default moves (as it just did for 3+ players).
+     - This keeps D-019's promise. Tests: `balance-rules.test.ts` and `timeline.test.ts`; a no-op `resolvedSetup` fails both.
+  3. **Pressure over the field:**
+     - With two or more enemy players in view, Doctrine also counts as "ahead" when its army is worth at least 1.4× the strongest enemy's AND at least half of all the enemies' together (`FIELD_LEAD_RATIO`, `FIELD_SHARE`).
+     - Two-player games are unchanged.
+     - No measured gain (glass-waste undecided 15 → 13 of 50; arcology 13 → 13 of 20). It stays on because it is principled and costs nothing, and one constant turns it off.
+  4. **Maps:**
+     - **saltglass-bay** gets a two-wide causeway on its south edge (23 steps between the spires instead of 33), and two islet arcologies in the north bay so the bay still has four Barge-only properties. Start funds go 2000 → 1000.
+     - **canopy-highlands** start funds go 2000 → 4000. At 2000, seat 0 won 85% and 75% of decided games on two seed sets; at 4000, 57% and 51%. The response to funds is not monotone, and 2000 was the outlier.
+     - Each change's measurements are in the comments in `maps.ts`.
+- **Result** (`pnpm balance --games 20`, seeds 1000–1019, default rule per seat count, cap 40, hash `2d06826137613104`; reproduced exactly by the lead from the builder's tree):
+
+  | map | wins by seat | side-0 share | undecided | target |
+  |---|---|---|---|---|
+  | calder-fields | 10 / 9 | 53% | 1 (5%) | met |
+  | tether-ridges | 8 / 10 | 44% | 2 (10%) | met |
+  | canopy-highlands | 5 / 14 | 26% | 1 (5%) | undecided met; share missed (−9) |
+  | saltglass-bay | 5 / 12 | 29% | 3 (15%) | undecided met; share missed (−6) |
+  | glass-waste (3p) | 0 / 3 / 8 | n/a | 9 (45%) | missed |
+  | arcology-coast (4p) | 2 / 1 / 1 / 0 | n/a | 16 (80%) | missed |
+
+  Held-out seeds 8000–8029 (30 games, same hash), side-0 share and undecided:
+  - calder 47% / 0%;
+  - tether 59% / 10%;
+  - canopy 59% / 3%;
+  - saltglass 54% / 20%.
+
+  On the merged head (the lead's `resolvedSetup` commit and main through G12, hash `83494c9c4e38b47a`), calder and canopy re-run to the same rows: no game changed.
+
+  All four 2-player maps are in the band on held-out seeds. Pooled over 50 games, saltglass is at 44% (18 of 41 decided) and canopy at 46% (22 of 48). The standard error of a 20-game share is about 11 points, so the two misses on seeds 1000–1019 are probably noise, not proven bias.
+- **Open:**
+  - **glass-waste:** the axis player (seat 0) won 0 games in about 25 runs of 20–30 games.
+    - Seat-permuted runs show the cause is the position, not the seat or the rule.
+    - Players 1 and 2 attack it two to three times as often as each other.
+    - Five map fixes failed. Unconfirmed lead: removing the x=12 road gave it 1 win in 14.
+  - **arcology-coast:** 80% undecided. Its decided games end at a mean of about 38 of 40 cycles, after three eliminations in a row, and start funds of 0–8000 changed nothing. Meeting its 25% target needs a smaller map or a longer cap.
+- **Reversible:** yes. The rule is one option with a per-count default, pressure is two constants, and each map change is in one table.

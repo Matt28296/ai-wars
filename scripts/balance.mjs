@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // Balance runs: Doctrine vs Doctrine with DEFAULT_ORDERS on the six skirmish maps, N mirrored games per map (default 20), sides swapped
 // between games, no turn limit so a stalemate shows up as "undecided at the cap". Heavy: it is NOT part of `pnpm test`; run it with
-// `pnpm balance` (options: --games N, --cap CYCLES, --maps a,b, --commanders none, --first-mover RULE, --verbose).
+// `pnpm balance` (options: --games N, --cap CYCLES, --maps a,b, --commanders none, --first-mover RULE, --seed N, --verbose).
 //
-// --first-mover none|noFirstIncome|secondBonus plays every game under that createGame `firstMoverRule` (M3.2); without it the games get
-// createGame's own default, which is the rule the shipped game uses. The rule in force is printed in the first line of the report.
+// --first-mover RULE (any name in FIRST_MOVER_RULES) plays every game under that createGame `firstMoverRule` (M3.2); without it each game
+// gets createGame's own default for its player count (M3.3: defaultFirstMoverRule), which is the rule the shipped game uses. The rule in
+// force is printed in the first line of the report.
+// --seed N is the base of the games' luck (game g is seeded N + g; default 1000). Tune on one base and report on another: a rule picked
+// on the same twenty seeds it is then reported on has been fitted to them.
 // "side-0 share" is side 0's wins among the DECIDED games (wins / (games - undecided)); 50% is a fair seat. Undecided games are shown
 // apart, as a share of all games.
 //
@@ -27,7 +30,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // ---------------------------------------------------------------- arguments
 
 function parseArgs(argv) {
-  const out = { games: 20, cap: 40, maps: null, commanders: 'rotate', firstMover: null, verbose: false };
+  const out = { games: 20, cap: 40, maps: null, commanders: 'rotate', firstMover: null, seed: 1000, verbose: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => {
@@ -40,6 +43,7 @@ function parseArgs(argv) {
     else if (a === '--maps') out.maps = next().split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--commanders') out.commanders = next();
     else if (a === '--first-mover') out.firstMover = next();
+    else if (a === '--seed') out.seed = Number(next());
     else if (a === '--verbose') out.verbose = true;
     else if (a === '--help' || a === '-h') out.help = true;
     else throw new Error(`unknown option ${a}`);
@@ -47,9 +51,8 @@ function parseArgs(argv) {
   if (!Number.isInteger(out.games) || out.games < 1) throw new Error('--games must be a whole number >= 1');
   if (!Number.isInteger(out.cap) || out.cap < 1) throw new Error('--cap must be a whole number >= 1');
   if (!['rotate', 'none'].includes(out.commanders)) throw new Error('--commanders must be rotate or none');
-  if (out.firstMover !== null && !['none', 'noFirstIncome', 'secondBonus'].includes(out.firstMover)) {
-    throw new Error('--first-mover must be none, noFirstIncome or secondBonus');
-  }
+  if (!Number.isInteger(out.seed)) throw new Error('--seed must be a whole number');
+  // the rule's name is checked against FIRST_MOVER_RULES once the engine is loaded (see main)
   return out;
 }
 
@@ -118,7 +121,7 @@ function median(xs) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log('usage: pnpm balance [-- --games N] [--cap CYCLES] [--maps a,b] [--commanders rotate|none] [--first-mover none|noFirstIncome|secondBonus] [--verbose]');
+    console.log('usage: pnpm balance [-- --games N] [--cap CYCLES] [--maps a,b] [--commanders rotate|none] [--first-mover RULE] [--seed N] [--verbose]');
     return;
   }
   const server = await createServer({
@@ -128,8 +131,10 @@ async function main() {
   });
   try {
     const { playDoctrine, DEFAULT_ORDERS } = await server.ssrLoadModule('/src/game/doctrine/index.ts');
-    const { DEFAULT_FIRST_MOVER_RULE } = await server.ssrLoadModule('/src/game/aw/index.ts');
-    const rule = args.firstMover ?? DEFAULT_FIRST_MOVER_RULE;
+    const { FIRST_MOVER_RULES, defaultFirstMoverRule } = await server.ssrLoadModule('/src/game/aw/index.ts');
+    if (args.firstMover !== null && !FIRST_MOVER_RULES.includes(args.firstMover)) {
+      throw new Error(`--first-mover must be one of ${FIRST_MOVER_RULES.join(', ')}`);
+    }
     const { MAPS } = await server.ssrLoadModule('/src/content/maps.ts');
     const { COMMANDERS } = await server.ssrLoadModule('/src/content/commanders.ts');
     const roster = rosterOf(COMMANDERS);
@@ -149,7 +154,7 @@ async function main() {
       for (let g = 0; g < args.games; g++) {
         const setup = {
           map, players: playersFor(map, g, roster, args.commanders), fog: !!rec.fog, weather: rec.weather ?? 'clear',
-          startFunds: rec.startFunds ?? 0, seed: 1000 + g,
+          startFunds: rec.startFunds ?? 0, seed: args.seed + g,
           ...(args.firstMover ? { firstMoverRule: args.firstMover } : {}),
         };
         const r = playDoctrine(setup, DEFAULT_ORDERS, { maxCycles: args.cap });
@@ -158,19 +163,19 @@ async function main() {
         else wins[r.winnerTeam]++; // team = seat here
         if (args.verbose) console.log(`  ${id} game ${g}: ${r.winnerTeam === null ? 'undecided' : `seat ${r.winnerTeam} won`} in ${r.cycles} cycles, ${r.actions.length} actions`);
       }
-      rows.push({ id, games: args.games, wins, undecided, mean: cycles.reduce((a, b) => a + b, 0) / cycles.length, median: median(cycles), secs: (Date.now() - t0) / 1000 });
+      rows.push({ id, rule: args.firstMover ?? defaultFirstMoverRule(map.players), games: args.games, wins, undecided, mean: cycles.reduce((a, b) => a + b, 0) / cycles.length, median: median(cycles), secs: (Date.now() - t0) / 1000 });
     }
 
     const w = (s, n) => String(s).padEnd(n);
     const r = (s, n) => String(s).padStart(n);
-    console.log(`Doctrine vs Doctrine, DEFAULT_ORDERS (posture ${DEFAULT_ORDERS.posture}), cap ${args.cap} cycles, commanders ${args.commanders}, first-mover rule ${rule}${args.firstMover ? '' : ' (createGame default)'}, ${args.games} games per map`);
-    console.log(`${w('map', 18)}${r('games', 6)}${r('side-0 wins', 13)}${r('side-1 wins', 13)}${r('side-2 wins', 13)}${r('side-3 wins', 13)}${r('side-0 share', 14)}${r('undecided', 11)}${r('undecided %', 13)}${r('mean cycles', 13)}${r('secs', 7)}`);
+    console.log(`Doctrine vs Doctrine, DEFAULT_ORDERS (posture ${DEFAULT_ORDERS.posture}), cap ${args.cap} cycles, commanders ${args.commanders}, first-mover rule ${args.firstMover ?? `createGame default by player count (2p ${defaultFirstMoverRule(2)}, 3p ${defaultFirstMoverRule(3)}, 4p ${defaultFirstMoverRule(4)})`}, ${args.games} games per map, seeds ${args.seed}..${args.seed + args.games - 1}`);
+    console.log(`${w('map', 18)}${r('games', 6)}${r('side-0 wins', 13)}${r('side-1 wins', 13)}${r('side-2 wins', 13)}${r('side-3 wins', 13)}${r('side-0 share', 14)}${r('undecided', 11)}${r('undecided %', 13)}${r('mean cycles', 13)}${r('secs', 7)}  rule`);
     for (const row of rows) {
       const side = (i) => (i < row.wins.length ? row.wins[i] : '-');
       const decided = row.games - row.undecided;
       const share = decided > 0 ? `${((100 * row.wins[0]) / decided).toFixed(0)}%` : 'n/a';
       const und = `${((100 * row.undecided) / row.games).toFixed(0)}%`;
-      console.log(`${w(row.id, 18)}${r(row.games, 6)}${r(side(0), 13)}${r(side(1), 13)}${r(side(2), 13)}${r(side(3), 13)}${r(share, 14)}${r(row.undecided, 11)}${r(und, 13)}${r(row.mean.toFixed(1), 13)}${r(row.secs.toFixed(1), 7)}`);
+      console.log(`${w(row.id, 18)}${r(row.games, 6)}${r(side(0), 13)}${r(side(1), 13)}${r(side(2), 13)}${r(side(3), 13)}${r(share, 14)}${r(row.undecided, 11)}${r(und, 13)}${r(row.mean.toFixed(1), 13)}${r(row.secs.toFixed(1), 7)}  ${row.rule}`);
     }
     console.log(`source hash ${hash} (FNV-1a 64 over ${files} files in src/game and src/content), total ${((Date.now() - started) / 1000).toFixed(1)} s`);
   } finally {

@@ -9,6 +9,16 @@
 //   ?viewer=all|0|1      whose frame (default all)
 //   ?zoom=<n>            press the zoom button n times
 //   ?lone=table|storm    measure ONE piece alone through the real renderer: window.__lone = { drawCalls, triangles } (no stage)
+//   ?plan=1              play the shown step's animation plan (its glides, shots, kills and powers) from the moment the page is ready; the
+//                        clock is the page's own, so a test page can fake it and shoot any moment (dev shots use a manual clock)
+//   ?level=overclock     with plan=1: make a power's cut-in an Overclock (the demo match only has Surges)
+//   ?speed=1|2|4         with plan=1: the plan's speed (default 1)
+//   ?quality=high|medium|low   force a quality tier (ambient occlusion on high only; low also caps the pixel ratio at 1); without it the
+//                        tier is chosen from the machine (a software renderer such as SwiftShader starts at low) and may drop
+//   ?ao=0                with a tier that has ambient occlusion: switch only that pass off (the rest of the tier stays), to see what it adds
+//   ?aoRadius=<n> ?aoScale=<n> ?aoIntensity=<n> ?aoThickness=<n>   retune the occlusion live (AO_LOOK in ao.ts is the shipped look)
+//   ?probe=1             exposes window.__calls(): the draw calls and triangles of one frame, through the whole post chain and the scene alone,
+//                        with the tier and the passes the composer ran
 // window.__ready is true once the first frames are up; window.__stage is the runtime (debug()).
 import { PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
 import { MAPS } from '../../../content/maps';
@@ -19,12 +29,18 @@ import { simulate } from '../../../game/aw/sim';
 import { demoSetup } from '../../watch/demo';
 import { recordMatch, viewTimeline } from '../../watch/timeline';
 import type { Viewer } from '../../watch/timeline';
+import { planTransition } from '../../watch/transition';
+import type { Speed } from '../../watch/timing';
+import { AO_LOOK } from './ao';
+import type { StageAoPass } from './ao';
 import { StageRuntime } from './runtime';
 import { createStormStatic } from './storm';
 import { createTable } from './table';
 
+interface FrameCost { chain: { calls: number; triangles: number }; scene: { calls: number; triangles: number }; tier: string; passes: string[] }
+
 declare global {
-  interface Window { __ready?: boolean; __stage?: StageRuntime; __lone?: { drawCalls: number; triangles: number; what: string } }
+  interface Window { __ready?: boolean; __stage?: StageRuntime; __lone?: { drawCalls: number; triangles: number; what: string }; __calls?: () => FrameCost }
 }
 
 const q = new URLSearchParams(location.search);
@@ -36,6 +52,9 @@ const reduced = q.get('reduced') === '1';
 const viewerParam = q.get('viewer') ?? 'all';
 const zoom = Number(q.get('zoom') ?? 0);
 const lone = q.get('lone');
+const playPlan = q.get('plan') === '1';
+const planLevel = q.get('level');
+const planSpeed = Number(q.get('speed') ?? 1) as Speed;
 
 const map: MapDef = MAPS[mapId] ?? MISSION_MAPS[mapId];
 if (!map) throw new Error(`gallery-stage: no map ${mapId}`);
@@ -81,6 +100,40 @@ if (lone) {
   const rt = new StageRuntime(host, { onDone: () => undefined, onOverlay: () => undefined, onFail: (r) => { console.error('stage failed:', r); } });
   window.__stage = rt;
   for (let i = 0; i < zoom; i++) rt.zoomStep(1);
-  rt.setView({ timeline, step: Math.min(stepParam, timeline.last), plan: null, reducedMotion: reduced });
+  const at = Math.min(stepParam, timeline.last);
+  let plan = null;
+  if (playPlan && at > 0) {
+    const cur = timeline.steps[at];
+    plan = planTransition(timeline.steps[at - 1].frame, cur.frame, cur.events, { speed: planSpeed, reducedMotion: reduced });
+    if (plan.cutIn && (planLevel === 'surge' || planLevel === 'overclock')) plan.cutIn.level = planLevel;
+  }
+  rt.setView({ timeline, step: at, plan, reducedMotion: reduced });
+  const aoPass = (rt as unknown as { ao: StageAoPass | null }).ao;
+  if (aoPass) {
+    if (q.get('ao') === '0') aoPass.enabled = false;
+    const num = (k: string, d: number): number => (q.has(k) ? Number(q.get(k)) : d);
+    aoPass.configure({
+      ...AO_LOOK,
+      radius: num('aoRadius', AO_LOOK.radius), scale: num('aoScale', AO_LOOK.scale),
+      intensity: num('aoIntensity', AO_LOOK.intensity), thickness: num('aoThickness', AO_LOOK.thickness),
+    });
+  }
+  if (q.get('probe') === '1') {
+    // The frame's draw calls, measured through the real renderer: autoReset is off so the passes of one composer frame add up.
+    window.__calls = () => {
+      const r = rt as unknown as { renderer: WebGLRenderer; composer: { render(dt: number): void }; scene: Scene; camera: PerspectiveCamera };
+      r.renderer.info.autoReset = false;
+      r.renderer.info.reset();
+      r.composer.render(0.016);
+      const chain = { calls: r.renderer.info.render.calls, triangles: r.renderer.info.render.triangles };
+      r.renderer.info.reset();
+      r.renderer.setRenderTarget(null);
+      r.renderer.render(r.scene, r.camera);
+      const scene = { calls: r.renderer.info.render.calls, triangles: r.renderer.info.render.triangles };
+      r.renderer.info.autoReset = true;
+      const q = rt.debug().quality;
+      return { chain, scene, tier: q.tier, passes: q.passes };
+    };
+  }
   window.__ready = true;
 }
