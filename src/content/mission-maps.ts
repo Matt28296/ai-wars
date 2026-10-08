@@ -13,6 +13,12 @@
 // setup and cannot change mid-battle); mission 11 adds slot 3, Admiral Sefa Tamura's Tidewell army, an ally on the agent's team (D-007), and its
 // slot 2 is the Choir. Mission 9 is fought inside a permanent ion storm, mission 11 in fog. Two of the four are fought up a slope (the Tether
 // ridges, the Ashgrave terraces), so the ridge, the maglev gate and the walker are the geometry the story teaches.
+//
+// M4.3 adds the three Act IV maps (docs/STORY.md "Act IV -- The Hollow Choir", missions 12-14), all fought on or beside the Glass Waste. Mission 12
+// keeps the usual slots (0 the agent, 1 Rook, 2 the Choir). Mission 13 adds slot 3, Marshal Ilse Varga's army, an ally on the agent's team (D-007:
+// the agent is attached to her army as its adjutant and she leads; she is never the player), and slot 2 is Cantor. Mission 14 has five players:
+// slot 2 is VESPER and the four nations hold four fronts around the Lattice core. Rook is not a player there, because the five-player limit leaves
+// four allied slots for four nations (he holds ECHO's channel on the radio); slots 1, 3 and 4 are Sefa, Juno and Corvin, all on the agent's team.
 import type { MapDef } from './types';
 
 // 12x9. Mission 1, First Light: the border drill. No fabricator, skyport or dock, so nothing can be built; Calder Spire stands at the
@@ -681,7 +687,259 @@ const audit: MapDef = {
   recommended: { fog: true, weather: 'clear', startFunds: 3000 },
 };
 
-/** The eleven campaign mission maps by id, in mission order (Act I: 1-4, Act II: 5-7, Act III: 8-11). A mission's `mapId` is a key of this table. */
+// 24x14. Mission 12, Static: the defence of Calder. The Helion bases (the agent's Calder Spire at (2,5), Rook's second base at (2,9)) stand on the
+// west behind the Calder Line: a ridge wall at x=9-10 with one open gate (rows 6-8) where the maglev road runs through, and four neutral cities
+// and an uplink in and behind the wall. The east is the Glass Waste, and the Choir's seized relay (spire (21,7), two fabricators, a skyport)
+// stands in it at the far side. Thirteen Choir voices start on the glass, out of reach of the line for the first cycle.
+const static_: MapDef = {
+  id: 'm12-static',
+  name: 'Calder Static Line',
+  description: 'A ridge wall with one maglev gate shelters the Calder bases from a glass plain, where the Choir has seized a relay and thirteen drones are rising.',
+  players: 3,
+  terrain: [
+    '..f......^^...gggggggggg', // 0
+    '.....f.C.^^...gggggggggg', // 1
+    '.C.......^^...gg^ggggggg', // 2
+    '.....F...^^...gggggggggg', // 3
+    '...f.....^.C..gggggFgggg', // 4
+    '..H......^....gggggg^gAg', // 5
+    '.f..........U.gggggggggg', // 6
+    '....=============ggggHgg', // 7
+    '.f............gggggggggg', // 8
+    '..H......^.C..gggggg^ggg', // 9
+    '.....F...^....gggggFgggg', // 10
+    '.C...f...^^...gggggggggg', // 11
+    '.......C.^^...ggg^gggggg', // 12
+    '..f......^^...gggggggggg', // 13
+  ],
+  owners: [
+    '........................', // 0
+    '........................', // 1
+    '.0......................', // 2
+    '.....0..................', // 3
+    '...................2....', // 4
+    '..0...................2.', // 5
+    '........................', // 6
+    '.....................2..', // 7
+    '........................', // 8
+    '..1.....................', // 9
+    '.....1.............2....', // 10
+    '.1......................', // 11
+    '........................', // 12
+    '........................', // 13
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 4, y: 4 },
+    { type: 'trooper', owner: 0, x: 4, y: 6 },
+    { type: 'breacher', owner: 0, x: 5, y: 5 },
+    { type: 'arc', owner: 0, x: 3, y: 6 },
+    { type: 'warden', owner: 0, x: 6, y: 5 },
+    { type: 'trooper', owner: 1, x: 4, y: 8 },
+    { type: 'trooper', owner: 1, x: 4, y: 10 },
+    { type: 'lancer', owner: 1, x: 5, y: 9 },
+    { type: 'arc', owner: 1, x: 3, y: 8 },
+    { type: 'warden', owner: 1, x: 6, y: 9 },
+    { type: 'wasp', owner: 2, x: 16, y: 4 },
+    { type: 'wasp', owner: 2, x: 16, y: 10 },
+    { type: 'wasp', owner: 2, x: 17, y: 7 },
+    { type: 'skimmer', owner: 2, x: 15, y: 6 },
+    { type: 'skimmer', owner: 2, x: 15, y: 8 },
+    { type: 'skimmer', owner: 2, x: 17, y: 5 },
+    { type: 'lancer', owner: 2, x: 16, y: 6 },
+    { type: 'lancer', owner: 2, x: 16, y: 8 },
+    { type: 'bastion', owner: 2, x: 18, y: 7 },
+    { type: 'arc', owner: 2, x: 19, y: 6 },
+    { type: 'arc', owner: 2, x: 19, y: 8 },
+    { type: 'trooper', owner: 2, x: 18, y: 5 },
+    { type: 'trooper', owner: 2, x: 18, y: 9 },
+  ],
+  recommended: { fog: false, weather: 'clear', startFunds: 4000 },
+};
+
+// 28x14, FOUR players, fog on. Mission 13, Requiem: the march into the Glass Waste. Three Helion columns start on the west flats, one above the other:
+// the agent's (spire (2,3)), Marshal Varga's artillery in the middle (spire (2,7), slot 3, who leads) and Rook's (spire (2,11)). Beyond x=8 the
+// map is glass, broken by fused ridges, four ruined cities, a dead uplink at (14,6) and the old maglev road along row 7, which runs the whole way
+// to Cantor's relay (spire (26,7), two fabricators, a skyport) at the east end. Fifteen Choir voices wait on the glass in front of it.
+const requiem: MapDef = {
+  id: 'm13-requiem',
+  name: 'Requiem Glass',
+  description: 'Three Helion columns march east across fused glass and a broken maglev road toward a Choir relay at the far edge of the waste.',
+  players: 4,
+  terrain: [
+    '..f.....gggg^^gggggggggggggg', // 0
+    '......f.ggggggg^ggggggggg^gg', // 1
+    '.....F..gggggggggggggggggggg', // 2
+    '..H.....ggCgggggggggg^gggggg', // 3
+    '.C.f....ggggggg^ggggggggFggg', // 4
+    '.......fgggg^ggggCgggggggggg', // 5
+    '.C.f....ggggggUgggg^gggg^ggg', // 6
+    '..H...==================A=Hg', // 7
+    '.....F..ggggggggggg^gggg^ggg', // 8
+    '.......fgggg^ggggCgggggggggg', // 9
+    '.C.f..f.ggggggg^ggggggggFggg', // 10
+    '..H.....ggCgggggggggg^gggggg', // 11
+    '.....F..ggggggg^gggggggg^ggg', // 12
+    '..f...f.gggg^^gggggggggggggg', // 13
+  ],
+  owners: [
+    '............................', // 0
+    '............................', // 1
+    '.....0......................', // 2
+    '..0.........................', // 3
+    '.0......................2...', // 4
+    '............................', // 5
+    '.3..........................', // 6
+    '..3.....................2.2.', // 7
+    '.....3......................', // 8
+    '............................', // 9
+    '.1......................2...', // 10
+    '..1.........................', // 11
+    '.....1......................', // 12
+    '............................', // 13
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 4, y: 3 },
+    { type: 'trooper', owner: 0, x: 4, y: 4 },
+    { type: 'breacher', owner: 0, x: 5, y: 3 },
+    { type: 'arc', owner: 0, x: 3, y: 5 },
+    { type: 'warden', owner: 0, x: 5, y: 4 },
+    { type: 'trooper', owner: 1, x: 4, y: 10 },
+    { type: 'trooper', owner: 1, x: 4, y: 11 },
+    { type: 'lancer', owner: 1, x: 5, y: 10 },
+    { type: 'warden', owner: 1, x: 5, y: 11 },
+    { type: 'arc', owner: 1, x: 3, y: 12 },
+    { type: 'arc', owner: 3, x: 4, y: 6 },
+    { type: 'arc', owner: 3, x: 4, y: 8 },
+    { type: 'arc', owner: 3, x: 3, y: 9 },
+    { type: 'salvo', owner: 3, x: 3, y: 7 },
+    { type: 'trooper', owner: 3, x: 5, y: 7 },
+    { type: 'trooper', owner: 3, x: 5, y: 6 },
+    { type: 'warden', owner: 3, x: 6, y: 8 },
+    { type: 'wasp', owner: 2, x: 18, y: 3 },
+    { type: 'wasp', owner: 2, x: 18, y: 11 },
+    { type: 'wasp', owner: 2, x: 19, y: 7 },
+    { type: 'skimmer', owner: 2, x: 17, y: 6 },
+    { type: 'skimmer', owner: 2, x: 17, y: 8 },
+    { type: 'lancer', owner: 2, x: 20, y: 5 },
+    { type: 'lancer', owner: 2, x: 20, y: 9 },
+    { type: 'lancer', owner: 2, x: 21, y: 7 },
+    { type: 'bastion', owner: 2, x: 22, y: 6 },
+    { type: 'bastion', owner: 2, x: 22, y: 8 },
+    { type: 'colossus', owner: 2, x: 23, y: 5 },
+    { type: 'arc', owner: 2, x: 25, y: 6 },
+    { type: 'arc', owner: 2, x: 25, y: 8 },
+    { type: 'trooper', owner: 2, x: 21, y: 6 },
+    { type: 'trooper', owner: 2, x: 21, y: 8 },
+  ],
+  recommended: { fog: true, weather: 'clear', startFunds: 5000 },
+};
+
+// 25x19, FIVE players, fog on, permanent ion storm. Mission 14, Null Spire: four fronts around the Lattice core. The core's spire (12,9) stands inside a
+// square ridge wall (Chebyshev radius 4 from the centre) with exactly four maglev gates, one on each axis, and a maglev spoke runs from each gate
+// to one nation's front: Helion's plains on the west (the agent, spire (2,9)), the Kestrel heights on the north (Corvin, spire (12,2)), the Verdant
+// canopy belt on the east (Juno, spire (22,9)) and a lagoon on the south where Tidewell's fleet (Sefa, spire (12,16)) holds a causeway. The core
+// holds its own fabricators and skyport inside the wall. Slot 2 is VESPER; slots 1, 3 and 4 are the allied nations on the agent's team.
+const nullSpire: MapDef = {
+  id: 'm14-null-spire',
+  name: 'Null Spire Rings',
+  description: 'Four fronts converge on a black spire inside a ridge wall with four gates: Helion plains, Kestrel heights, a Verdant canopy belt and a Tidewell lagoon.',
+  players: 5,
+  terrain: [
+    'ggggg^^^^^^^^^^^^^^^ggggg', // 0
+    'ggggg^^^.........^^^ggggg', // 1
+    'ggggg^^^.F..H..A.^^^ggggg', // 2
+    '.....C^^....=....^fCfffff', // 3
+    '.....^^^..C.=....^ffffff.', // 4
+    '.f...f.g^^^^=^^^^gff....f', // 5
+    '...f...g^ggg=ggg^gff.F..f', // 6
+    '....F..g^gFg=gAg^gf.....f', // 7
+    '......fg^ggg=ggg^gff....f', // 8
+    '..H=========H=========H.f', // 9
+    '......fg^ggg=ggg^gff....f', // 10
+    '.C..C..g^gCg=gFg^gf....Cf', // 11
+    '.....f.g^ggg=ggg^gff.A..f', // 12
+    '.f.f...g^^^^=^^^^gff....f', // 13
+    '...~~~~~~~~s=s~~~~~~~~...', // 14
+    '..C~~~~~~~~s=s~~~~~~~~C..', // 15
+    '...~~~~~~sD.H.Ds~~~~~~...', // 16
+    '...~~~~~~~~.F.~~~~~~~~...', // 17
+    '...~~~~~~~~~~~~~~~~~~~...', // 18
+  ],
+  owners: [
+    '.........................', // 0
+    '.........................', // 1
+    '.........4..4..4.........', // 2
+    '.........................', // 3
+    '..........4..............', // 4
+    '.........................', // 5
+    '.....................3...', // 6
+    '....0.....2...2..........', // 7
+    '.........................', // 8
+    '..0.........2.........3..', // 9
+    '.........................', // 10
+    '.0..0.....2...2........3.', // 11
+    '.....................3...', // 12
+    '.........................', // 13
+    '.........................', // 14
+    '.........................', // 15
+    '..........1.1.1..........', // 16
+    '............1............', // 17
+    '.........................', // 18
+  ],
+  units: [
+    { type: 'trooper', owner: 0, x: 4, y: 8 },
+    { type: 'trooper', owner: 0, x: 4, y: 10 },
+    { type: 'breacher', owner: 0, x: 5, y: 9 },
+    { type: 'arc', owner: 0, x: 3, y: 8 },
+    { type: 'warden', owner: 0, x: 5, y: 10 },
+    { type: 'lancer', owner: 0, x: 4, y: 12 },
+    { type: 'dreadnought', owner: 1, x: 9, y: 15 },
+    { type: 'dreadnought', owner: 1, x: 15, y: 15 },
+    { type: 'picket', owner: 1, x: 7, y: 15 },
+    { type: 'picket', owner: 1, x: 17, y: 15 },
+    { type: 'barge', owner: 1, x: 9, y: 17 },
+    { type: 'trooper', owner: 1, x: 11, y: 16 },
+    { type: 'breacher', owner: 1, x: 13, y: 16 },
+    { type: 'arc', owner: 1, x: 13, y: 17 },
+    { type: 'colossus', owner: 2, x: 11, y: 8 },
+    { type: 'colossus', owner: 2, x: 13, y: 10 },
+    { type: 'bastion', owner: 2, x: 10, y: 9 },
+    { type: 'bastion', owner: 2, x: 14, y: 9 },
+    { type: 'arc', owner: 2, x: 11, y: 10 },
+    { type: 'arc', owner: 2, x: 13, y: 8 },
+    { type: 'salvo', owner: 2, x: 12, y: 11 },
+    { type: 'lancer', owner: 2, x: 11, y: 7 },
+    { type: 'lancer', owner: 2, x: 13, y: 11 },
+    { type: 'wasp', owner: 2, x: 12, y: 7 },
+    { type: 'wasp', owner: 2, x: 9, y: 10 },
+    { type: 'wasp', owner: 2, x: 15, y: 8 },
+    { type: 'raptor', owner: 2, x: 9, y: 8 },
+    { type: 'anvil', owner: 2, x: 15, y: 10 },
+    { type: 'skimmer', owner: 2, x: 11, y: 11 },
+    { type: 'skimmer', owner: 2, x: 13, y: 7 },
+    { type: 'trooper', owner: 2, x: 10, y: 10 },
+    { type: 'trooper', owner: 2, x: 14, y: 8 },
+    { type: 'wasp', owner: 3, x: 20, y: 5 },
+    { type: 'wasp', owner: 3, x: 20, y: 8 },
+    { type: 'wasp', owner: 3, x: 20, y: 10 },
+    { type: 'wasp', owner: 3, x: 20, y: 13 },
+    { type: 'raptor', owner: 3, x: 22, y: 7 },
+    { type: 'anvil', owner: 3, x: 22, y: 11 },
+    { type: 'skimmer', owner: 3, x: 21, y: 9 },
+    { type: 'trooper', owner: 3, x: 22, y: 8 },
+    { type: 'bastion', owner: 4, x: 10, y: 3 },
+    { type: 'bastion', owner: 4, x: 14, y: 3 },
+    { type: 'colossus', owner: 4, x: 12, y: 3 },
+    { type: 'breacher', owner: 4, x: 9, y: 3 },
+    { type: 'breacher', owner: 4, x: 15, y: 3 },
+    { type: 'arc', owner: 4, x: 11, y: 1 },
+    { type: 'arc', owner: 4, x: 13, y: 1 },
+    { type: 'trooper', owner: 4, x: 11, y: 3 },
+  ],
+  recommended: { fog: true, weather: 'ionstorm', startFunds: 4000 },
+};
+
+/** The fourteen campaign mission maps by id, in mission order (Act I: 1-4, Act II: 5-7, Act III: 8-11, Act IV: 12-14). A mission's `mapId` is a key of this table. */
 export const MISSION_MAPS: Record<string, MapDef> = {
   'm1-first-light': firstLight,
   'm2-calder-spire': calderSpire,
@@ -694,4 +952,7 @@ export const MISSION_MAPS: Record<string, MapDef> = {
   'm9-night-wing': nightWing,
   'm10-duel-at-ashgrave': duelAtAshgrave,
   'm11-audit': audit,
+  'm12-static': static_,
+  'm13-requiem': requiem,
+  'm14-null-spire': nullSpire,
 };
