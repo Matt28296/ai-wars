@@ -16,6 +16,15 @@ describe('the routes of the front door', () => {
     expect(parseRoute('#/campaign/')).toEqual({ kind: 'campaign' });
   });
 
+  it('reads the connect screen and the live view, forgiving one trailing slash (G17)', () => {
+    expect(parseRoute('#/connect')).toEqual({ kind: 'connect' });
+    expect(parseRoute('#/connect/')).toEqual({ kind: 'connect' });
+    expect(parseRoute('#/live')).toEqual({ kind: 'live' });
+    expect(parseRoute('#/live/')).toEqual({ kind: 'live' });
+    expect(hrefs.connect).toBe('#/connect');
+    expect(hrefs.live).toBe('#/live');
+  });
+
   it('reads a briefing and a deploy by mission id', () => {
     expect(parseRoute('#/mission/first-light')).toEqual({ kind: 'briefing', missionId: 'first-light' });
     expect(parseRoute('#/mission/duel-at-ashgrave/')).toEqual({ kind: 'briefing', missionId: 'duel-at-ashgrave' });
@@ -26,7 +35,7 @@ describe('the routes of the front door', () => {
   it('round-trips every route it can write', () => {
     const routes: Route[] = [
       { kind: 'title' }, { kind: 'campaign' }, { kind: 'briefing', missionId: 'static' },
-      { kind: 'deploy', missionId: 'requiem' }, { kind: 'demo' },
+      { kind: 'deploy', missionId: 'requiem' }, { kind: 'demo' }, { kind: 'connect' }, { kind: 'live' },
     ];
     for (const r of routes) expect(parseRoute(formatRoute(r)), formatRoute(r)).toEqual(r);
     expect(hrefs.briefing('static')).toBe('#/mission/static');
@@ -68,6 +77,7 @@ describe('known-bad hashes are never taken for a screen', () => {
     '#/mission', '#/mission/', '#/mission//watch', '#/mission/First-Light', '#/mission/first_light', '#/mission/-first', '#/mission/first-',
     '#/mission/a/b', '#/mission/first-light/watch/extra', '#/mission/first-light/debrief', '#/campaign/extra', '#/Campaign',
     '#/mission/../campaign', '#/mission/%2e%2e', '#/nope', '#/campaign//',
+    '#/connect/extra', '#/live/extra', '#/Live', '#/Connect', '#/connect//', '#/live?x=1', '#/liv', '#connect', '#live',
     // a leading slash means a front-door route: these are not demo links, they are nothing
     '#/step=40', '#/play=1', '#/viewer=all&step=3',
     // keys that only look like the watch view's

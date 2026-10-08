@@ -175,7 +175,8 @@ export class AgentSession {
       map: { width: o.width, height: o.height },
       cycleCap: host.cap,
       yourTurn: o.current === host.seat,
-      live: feed ? { events: feed.liveUrl, record: feed.recordUrl } : null,
+      // `watch` is the one link a person opens (the game's page, served by this same port); `events` and `record` are the feed it reads.
+      live: feed ? { watch: feed.watchUrl, events: feed.liveUrl, record: feed.recordUrl } : null,
     });
   }
 

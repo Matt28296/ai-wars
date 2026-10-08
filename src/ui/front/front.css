@@ -567,3 +567,39 @@ a.awf-choice--primary:focus-visible { --edge: var(--ink); --fill: var(--signal);
   .awf-result-orders { padding: 8px 16px; flex-wrap: wrap; }
   .awf-result-orders-text { white-space: normal; }
 }
+
+/* ================================================================ connect your agent (G17, D-023): three steps, a Copy button on each, no paragraphs */
+.awf-connect { display: grid; justify-items: center; align-content: center; padding: 28px clamp(16px, 4vw, 44px) 72px; background: radial-gradient(90% 60% at 20% 0%, #121b26 0%, var(--void) 70%); }
+.awf-connect-body { width: min(100%, 800px); margin-block: auto; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-6); }
+.awf-connect .awf-h1 { margin: 0; font-size: clamp(34px, 5vw, 52px); }
+.awf-steps { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: var(--space-4); }
+.awf-step { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-3); align-items: start; }
+.awf-step-n { display: grid; place-items: center; width: 28px; height: 28px; margin-top: 1px; border: 1px solid var(--signal); border-radius: var(--radius-full); color: var(--signal); }
+.awf-step-body { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.awf-step-lead { margin: 0; color: var(--ink-muted); }
+.awf-copy { --cut: 8px; --fill: var(--panel); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: 10px 10px 10px 16px; }
+.awf-copy-text { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: 14px; line-height: 20px; color: var(--ink); overflow-wrap: anywhere; user-select: all; }
+.awf-copy[data-block] .awf-copy-text { white-space: pre-wrap; font-size: 13px; line-height: 18px; }
+.awf-copy-btn { flex: none; margin-left: auto; min-width: 84px; justify-content: center; }
+.awf-copy-btn[data-state='copied'] { border-color: var(--signal); color: var(--signal); }
+.awf-copy-btn[data-state='selected'] { border-color: var(--warn); color: var(--warn); }
+.awf-ph { color: var(--warn); border-bottom: 1px dashed var(--warn); }
+.awf-then { margin: 0; color: var(--ink-muted); }
+.awf-other { width: 100%; }
+.awf-other-sum { display: inline-flex; align-items: center; gap: var(--space-2); height: 32px; cursor: pointer; color: var(--ink-muted); text-transform: uppercase; list-style: none; border-radius: var(--radius-xs); }
+.awf-other-sum::-webkit-details-marker { display: none; }
+.awf-other-sum::before { content: ''; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform 120ms ease-out; }
+.awf-other[open] .awf-other-sum::before { transform: rotate(45deg); }
+.awf-other-sum:hover { color: var(--ink); }
+.awf-other-sum:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); color: var(--ink); }
+.awf-other-body { margin-top: var(--space-2); }
+.awf-quiet { color: var(--ink-muted); text-transform: uppercase; text-decoration: none; border-bottom: 1px solid var(--line-strong); padding-bottom: 2px; }
+.awf-quiet:hover { color: var(--ink); border-bottom-color: var(--ink); }
+.awf-quiet:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); color: var(--ink); }
+.awf-connect .awf-back { margin-left: calc(var(--space-1) * -1); }
+@media (max-width: 640px) { .awf-connect { align-content: start; } }
+
+/* ================================================================ the live view of the connected agent's battle (G17) */
+.awf-live-wait { display: grid; place-items: center; padding: 24px 16px; text-align: center; }
+.awf-live-line { margin: 0; color: var(--ink-muted); }
+.awf-live-back { position: absolute; top: 12px; left: 12px; }

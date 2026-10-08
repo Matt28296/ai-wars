@@ -214,9 +214,11 @@ describe('start_mission and observe', () => {
     expect(r.data).toStrictEqual({
       ok: true, mission: 'first-light', title: 'First Light', seat: 0, team: 0,
       map: { width: map.terrain[0].length, height: map.terrain.length }, cycleCap: 30, yourTurn: true,
-      live: { events: feed.liveUrl, record: feed.recordUrl },
+      live: { watch: feed.watchUrl, events: feed.liveUrl, record: feed.recordUrl },
     });
     expect(r.data.live.events).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/live$/);
+    // G17: the one link a person opens is the game's own page on the feed's port, at the live route
+    expect(r.data.live.watch).toBe(`http://127.0.0.1:${feed.port}/#/live`);
 
     const o = (await call(client, 'observe')).data;
     expect(o).toMatchObject({ ok: true, seat: 0, team: 0, mission: 'first-light', cycle: 1, cycleCap: 30, turn: 0, yourTurn: true, weather: 'clear', fogActive: false, result: null });
@@ -729,7 +731,7 @@ describe('the live feed through the session', () => {
     feeds.push(feed);
     const { client } = await session({ feed, makeHost: (m) => (host = new AgentMatch(m, { maxCycles: 2 })) });
     const started = await call(client, 'start_mission', { mission: 'first-light' });
-    expect(started.data.live).toStrictEqual({ events: feed.liveUrl, record: feed.recordUrl });
+    expect(started.data.live).toStrictEqual({ watch: feed.watchUrl, events: feed.liveUrl, record: feed.recordUrl });
     for (let i = 0; i < 3; i++) {
       await call(client, 'act', { action_id: idsOf(await call(client, 'legal_actions'))[0] });
       expect((await httpRequest(feed.recordUrl)).status, 'mid-game').toBe(409);

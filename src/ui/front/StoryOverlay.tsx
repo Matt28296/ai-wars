@@ -25,6 +25,11 @@ export interface ResultCardViewProps {
   next?: Mission;
   /** G14: the orders the battle was played under, as the card's one line. Absent, the card has no such line. */
   orders?: OrdersSummary;
+  /**
+   * G17 (D-023, no paragraphs on a game screen): the card without its paragraph of scoring rules. The rule is one hover away, on the rank. Absent
+   * (every screen that existed before), the card is drawn as it always was.
+   */
+  terse?: boolean;
   onWatchAgain: () => void;
 }
 
@@ -36,7 +41,7 @@ function ScoreBar({ value }: { value: number }): ReactElement {
 }
 
 /** The result card: cycles against par, units lost and destroyed, Speed and Power, the rank and the rule that gave it. Pure markup. */
-export function ResultCardView({ mission, card, next, orders, onWatchAgain }: ResultCardViewProps): ReactElement {
+export function ResultCardView({ mission, card, next, orders, terse, onWatchAgain }: ResultCardViewProps): ReactElement {
   const won = card.outcome === 'victory';
   // The watch view reads Space as play/pause from the window. On this card Space belongs to the button that has focus.
   const keepSpace = (e: { key: string; stopPropagation: () => void }): void => {
@@ -54,7 +59,7 @@ export function ResultCardView({ mission, card, next, orders, onWatchAgain }: Re
       onKeyDown={keepSpace}
       onKeyUp={keepSpace}
     >
-      <div className="awf-result-rank" data-rank={card.rank ?? 'none'}>
+      <div className="awf-result-rank" data-rank={card.rank ?? 'none'} title={terse ? `${RANK_RULE} ${SPEED_RULE} ${POWER_RULE}` : undefined}>
         <span className="awf-result-rank-label label">Rank</span>
         <span className="awf-rank-letter" aria-label={card.rank ? `Rank ${card.rank}` : 'Not ranked'}>{card.rank ?? '–'}</span>
         <span className="awf-result-rank-note caption">{card.rank ? `Speed ${card.speed} + Power ${card.power}` : unrankedNote(card.outcome)}</span>
@@ -85,7 +90,7 @@ export function ResultCardView({ mission, card, next, orders, onWatchAgain }: Re
           <span className="awf-result-orders-text" data-orders-line="yes">{orders.line}</span>
         </p>
       )}
-      <p className="awf-result-rule caption">{RANK_RULE} {SPEED_RULE} {POWER_RULE} Your side is your agent and its allies.</p>
+      {!terse && <p className="awf-result-rule caption">{RANK_RULE} {SPEED_RULE} {POWER_RULE} Your side is your agent and its allies.</p>}
       <div className="awf-result-actions">
         <button type="button" className={`aw-btn label ${won && next ? 'aw-btn--secondary' : 'aw-btn--primary'}`} onClick={onWatchAgain} data-action="again">
           <span className="aw-btn-label">Watch again</span>
@@ -110,7 +115,7 @@ export interface DebriefScreenProps extends ResultCardViewProps {
 }
 
 /** The final step: the verdict over the dimmed board, then the debrief lines, then the result card. */
-export function DebriefScreen({ mission, card, next, orders, onWatchAgain, read, onRead }: DebriefScreenProps): ReactElement {
+export function DebriefScreen({ mission, card, next, orders, terse, onWatchAgain, read, onRead }: DebriefScreenProps): ReactElement {
   const cardRef = useRef<HTMLDivElement>(null);
   // The card takes focus when it opens, so a screen reader reads the result and Tab reaches the buttons.
   useEffect(() => {
@@ -124,7 +129,7 @@ export function DebriefScreen({ mission, card, next, orders, onWatchAgain, read,
           <h2 className="awf-verdict" data-outcome={card.outcome}>{VERDICTS[card.outcome]}</h2>
         </header>
         {read ? (
-          <div ref={cardRef} className="awf-debrief-card"><ResultCardView mission={mission} card={card} next={next} orders={orders} onWatchAgain={onWatchAgain} /></div>
+          <div ref={cardRef} className="awf-debrief-card"><ResultCardView mission={mission} card={card} next={next} orders={orders} terse={terse} onWatchAgain={onWatchAgain} /></div>
         ) : (
           <div className="awf-debrief-talk"><DialogueRunner key="debrief" lines={debriefLines(mission, card)} onDone={onRead} compact /></div>
         )}
@@ -140,6 +145,8 @@ export interface StoryOverlayProps {
   card: ResultCard;
   next?: Mission;
   orders?: OrdersSummary;
+  /** G17: the result card without its paragraph (see ResultCardViewProps). */
+  terse?: boolean;
   debriefRead: boolean;
   onBeatDone: () => void;
   onDebriefRead: () => void;
@@ -147,7 +154,7 @@ export interface StoryOverlayProps {
 }
 
 /** The watch view's overlay slot: nothing, a beat's dialogue, or the debrief. */
-export function StoryOverlay({ mission, beats, view, card, next, orders, debriefRead, onBeatDone, onDebriefRead, onWatchAgain }: StoryOverlayProps): ReactElement | null {
+export function StoryOverlay({ mission, beats, view, card, next, orders, terse, debriefRead, onBeatDone, onDebriefRead, onWatchAgain }: StoryOverlayProps): ReactElement | null {
   if (view.kind === 'none') return null;
   if (view.kind === 'beat') {
     return (
@@ -156,5 +163,5 @@ export function StoryOverlay({ mission, beats, view, card, next, orders, debrief
       </section>
     );
   }
-  return <DebriefScreen mission={mission} card={card} next={next} orders={orders} onWatchAgain={onWatchAgain} read={debriefRead} onRead={onDebriefRead} />;
+  return <DebriefScreen mission={mission} card={card} next={next} orders={orders} terse={terse} onWatchAgain={onWatchAgain} read={debriefRead} onRead={onDebriefRead} />;
 }

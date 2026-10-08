@@ -26,8 +26,9 @@ afterEach(async () => {
   feed = null;
 });
 
+// These tests are about the feed. The page it also serves (G17) has its own tests (feedSite.test.ts), so here the feed runs alone.
 async function fresh(): Promise<Feed> {
-  feed = await startFeed();
+  feed = await startFeed({ site: null });
   return feed;
 }
 const open = async (url: string): Promise<SseStream> => {
