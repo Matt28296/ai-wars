@@ -40,3 +40,9 @@ Work is split by **owner area**. Areas never share a file, so builders in separa
 | M4.1 | Act II "False Colors", missions 5–7 — **merged PR #17 `3706d99`** | `e6654d4` | M4.0 | done | same file, Act II block |
 | M4.2 | Act III "Thin Air", missions 8–11 | `3706d99` | M4.1 | in progress (builder) | same file, Act III block |
 | M4.3 | Act IV "The Hollow Choir", missions 12–14 | after M4.2 | M4.2 | no | same file, Act IV block |
+| G0 | 3D foundation: three 0.186.1, art direction, board3d contract + placeholders (lead) | `47c8df2` | M5.0 | in CI | `pnpm test src/ui/board3d` |
+| G1 | Terrain kit: tiles, autotiling, water, props, properties, capture rings, fog | G0 | G0 | builder | node tests + gallery screenshots |
+| G2 | Unit miniatures: 16 procedural models, faction paint, idle motion, poses | G0 | G0 | builder | node tests + gallery screenshots |
+| G3 | Effects kit: muzzle, tracer, shell, hit, explosion, pulse, ambush, spawn, numbers | G0 | G0 | builder | node tests + gallery screenshots |
+| G4 | Renderer core: Stage3D (scene, camera rig, lights, shadows, post), plan wiring, fallback | G0 | G0 | builder | demo screenshots at fixed steps |
+| G5 | Commander portraits (11, vector) and HUD polish | G0 | G0 | builder | screenshots |
