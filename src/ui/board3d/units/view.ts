@@ -8,14 +8,17 @@
 //    |           +- model   the miniature, lowered by PIVOT_Y again (its nodes; foot units hold three figure groups)
 //    +- ring       the focus ring on the ground
 //    +- chips      HP chip and status chip, billboards in world axes (they do not turn with the unit)
-import { Euler, Group, Mesh, Object3D, Sprite, Vector3 } from 'three';
+//
+// The miniature is ONE skinned mesh (one per figure for a foot squad): the nodes (body, weapon, rotors, legs) are its bones, so a unit
+// costs one draw call, plus one for the see-through rotor blur on the three types that have it. Its geometry, and the material it is
+// painted with, are shared by every unit of the same look; the paint is in the vertices (skin.ts, shading.ts).
+import { Bone, Euler, Group, Matrix4, Mesh, Object3D, Skeleton, SkinnedMesh, Sphere, Sprite, Vector3 } from 'three';
 import type { FactionId, UnitTypeId } from '../../../game/aw';
 import type { UnitLook, UnitPose, UnitView } from '../contract';
 import type { UnitStatusKind } from '../../watch/unitview';
 import type { ChipKey } from './chips';
-import type { Slot } from './kit';
 import { squadSize } from './recipe';
-import type { MotionClass, NodeDef, Recipe, Track } from './recipe';
+import type { MotionClass, Recipe, Track } from './recipe';
 import {
   acquireChip, acquireMaterials, acquireRecipe, acquireRing, releaseChip, releaseMaterials, releaseRecipe, releaseRing,
 } from './resources';
@@ -57,10 +60,15 @@ export function recoilCurve(t: number): number {
 
 interface Rigged {
   root: Group;
-  nodes: Map<string, Group>;
+  nodes: Map<string, Bone>;
 }
 
 interface Rest { pos: Vector3; rot: Euler; axis: Vector3 }
+
+/** The bones are authored in the model's frame and the mesh sits at the root of that frame, so the bind matrix is the identity. */
+const BIND = new Matrix4();
+/** How far past the rest-pose bounds the animated parts (a bobbing hull, a swinging leg) can reach, for frustum culling. */
+const CULL_MARGIN = 0.25;
 
 export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, phase: number): UnitView {
   const recipe: Recipe = acquireRecipe(type, faction);
@@ -84,33 +92,42 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
   pose.add(idle);
   idle.add(model);
 
-  // ---- build the nodes (one rig, or three for a foot squad)
-  const meshes: { mesh: Mesh; slot: Slot }[] = [];
-  const rest = new Map<Group, Rest>();
+  // ---- build the nodes (one rig, or three for a foot squad): bones, one skinned mesh over them, and the rotor blur where there is one
+  const skins: SkinnedMesh[] = [];
+  const skeletons: Skeleton[] = [];
+  const rest = new Map<Object3D, Rest>();
+  const sphere = recipe.geometry.boundingSphere ?? new Sphere();
   const build = (root: Group): Rigged => {
-    const nodes = new Map<string, Group>();
+    const nodes = new Map<string, Bone>();
+    const bones: Bone[] = [];
     for (const def of recipe.nodes) {
-      const g = new Group();
+      const g = new Bone();
       g.name = def.name;
       g.position.set(def.pos[0], def.pos[1], def.pos[2]);
       g.rotation.set(def.rot[0], def.rot[1], def.rot[2]);
       rest.set(g, { pos: g.position.clone(), rot: g.rotation.clone(), axis: new Vector3(1, 0, 0).applyEuler(g.rotation) });
-      attachMeshes(g, def);
+      if (def.blur) {
+        const blur = new Mesh(def.blur, mats.blur);
+        blur.name = `${def.name}:blur`;
+        blur.userData.slot = 'blur';
+        g.add(blur);
+      }
       (def.parent ? nodes.get(def.parent) ?? root : root).add(g);
       nodes.set(def.name, g);
+      bones.push(g);
     }
+    const skin = new SkinnedMesh(recipe.geometry, mats.normal);
+    skin.name = 'skin';
+    skin.castShadow = true;
+    skin.receiveShadow = true;
+    // the animated parts stay near the rest pose: a fixed sphere keeps culling honest without re-measuring the skin every frame
+    skin.boundingSphere = new Sphere(sphere.center.clone(), sphere.radius + CULL_MARGIN);
+    root.add(skin);
+    const skeleton = new Skeleton(bones, recipe.boneInverses.map((m) => m.clone()));
+    skin.bind(skeleton, BIND);
+    skins.push(skin);
+    skeletons.push(skeleton);
     return { root, nodes };
-  };
-  const attachMeshes = (g: Group, def: NodeDef): void => {
-    for (const [slot, geo] of Object.entries(def.geo) as [Slot, NonNullable<NodeDef['geo'][Slot]>][]) {
-      const mesh = new Mesh(geo, mats.normal[slot]);
-      mesh.name = `${def.name}:${slot}`;
-      mesh.userData.slot = slot;
-      mesh.castShadow = slot === 'paint' || slot === 'dark';
-      mesh.receiveShadow = slot === 'paint' || slot === 'dark';
-      g.add(mesh);
-      meshes.push({ mesh, slot });
-    }
   };
 
   const rigs: Rigged[] = [];
@@ -301,7 +318,7 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
       if (look.spent !== spent) {
         spent = look.spent;
         const set = spent ? mats.spent : mats.normal;
-        for (const { mesh, slot } of meshes) mesh.material = set[slot];
+        for (const skin of skins) skin.material = set;
       }
       const hp = Math.max(1, Math.min(10, Math.round(look.hp)));
       hpKey = setChip(hpSprite, hpKey, hp < 10 ? (`hp:${hp}` as ChipKey) : 'blank');
@@ -327,6 +344,7 @@ export function createUnitViewWithPhase(type: UnitTypeId, faction: FactionId, ph
       if (disposed) return;
       disposed = true;
       object.removeFromParent();
+      for (const skeleton of skeletons) skeleton.dispose();
       releaseChip(hpKey);
       releaseChip(statusKey);
       releaseRing();

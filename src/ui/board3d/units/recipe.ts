@@ -1,7 +1,9 @@
-// What a unit model is made of: a tree of nodes (each a few merged meshes), the weapon parts that recoil, the muzzle point, and
-// the animation tracks. A recipe is pure data built once per (type, faction) and shared by every instance of that look.
+// What a unit model is made of: a tree of animated nodes (bones), ONE merged geometry that skins to them, the weapon parts that recoil,
+// the muzzle point, and the animation tracks. A recipe is pure data built once per (type, faction) and shared by every instance of that look.
+import type { BufferGeometry, Matrix4 } from 'three';
 import type { FactionId, UnitTypeId } from '../../../game/aw';
 import type { SlotGeometry, V3 } from './kit';
+import { bakeSkin } from './skin';
 
 /** How a unit idles (art-direction Units kit): hover bob and tilt, air fan spin and bob, walker weight shift, ship roll, foot shuffle. */
 export type MotionClass = 'foot' | 'hover' | 'tread' | 'walker' | 'air' | 'ship';
@@ -12,7 +14,8 @@ export interface NodeDef {
   parent: string | null;
   pos: V3;
   rot: V3;
-  geo: SlotGeometry;
+  /** The node's see-through rotor blur, in the node's frame: the one part that blends, so it is its own mesh. Absent for most nodes. */
+  blur?: BufferGeometry;
 }
 
 /** One animated channel of a node. 'sin' oscillates around `base`; 'spin' turns at `hz` radians per second. */
@@ -36,7 +39,12 @@ export interface Recipe {
   type: UnitTypeId;
   faction: FactionId;
   motion: MotionClass;
+  /** The animated nodes, in bone order: vertex `skinIndex` is an index into this list. */
   nodes: NodeDef[];
+  /** Every node's opaque parts merged into one geometry at the rest pose, with the paint baked into the vertices (skin.ts). */
+  geometry: BufferGeometry;
+  /** The inverse of each node's rest transform in the model's frame (the skeleton's bind data). */
+  boneInverses: Matrix4[];
   /** Weapon nodes that slide back along their own +X axis on 'fire', by `dist` tile units. */
   recoil: { node: string; dist: number }[];
   /** The barrel tip, in the local frame of `node`. */
@@ -54,16 +62,20 @@ export function squadSize(hp: number): 1 | 2 | 3 {
 
 /** Collects the nodes, recoil parts and tracks of one model, then seals them into a Recipe. */
 export class Rig {
-  readonly nodes: NodeDef[] = [];
+  private readonly parts: { name: string; parent: string | null; pos: V3; rot: V3; geo: SlotGeometry }[] = [];
   readonly recoil: Recipe['recoil'] = [];
   readonly tracks: Track[] = [];
 
   node(name: string, parent: string | null, pos: V3, rot: V3, kit: { build(): SlotGeometry }): this {
-    this.nodes.push({ name, parent, pos, rot, geo: kit.build() });
+    this.parts.push({ name, parent, pos, rot, geo: kit.build() });
     return this;
   }
 
+  /** Merge every node into the one skinned geometry for this faction's paint. The node geometries are consumed. */
   seal(type: UnitTypeId, faction: FactionId, motion: MotionClass, muzzle: Recipe['muzzle'], squad = false): Recipe {
-    return { type, faction, motion, nodes: this.nodes, recoil: this.recoil, muzzle, tracks: this.tracks, squad };
+    const skin = bakeSkin(faction, this.parts);
+    const nodes = this.parts.map((p): NodeDef => ({ name: p.name, parent: p.parent, pos: p.pos, rot: p.rot, blur: skin.blur.get(p.name) }));
+    this.parts.length = 0;
+    return { type, faction, motion, nodes, geometry: skin.geometry, boneInverses: skin.boneInverses, recoil: this.recoil, muzzle, tracks: this.tracks, squad };
   }
 }
