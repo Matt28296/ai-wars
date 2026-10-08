@@ -41,6 +41,13 @@ export interface PartOpts {
   winOffset?: [number, number];
 }
 
+/**
+ * Per-vertex attribute of every merged prop: x is 1 for a part that sinks when a unit stands on its property (the tall parts: towers,
+ * stacks, cranes, masts, roofs and everything riding on them) and 0 for a part that stays (the pad, its owner band, the bay, the
+ * banner, the landing disc); y is the height the sinking parts shrink toward, the top of the property's pad.
+ */
+export const SINK_ATTR = 'aSink';
+
 /** One window-texture patch covers this many world units (the texture is 4 x 4 windows). */
 export const WINDOW_PATCH = 0.5;
 /** A UV that lands on a plain-wall texel of the window texture. */
@@ -89,6 +96,8 @@ export class PartSet {
   private oz = 0;
   private tile = -1;
   private rot = 0;
+  /** Pad-top height the following parts sink toward when their property is occupied, or null for parts that stay put. */
+  private sinkBase: number | null = null;
 
   /** Start placing parts for a tile: local coordinates are tile-local (0..1 across, y up in world units). */
   begin(tile: number, x: number, y: number): this {
@@ -96,7 +105,25 @@ export class PartSet {
     this.ox = x;
     this.oz = y;
     this.rot = 0;
+    this.sinkBase = null;
     return this;
+  }
+
+  /**
+   * Mark every following part as one that sinks toward `base` (the top of the pad) while a unit stands on the property, or, with null,
+   * as one that stays. A property model turns this on after `begin` and wraps its pad, bay, banner and landing disc in `fixed`.
+   */
+  sinking(base: number | null): this {
+    this.sinkBase = base;
+    return this;
+  }
+
+  /** Run `place` with sinking off (parts that stay), then restore what was set before. */
+  fixed(place: () => void): void {
+    const was = this.sinkBase;
+    this.sinkBase = null;
+    place();
+    this.sinkBase = was;
   }
 
   /** Rotate every following part about the tile centre by `r` quarter-turns clockwise (seen from above). */
@@ -132,6 +159,9 @@ export class PartSet {
     const c = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { c[i * 3] = col.r * mult; c[i * 3 + 1] = col.g * mult; c[i * 3 + 2] = col.b * mult; }
     g.setAttribute('color', new BufferAttribute(c, 3));
+    const sk = new Float32Array(n * 2);
+    if (this.sinkBase !== null) for (let i = 0; i < n; i++) { sk[i * 2] = 1; sk[i * 2 + 1] = this.sinkBase; }
+    g.setAttribute(SINK_ATTR, new BufferAttribute(sk, 2));
     const chunk = this.chunks[bucket];
     if (o.role) {
       const rec: PartRecord = { tile: this.tile, role: o.role, bucket, start: chunk.verts, count: n, mult };

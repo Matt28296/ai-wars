@@ -1,6 +1,9 @@
 // Shared shading for the terrain kit: the uniforms every terrain material reads (fog-of-war map, time, ion-storm amount), the shader
 // patch that applies them, the lit-window textures and the material set.
 //
+// The low form of an occupied property is applied in the vertex shader of every merged prop (and its shadow twin): the vertex's tile is
+// read from a one-texel-per-tile "low" map the kit eases on the CPU, and parts marked as sinking (geo.ts SINK_ATTR) squash toward the pad.
+//
 // One grade, applied to the final lit colour of every terrain material (so lit, emissive and shadowed parts all follow it):
 //   fog of war   unseen tiles read at about 45% brightness and 30% saturation, with a soft 0.3-tile edge: the fog map has one texel
 //                per tile and is filtered bilinearly, then smoothstepped, so the edge is 0.3 tile wide whatever the zoom;
@@ -19,6 +22,8 @@ export interface TerrainUniforms {
   uFogSize: IUniform<Vector2>;
   uTime: IUniform<number>;
   uStorm: IUniform<number>;
+  /** One texel per tile: 0 for a property in full form, 1 for a property in its low form (eased by the kit, nearest-filtered). */
+  uOccMap: IUniform<Texture>;
 }
 
 /** An R8 texture with one texel per tile, linearly filtered and clamped at the board's edge. */
@@ -33,14 +38,44 @@ export function tileMap(width: number, height: number, fill: number, filter: Mag
   return t;
 }
 
-export function createUniforms(fog: Texture, width: number, height: number): TerrainUniforms {
+export function createUniforms(fog: Texture, width: number, height: number, occ: Texture): TerrainUniforms {
   return {
     uFogMap: { value: fog },
     uFogSize: { value: new Vector2(width, height) },
     uTime: { value: 0 },
     uStorm: { value: 0 },
+    uOccMap: { value: occ },
   };
 }
+
+// ---------------------------------------------------------------- the low form of an occupied property
+
+/** The height a property's tall parts shrink to while a unit stands on it, as a fraction of their full height above the pad. */
+export const LOW_FORM = 0.25;
+/** Seconds the change takes (the kit's `update` eases a tile toward its target over this long). */
+export const LOW_EASE_SEC = 0.25;
+
+/**
+ * Where a vertex at height `y` lands: parts that sink (`sinks` = 1) squash toward `pivot` (the top of the pad) by `low`, 0 (full form) to
+ * 1 (low form); parts that stay are untouched. This is the same arithmetic as SINK_GLSL, so tests and documentation can check it.
+ */
+export function lowFormY(y: number, sinks: number, pivot: number, low: number): number {
+  if (sinks < 0.5) return y;
+  return pivot + (y - pivot) * (1 - (1 - LOW_FORM) * low);
+}
+
+const SINK_DECL_GLSL = /* glsl */ `
+attribute vec2 aSink;
+uniform sampler2D uOccMap;
+uniform vec2 uOccSize;
+`;
+
+const SINK_GLSL = /* glsl */ `
+if ( aSink.x > 0.5 ) {
+  float trnLow = texture2D( uOccMap, transformed.xz / uOccSize ).r;
+  transformed.y = aSink.y + ( transformed.y - aSink.y ) * ( 1.0 - ${(1 - LOW_FORM).toFixed(2)} * trnLow );
+}
+`;
 
 export const GRADE_GLSL = /* glsl */ `
 uniform sampler2D uFogMap;
@@ -78,6 +113,8 @@ vTrnXZ = trnP.xz;
 export interface PatchOpts {
   /** Program-cache key: patched variants must not share a program with anything else. */
   key: string;
+  /** The material draws merged props: parts marked as sinking squash to their low form when their property is occupied. */
+  sink?: boolean;
   /** Instanced foliage sways in the vertex shader. */
   sway?: boolean;
   /** The vertex colour is HDR emissive light (rails, beacons, cracks): the material's own diffuse is ignored. */
@@ -103,10 +140,14 @@ export function patchMaterial(mat: Material, u: TerrainUniforms, o: PatchOpts): 
     shader.uniforms.uFogSize = u.uFogSize;
     shader.uniforms.uStorm = u.uStorm;
     shader.uniforms.uTime = u.uTime;
+    if (o.sink) {
+      shader.uniforms.uOccMap = u.uOccMap;
+      shader.uniforms.uOccSize = u.uFogSize;
+    }
     const what = `${mat.type} (${o.key})`;
     let vs = shader.vertexShader;
-    vs = swap(vs, '#include <common>', '#include <common>\nvarying vec2 vTrnXZ;\nuniform float uTime;', what);
-    vs = swap(vs, '#include <begin_vertex>', `#include <begin_vertex>\n${o.sway ? SWAY_GLSL : ''}`, what);
+    vs = swap(vs, '#include <common>', `#include <common>\nvarying vec2 vTrnXZ;\nuniform float uTime;${o.sink ? SINK_DECL_GLSL : ''}`, what);
+    vs = swap(vs, '#include <begin_vertex>', `#include <begin_vertex>\n${o.sway ? SWAY_GLSL : ''}${o.sink ? SINK_GLSL : ''}`, what);
     vs = swap(vs, '#include <project_vertex>', `#include <project_vertex>\n${OBJECT_XZ_GLSL}`, what);
     let fs = shader.fragmentShader;
     fs = swap(fs, '#include <common>', `#include <common>\nvarying vec2 vTrnXZ;\n${GRADE_GLSL}`, what);
@@ -129,6 +170,20 @@ export function swayDepthMaterial(u: TerrainUniforms): MeshDepthMaterial {
     shader.vertexShader = vs;
   };
   m.customProgramCacheKey = () => 'terrain:sway-depth';
+  return m;
+}
+
+/** The shadow-pass twin of a prop material, so the shadow of an occupied property shrinks with the property. */
+export function sinkDepthMaterial(u: TerrainUniforms): MeshDepthMaterial {
+  const m = new MeshDepthMaterial({ depthPacking: RGBADepthPacking });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uOccMap = u.uOccMap;
+    shader.uniforms.uOccSize = u.uFogSize;
+    let vs = swap(shader.vertexShader, '#include <common>', `#include <common>${SINK_DECL_GLSL}`, 'MeshDepthMaterial (sink)');
+    vs = swap(vs, '#include <begin_vertex>', `#include <begin_vertex>\n${SINK_GLSL}`, 'MeshDepthMaterial (sink)');
+    shader.vertexShader = vs;
+  };
+  m.customProgramCacheKey = () => 'terrain:sink-depth';
   return m;
 }
 
@@ -179,6 +234,8 @@ export interface TerrainMaterials {
   decal: MeshLambertMaterial;
   tree: MeshStandardMaterial;
   treeDepth: MeshDepthMaterial;
+  /** Shadow pass of the lit props (solid, glossy, windows), which sink with their property. */
+  sinkDepth: MeshDepthMaterial;
 }
 
 export function createMaterials(u: TerrainUniforms, windowAlbedo: Texture, windowEmissive: Texture, atlas: Texture): TerrainMaterials {
@@ -192,13 +249,13 @@ export function createMaterials(u: TerrainUniforms, windowAlbedo: Texture, windo
   const decal = new MeshLambertMaterial({ vertexColors: true, map: atlas, alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const tree = new MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0 });
   patchMaterial(ground, u, { key: 'ground' });
-  patchMaterial(solid, u, { key: 'solid' });
-  patchMaterial(glossy, u, { key: 'glossy' });
-  patchMaterial(windows, u, { key: 'windows' });
-  patchMaterial(glow, u, { key: 'glow', glow: true });
-  patchMaterial(decal, u, { key: 'decal' });
+  patchMaterial(solid, u, { key: 'solid', sink: true });
+  patchMaterial(glossy, u, { key: 'glossy', sink: true });
+  patchMaterial(windows, u, { key: 'windows', sink: true });
+  patchMaterial(glow, u, { key: 'glow', glow: true, sink: true });
+  patchMaterial(decal, u, { key: 'decal', sink: true });
   patchMaterial(tree, u, { key: 'tree', sway: true });
-  return { ground, solid, glossy, windows, glow, decal, tree, treeDepth: swayDepthMaterial(u) };
+  return { ground, solid, glossy, windows, glow, decal, tree, treeDepth: swayDepthMaterial(u), sinkDepth: sinkDepthMaterial(u) };
 }
 
 // ---------------------------------------------------------------- a JS mirror of the grade (tests and documentation)

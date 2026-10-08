@@ -4,7 +4,8 @@
 //   ?map=<id>        calder-fields (default), saltglass-bay, glass-waste, m14-null-spire, ... or `stress` for a busy 25x19 board
 //   ?fog=1           hide the east half of the board (fog of war)        ?storm=1   ion-storm weather
 //   ?cap=1           show capture rings on a few properties              ?units=0   hide the stand-in miniatures
-//   ?time=<s>        freeze animation at this time (screenshots)         ?bloom=1   add the bloom the stage will use
+//   ?time=<s>        freeze animation at this time (screenshots)         ?bloom=1   add the stage's own bloom (strength 0.6, radius 0.4, threshold 0.9)
+//   ?occupied=x,y;x,y  put a unit on those tiles (properties show their low form)   ?occupied=all  a unit on every property
 //   ?rows=a|b|c      a custom board from map codes, optionally &owners=... in the same shape (digits and dots)
 //   ?w=<px>&h=<px>   canvas size (default: the window)                   ?hud=0     hide the stats overlay
 import {
@@ -114,12 +115,28 @@ if (flag('cap')) {
   kit.setCapture((x, y) => chosen.get(`${x},${y}`) ?? 0);
 }
 
+// Who stands where: the map's own units and any `?occupied=x,y;x,y` (or `all` properties) each get a stand-in miniature (hidden by ?units=0,
+// which hides the miniatures only), and a property under one shows its low form.
+const standIns: { x: number; y: number; owner: number }[] = board.units.map((u) => ({ x: u.x, y: u.y, owner: u.owner }));
+if (q.has('occupied')) {
+  const spec = q.get('occupied')!;
+  const extra: string[] = [];
+  if (spec === 'all') for (const t of kit.board.tiles) { if (t.property) extra.push(`${t.x},${t.y}`); }
+  else for (const part of spec.split(';')) { if (/^\d+,\d+$/.test(part)) extra.push(part); }
+  for (const key of extra) {
+    const [x, y] = key.split(',').map(Number);
+    if (!standIns.some((u) => u.x === x && u.y === y)) standIns.push({ x, y, owner: (x + y) % 2 });
+  }
+}
+const occupied = new Set(standIns.map((u) => `${u.x},${u.y}`));
+kit.setOccupied((x, y) => occupied.has(`${x},${y}`));
+
 // Stand-in miniatures (the real ones come from the units kit), so the gallery shows how props and units share a tile.
-if (flag('units', true)) {
+if (standIns.length && flag('units', true)) {
   const stand = new Group();
   const box = new BoxGeometry(0.6, 0.26, 0.42);
   const tur = new BoxGeometry(0.26, 0.14, 0.22);
-  for (const u of board.units) {
+  for (const u of standIns) {
     const f = FACTION_BY_PLAYER[u.owner] ?? 'helion';
     const mat = new MeshStandardMaterial({ color: FACTION_COLOR[f], roughness: 0.55, emissive: FACTION_ACCENT[f], emissiveIntensity: 0.12 });
     const body = new Mesh(box, mat);
@@ -160,7 +177,8 @@ const composer = flag('bloom') ? new EffectComposer(renderer) : null;
 if (composer) {
   composer.setSize(W, H);
   composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new UnrealBloomPass(new Vector2(W, H), 0.45, 0.5, 0.92));
+  // The stage's own numbers (stage/runtime.ts BLOOM), so a rail's halo in this gallery is the halo a player sees.
+  composer.addPass(new UnrealBloomPass(new Vector2(W, H), 0.6, 0.4, 0.9));
   composer.addPass(new OutputPass());
 }
 

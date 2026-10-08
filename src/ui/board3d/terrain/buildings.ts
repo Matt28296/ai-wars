@@ -4,6 +4,10 @@
 //   accent the beacon (and landing lights) glow in the faction's accent;
 //   ink    two sigil decals: one on a roof, one on the banner.
 // So ownership is colour AND shape AND light, never hue alone.
+//
+// A property under a unit shows its LOW FORM (index.ts `setOccupied`): every part placed while `p.sinking(...)` is on shrinks toward the top
+// of the pad to a quarter of its height, so the unit stands on the pad instead of inside the model. What stays put is the pad and its
+// owner band, the painted bay, the banner (pole, cloth and sigil) and the skyport's landing disc and lights, so ownership still reads.
 import { NEUTRAL_COLOR } from '../palette';
 import type { PartSet } from './geo';
 import { PAD_H, type Dir, type PropertyId, type TileInfo } from './layout';
@@ -20,32 +24,38 @@ const accent = (mult: number) => ({ color: NEUTRAL_ACCENT, role: 'accent' as con
 
 /** The pad every property stands on, with the owner's colour as an edge band. */
 function pad(p: PartSet, h: number): void {
-  p.box(0.5, h / 2, 0.5, 0.92, h, 0.92, { color: C.concrete });
-  const y = h + 0.003;
-  const w = 0.024;
-  p.box(0.5, y, 0.5 - 0.448, 0.92, 0.006, w, paint);
-  p.box(0.5, y, 0.5 + 0.448, 0.92, 0.006, w, paint);
-  p.box(0.5 - 0.448, y, 0.5, w, 0.006, 0.92 - 2 * w, paint);
-  p.box(0.5 + 0.448, y, 0.5, w, 0.006, 0.92 - 2 * w, paint);
+  p.fixed(() => {
+    p.box(0.5, h / 2, 0.5, 0.92, h, 0.92, { color: C.concrete });
+    const y = h + 0.003;
+    const w = 0.024;
+    p.box(0.5, y, 0.5 - 0.448, 0.92, 0.006, w, paint);
+    p.box(0.5, y, 0.5 + 0.448, 0.92, 0.006, w, paint);
+    p.box(0.5 - 0.448, y, 0.5, w, 0.006, 0.92 - 2 * w, paint);
+    p.box(0.5 + 0.448, y, 0.5, w, 0.006, 0.92 - 2 * w, paint);
+  });
 }
 
 /** A faint painted bay in the front half of the pad, where a unit stands (kept clear of every model). */
 function bay(p: PartSet, h: number): void {
   const y = h + 0.0015;
   const c = { color: 0x929ca7 };
-  p.box(0.5, y, 0.58, 0.5, 0.003, 0.012, c);
-  p.box(0.5, y, 0.9, 0.5, 0.003, 0.012, c);
-  p.box(0.25, y, 0.74, 0.012, 0.003, 0.32, c);
-  p.box(0.75, y, 0.74, 0.012, 0.003, 0.32, c);
+  p.fixed(() => {
+    p.box(0.5, y, 0.58, 0.5, 0.003, 0.012, c);
+    p.box(0.5, y, 0.9, 0.5, 0.003, 0.012, c);
+    p.box(0.25, y, 0.74, 0.012, 0.003, 0.32, c);
+    p.box(0.75, y, 0.74, 0.012, 0.003, 0.32, c);
+  });
 }
 
 /** A banner on a pole at the tile's west edge, facing the camera. The sigil on the cloth is the second ownership cue. */
 function banner(p: PartSet, h: number): void {
   p.frame(0);
-  p.cyl(0.075, h + 0.17, 0.46, 0.008, 0.01, 0.34, 6, { color: C.steel });
-  p.sphere(0.075, h + 0.345, 0.46, 0.014, 0.014, 0.014, 6, 4, { color: C.steel });
-  p.box(0.14, h + 0.26, 0.46, 0.115, 0.15, 0.01, paint);
-  p.decal(0.14, h + 0.26, 0.4655, 0.09, 0.09, 'south', { color: 0xffffff });
+  p.fixed(() => {
+    p.cyl(0.075, h + 0.17, 0.46, 0.008, 0.01, 0.34, 6, { color: C.steel });
+    p.sphere(0.075, h + 0.345, 0.46, 0.014, 0.014, 0.014, 6, 4, { color: C.steel });
+    p.box(0.14, h + 0.26, 0.46, 0.115, 0.15, 0.01, paint);
+    p.decal(0.14, h + 0.26, 0.4655, 0.09, 0.09, 'south', { color: 0xffffff });
+  });
 }
 
 const roofDecal = (p: PartSet, x: number, y: number, z: number, size: number): void => p.decal(x, y, z, size, size, 'up', { color: 0xffffff });
@@ -108,19 +118,22 @@ function fabricator(p: PartSet, _t: TileInfo): void {
 function skyport(p: PartSet, _t: TileInfo): void {
   const y0 = PAD_H;
   pad(p, y0);
-  // The landing disc sits at the centre of the front half; the control tower and hangar stay at the back.
-  p.cyl(0.5, y0 + 0.011, 0.58, 0.335, 0.335, 0.022, 28, { color: C.asphalt });
-  for (let i = 0; i < 20; i++) {
-    const a = (i / 20) * Math.PI * 2;
-    p.box(0.5 + Math.cos(a) * 0.285, y0 + 0.024, 0.58 + Math.sin(a) * 0.285, 0.05, 0.004, 0.014, { color: C.white, ry: -a + Math.PI / 2 });
-  }
-  p.box(0.43, y0 + 0.024, 0.58, 0.022, 0.004, 0.17, { color: C.white });
-  p.box(0.57, y0 + 0.024, 0.58, 0.022, 0.004, 0.17, { color: C.white });
-  p.box(0.5, y0 + 0.024, 0.58, 0.14, 0.004, 0.022, { color: C.white });
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-    p.sphere(0.5 + Math.cos(a) * 0.325, y0 + 0.03, 0.58 + Math.sin(a) * 0.325, 0.012, 0.012, 0.012, 6, 4, accent(1.7));
-  }
+  // The landing disc sits at the centre of the front half; the control tower and hangar stay at the back. The disc, its markings and its
+  // lights are part of the pad, so they stay when a unit lands on it.
+  p.fixed(() => {
+    p.cyl(0.5, y0 + 0.011, 0.58, 0.335, 0.335, 0.022, 28, { color: C.asphalt });
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
+      p.box(0.5 + Math.cos(a) * 0.285, y0 + 0.024, 0.58 + Math.sin(a) * 0.285, 0.05, 0.004, 0.014, { color: C.white, ry: -a + Math.PI / 2 });
+    }
+    p.box(0.43, y0 + 0.024, 0.58, 0.022, 0.004, 0.17, { color: C.white });
+    p.box(0.57, y0 + 0.024, 0.58, 0.022, 0.004, 0.17, { color: C.white });
+    p.box(0.5, y0 + 0.024, 0.58, 0.14, 0.004, 0.022, { color: C.white });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      p.sphere(0.5 + Math.cos(a) * 0.325, y0 + 0.03, 0.58 + Math.sin(a) * 0.325, 0.012, 0.012, 0.012, 6, 4, accent(1.7));
+    }
+  });
   // Control tower.
   p.cyl(0.86, y0 + 0.2, 0.19, 0.038, 0.05, 0.4, 8, { color: C.wall });
   p.cyl(0.86, y0 + 0.425, 0.19, 0.083, 0.07, 0.05, 8, { color: C.wallDark });
@@ -142,14 +155,17 @@ function dock(p: PartSet, t: TileInfo): void {
   // Canonical frame: the water is to the north. `frame` turns the pier toward the real water.
   const dirRot: Record<Dir, number> = { N: 0, E: 1, S: 2, W: 3 };
   p.frame(dirRot[t.dockDir ?? 'N']);
-  p.box(0.5, y0 + 0.012, 0.13, 0.9, 0.024, 0.2, { color: C.wood });
-  for (let i = 0; i < 9; i++) p.box(0.1 + i * 0.1, y0 + 0.0255, 0.13, 0.006, 0.003, 0.2, { color: C.woodDark });
-  for (let i = 0; i < 6; i++) {
-    const x = 0.12 + i * 0.152;
-    p.cyl(x, -0.02, 0.045, 0.02, 0.02, 0.12, 6, { color: C.woodDark });
-    p.cyl(x, y0 + 0.04, 0.04, 0.016, 0.016, 0.03, 6, { color: C.metal });
-  }
-  p.box(0.5, y0 + 0.012, 0.025, 0.9, 0.03, 0.03, { color: C.woodDark });
+  // The pier, its planks, piles and bollards are the pad's water edge and stay; the crane and the warehouse sink.
+  p.fixed(() => {
+    p.box(0.5, y0 + 0.012, 0.13, 0.9, 0.024, 0.2, { color: C.wood });
+    for (let i = 0; i < 9; i++) p.box(0.1 + i * 0.1, y0 + 0.0255, 0.13, 0.006, 0.003, 0.2, { color: C.woodDark });
+    for (let i = 0; i < 6; i++) {
+      const x = 0.12 + i * 0.152;
+      p.cyl(x, -0.02, 0.045, 0.02, 0.02, 0.12, 6, { color: C.woodDark });
+      p.cyl(x, y0 + 0.04, 0.04, 0.016, 0.016, 0.03, 6, { color: C.metal });
+    }
+    p.box(0.5, y0 + 0.012, 0.025, 0.9, 0.03, 0.03, { color: C.woodDark });
+  });
   // Crane.
   p.box(0.84, y0 + 0.05, 0.4, 0.13, 0.1, 0.13, { color: C.wallDark });
   p.cyl(0.84, y0 + 0.2, 0.4, 0.018, 0.026, 0.22, 6, { color: C.yellow });
@@ -213,6 +229,7 @@ const BUILD: Record<PropertyId, (p: PartSet, t: TileInfo) => void> = { arcology,
 export function addProperty(p: PartSet, t: TileInfo): void {
   if (!t.property) return;
   p.begin(t.index, t.x, t.y);
+  p.sinking(t.walk); // everything not wrapped in `fixed` sinks toward the pad's top while a unit stands here
   BUILD[t.terrain as PropertyId](p, t);
   if (t.terrain !== 'dock') banner(p, PAD_H);
 }
