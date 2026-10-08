@@ -17,9 +17,17 @@ export const MAX_PLAYERS = 5;
 const OWNER_DIGITS = '01234';
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
+export interface CheckMapOptions {
+  /** Default true: every player must own exactly one command spire and at least one fabricator. A tutorial map with no
+   *  production passes `false`, which skips the `spire` and `fabricator` rules only; every other rule still runs, and the
+   *  reach rules still measure from whatever spires the map has. */
+  requireBases?: boolean;
+}
+
 /** Every broken rule in the map. Rule names: shape, players, code, owner-property, owner-range, spire, fabricator,
  *  unit-type, unit-owner, unit-bounds, unit-terrain, unit-overlap, reach-base, reach-neutral. */
-export function checkMap(map: MapDef): MapIssue[] {
+export function checkMap(map: MapDef, opts?: CheckMapOptions): MapIssue[] {
+  const requireBases = opts?.requireBases ?? true;
   const issues: MapIssue[] = [];
   const add = (rule: string, message: string, at?: { x: number; y: number }) => {
     issues.push(at ? { rule, message, at } : { rule, message });
@@ -78,16 +86,18 @@ export function checkMap(map: MapDef): MapIssue[] {
       if (t !== 'spire' && t !== 'fabricator') continue;
       const owner = ownerAt(x, y);
       if (owner === null || owner >= playerSlots) {
-        if (t === 'spire') add('spire', 'a command spire must belong to a player slot', { x, y });
+        if (t === 'spire' && requireBases) add('spire', 'a command spire must belong to a player slot', { x, y });
         continue;
       }
       if (t === 'spire') { spires.push({ x, y, owner }); spireCount[owner]++; }
       else { fabricators.push({ x, y, owner }); fabCount[owner]++; }
     }
   }
-  for (let p = 0; p < playerSlots; p++) {
-    if (spireCount[p] !== 1) add('spire', `player ${p} owns ${spireCount[p]} command spires, needs exactly 1`);
-    if (fabCount[p] < 1) add('fabricator', `player ${p} owns no fabricator, needs at least 1`);
+  if (requireBases) {
+    for (let p = 0; p < playerSlots; p++) {
+      if (spireCount[p] !== 1) add('spire', `player ${p} owns ${spireCount[p]} command spires, needs exactly 1`);
+      if (fabCount[p] < 1) add('fabricator', `player ${p} owns no fabricator, needs at least 1`);
+    }
   }
 
   // ---- units
