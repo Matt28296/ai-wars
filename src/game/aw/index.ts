@@ -7,7 +7,7 @@ import { attackTargets, resolveAttack } from './combat';
 import { applyCapture, canCaptureHere } from './capture';
 import { IllegalActionError, illegal } from './errors';
 import { canFireAfterMove } from './modifiers';
-import { canJoinInto, canLoadInto, canStandOn, checkPath } from './movement';
+import { canJoinInto, canLoadInto, canStandOn, checkPath, isUnseenEnemy, unseenEnemyIds } from './movement';
 import { activatePower, canActivatePower } from './power';
 import { applyBuild } from './production';
 import { seedRng } from './rng';
@@ -150,14 +150,33 @@ function transportCanDrop(state: GameState, transport: Unit, at: Coord): boolean
   return t === 'shoal' || t === 'dock';
 }
 
-/** Tiles next to `dest` where cargo number `cargoIndex` can be dropped if the transport ends its move at `dest`. */
-export function unloadTargets(state: GameState, transportId: number, dest: Coord, cargoIndex: number): Coord[] {
+/** A tile next to the destination that a drop may be ordered onto: free, or holding an enemy the transport's team cannot see
+ *  (`blockedBy`). The drop onto the second kind is accepted and fails (D-016): the cargo stays aboard, 'dropBlocked'. */
+interface DropSite { to: Coord; blockedBy: Unit | null }
+
+function dropSites(state: GameState, transportId: number, dest: Coord, cargoIndex: number, isHidden?: (u: Unit) => boolean): DropSite[] {
   const transport = unitById(state, transportId);
   if (!transport || !state.units.includes(transport)) return [];
   const cargo = transport.cargo[cargoIndex];
   if (!cargo || !transportCanDrop(state, transport, dest)) return [];
   const mt = unitType(cargo.type).moveType;
-  return neighbours(state, dest).filter((c) => canStandOn(state.tiles[c.y][c.x].terrain, mt) && !otherUnitAt(state, c, transport.id));
+  const hidden = isHidden ?? ((u: Unit) => isUnseenEnemy(state, transport.owner, u));
+  const out: DropSite[] = [];
+  for (const c of neighbours(state, dest)) {
+    if (!canStandOn(state.tiles[c.y][c.x].terrain, mt)) continue;
+    const other = otherUnitAt(state, c, transport.id);
+    if (!other) out.push({ to: c, blockedBy: null });
+    else if (hidden(other)) out.push({ to: c, blockedBy: other });
+  }
+  return out;
+}
+
+/** Tiles next to `dest` where cargo number `cargoIndex` can be dropped if the transport ends its move at `dest`. `state` is
+ *  the state at the moment of the order, BEFORE the move: what the team can see is decided then, even if arriving would
+ *  reveal more (D-016). A tile that holds an enemy the team cannot see counts as free (it looks free); dropping there fails
+ *  and the cargo stays aboard ('dropBlocked'). */
+export function unloadTargets(state: GameState, transportId: number, dest: Coord, cargoIndex: number): Coord[] {
+  return dropSites(state, transportId, dest, cargoIndex).map((site) => site.to);
 }
 
 /** What the command menu offers if the unit ends its move at `dest`, in display order. Empty = it cannot stop there. */
@@ -165,7 +184,9 @@ export function thenOptions(state: GameState, unitId: number, dest: Coord): Then
   const unit = unitById(state, unitId);
   if (!unit || !state.units.includes(unit)) return [];
   const occupant = otherUnitAt(state, dest, unit.id);
-  if (occupant) {
+  // An enemy the mover cannot see looks like an empty tile (D-016): the menu is the empty tile's, and the move itself
+  // will end in an ambush on the tile before it (checkPath), so the player cannot tell this tile from a free one.
+  if (occupant && !isUnseenEnemy(state, unit.owner, occupant)) {
     if (canJoinInto(unit, occupant)) return ['join'];
     if (canLoadInto(unit, occupant)) return ['load'];
     return [];
@@ -174,7 +195,7 @@ export function thenOptions(state: GameState, unitId: number, dest: Coord): Then
   const view = withUnitAt(state, unit.id, dest);
   if (targetsFrom(state, unit, dest).length) out.push('attack');
   if (canCaptureHere(state, unit, dest.x, dest.y)) out.push('capture');
-  if (unit.cargo.some((_, i) => unloadTargets(view, unit.id, dest, i).length)) out.push('unload');
+  if (unit.cargo.some((_, i) => unloadTargets(state, unit.id, dest, i).length)) out.push('unload');
   if (unitType(unit.type).supplies && neighbours(state, dest).some((c) => {
     const n = otherUnitAt(view, c, unit.id);
     return !!n && n.owner === unit.owner;
@@ -249,6 +270,9 @@ function applyMove(ctx: Ctx, action: Extract<Action, { kind: 'move' }>): void {
     }
   }
 
+  // Who the mover's team cannot see is decided now, at the moment of the order, before the move changes what it sees (D-016).
+  const unseenAtOrder = then.kind === 'unload' && !ambushed ? unseenEnemyIds(before, unit.owner) : null;
+
   // Move.
   if (moved) {
     resetCapture(ctx, unit);
@@ -311,17 +335,25 @@ function applyMove(ctx: Ctx, action: Extract<Action, { kind: 'move' }>): void {
       if (!then.drops.length) illegal('unload needs at least one drop');
       const used = new Set<number>();
       const tiles = new Set<string>();
+      const plan: { cargo: Unit; to: Coord; blockedBy: Unit | null }[] = [];
       for (const d of then.drops) {
         if (used.has(d.cargoIndex)) illegal('each cargo unit can be dropped once');
         if (tiles.has(`${d.to.x},${d.to.y}`)) illegal('two units cannot be dropped on one tile');
-        const ok = unloadTargets(s, unit.id, dest, d.cargoIndex).some((c) => sameTile(c, d.to));
-        if (!ok) illegal(`cargo ${d.cargoIndex} cannot be dropped at (${d.to.x},${d.to.y})`);
+        const site = dropSites(s, unit.id, dest, d.cargoIndex, (u) => unseenAtOrder!.has(u.id)).find((c) => sameTile(c.to, d.to));
+        if (!site) illegal(`cargo ${d.cargoIndex} cannot be dropped at (${d.to.x},${d.to.y})`);
         used.add(d.cargoIndex);
         tiles.add(`${d.to.x},${d.to.y}`);
+        plan.push({ cargo: unit.cargo[d.cargoIndex], to: d.to, blockedBy: site.blockedBy });
       }
-      const dropped = then.drops.map((d) => ({ cargo: unit.cargo[d.cargoIndex], to: d.to }));
-      unit.cargo = unit.cargo.filter((_, i) => !used.has(i));
-      for (const { cargo, to } of dropped) {
+      // A drop onto a tile that holds a hidden enemy fails: that cargo stays aboard, the other drop still happens, and the
+      // transport's action is over either way (D-016, mechanics.md 9.4).
+      const landed = new Set(plan.filter((p) => !p.blockedBy).map((p) => p.cargo.id));
+      unit.cargo = unit.cargo.filter((c) => !landed.has(c.id));
+      for (const { cargo, to, blockedBy } of plan) {
+        if (blockedBy) {
+          emit(ctx, { kind: 'dropBlocked', transportId: unit.id, cargoId: cargo.id, at: { x: to.x, y: to.y }, by: blockedBy.id });
+          continue;
+        }
         const c = cloneUnit(cargo);
         c.x = to.x;
         c.y = to.y;

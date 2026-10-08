@@ -6,9 +6,10 @@
 //
 // One thing to know about fog: reachable() lets a path run through a hidden enemy, and applyAction then ambushes the
 // mover on the tile before it. Such an action is legal, and it is listed (the player cannot see the enemy, so it is a
-// real option). A tile that holds a hidden enemy has no then-options, so it is not listed as a stopping place.
+// real option). A tile that holds a hidden enemy looks free, so it is listed with the empty tile's options; the move
+// ends in an ambush on the tile before it (D-016). Only `agentActions` (observe.ts) is safe to hand a fogged player.
 import {
-  attackTargets, buildOptions, canActivatePower, reachable, thenOptions, unloadTargets, withUnitAt,
+  attackTargets, buildOptions, canActivatePower, reachable, thenOptions, unloadTargets,
 } from './index';
 import type { ReachEntry } from './index';
 import type { Action, Coord, GameState, Then, Unit } from './types';
@@ -25,8 +26,7 @@ const sameCoord = (a: Coord, b: Coord) => a.x === b.x && a.y === b.y;
 /** Every legal set of drops for a transport ending its move at `dest`: one cargo unit anywhere it fits, or two
  *  different cargo units onto two different tiles (a transport carries at most two). */
 function dropSets(state: GameState, transport: Unit, dest: Coord): Drop[][] {
-  const view = withUnitAt(state, transport.id, dest);
-  const where = transport.cargo.map((_, i) => unloadTargets(view, transport.id, dest, i));
+  const where = transport.cargo.map((_, i) => unloadTargets(state, transport.id, dest, i));
   const out: Drop[][] = [];
   for (let i = 0; i < where.length; i++) {
     for (const to of where[i]) out.push([{ cargoIndex: i, to: { x: to.x, y: to.y } }]);
