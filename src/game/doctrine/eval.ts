@@ -4,14 +4,15 @@
 // touches the true state, state.rng, or the other players' hidden fields (their stats, unit counts, nextUnitId).
 import { TERRAIN_TYPES, UNIT_TYPES } from '../../data';
 import { DAMAGE } from '../../data/damage';
-import { CAPTURE_POINTS, MAX_UNITS_PER_PLAYER, attackRangeTiles, displayHp, forecast, reachable } from '../aw';
+import { CAPTURE_POINTS, MAX_UNITS_PER_PLAYER, attackRangeTiles, displayHp, effectiveVision, forecast, reachable } from '../aw';
 import { damageValue, weaponAgainst } from '../aw/combat';
 import { terrainStarsFor } from '../aw/modifiers';
 import type { Observation } from '../aw/observe';
 import { areEnemies, isIndirectType, manhattan, teamOf, unitCount } from '../aw/state';
 import { repairsDomain } from '../aw/turn';
 import type { Coord, GameState, MoveType, PlayerIndex, TerrainId, Unit, UnitType, UnitTypeId } from '../aw/types';
-import type { Composition, StandingOrders } from './orders';
+import { ordersFor } from './orders';
+import type { Composition, Mission, StandingOrders, UnitOrders } from './orders';
 
 export const INF = 9999;
 
@@ -130,6 +131,54 @@ function memo<T>(ctx: Ctx, key: string, make: () => T): T {
   const v = make();
   ctx.memo.set(key, v);
   return v;
+}
+
+// ---------------------------------------------------------------- orders for each kind of unit (M3.4)
+
+/** The orders in force for units of this type (type, then group, then the army-wide orders), resolved once per context. Reads the orders only. */
+export function unitOrders(ctx: Ctx, type: UnitTypeId): UnitOrders {
+  return memo(ctx, `orders:${type}`, () => ordersFor(ctx.orders, type));
+}
+
+/** A guard stays within this many tiles (Manhattan) of one of my base tiles (baseTiles); a stay-back transport parks the same way. */
+export const BASE_LEASH = 3;
+/** An escort stays within this many tiles (Manhattan) of a friendly capturer that has a property to take. */
+export const ESCORT_LEASH = 2;
+/** What a scout counts one newly shown tile as worth, in funds (see revealGain). */
+export const REVEAL_VALUE = 30;
+
+/** My base: my spire(s) and every production property I hold (fabricator, skyport, dock). Empty when I hold none of them. */
+export function baseTiles(ctx: Ctx): Coord[] {
+  return memo(ctx, 'baseTiles', () => {
+    const out: Coord[] = ctx.homeSpires.map((c) => ({ x: c.x, y: c.y }));
+    for (const p of ctx.props) if (p.owner === ctx.me && !!TERRAIN_TYPES[p.terrain].builds) out.push({ x: p.x, y: p.y });
+    return out;
+  });
+}
+
+/**
+ * Tiles that I cannot see now and that a unit `u` standing on `at` would see: the Manhattan diamond of its effective vision there, less the
+ * tiles in the player's own visibility mask (obs.visible). FOG HONESTY (D-016): this reads the observation and nothing else, so a tile
+ * counts as unseen exactly when the player is told it is unseen, and what stands on it is never looked at. With fog down every tile is
+ * visible and the answer is 0.
+ */
+export function revealGain(ctx: Ctx, u: Unit, at: Coord): number {
+  if (!ctx.fogged) return 0;
+  return memo(ctx, `reveal:${u.id}:${at.x},${at.y}`, () => {
+    const v = effectiveVision(ctx.view, u, at);
+    let n = 0;
+    for (let dy = -v; dy <= v; dy++) {
+      const y = at.y + dy;
+      if (y < 0 || y >= ctx.H) continue;
+      const span = v - Math.abs(dy);
+      for (let dx = -span; dx <= span; dx++) {
+        const x = at.x + dx;
+        if (x < 0 || x >= ctx.W) continue;
+        if (!ctx.obs.visible[y][x]) n++;
+      }
+    }
+    return n;
+  });
 }
 
 // ---------------------------------------------------------------- values
@@ -297,6 +346,14 @@ export const PRESSURE_BUILD_LIMIT = 36;
 
 export type PressureReason = 'ahead' | 'cap';
 
+/**
+ * M3.4: pressure does not move a unit whose mission is one of these. A guard of the base (guardBase) or a transport that stays back
+ * (stayBack) was told to stay put near my base, and an army that is winning does not overrule that: it keeps the posture its orders give
+ * it, the ordinary (not the closing-out) line fraction and the ordinary threshold for acting, and it is not drawn to the enemy spire.
+ * Every other unit presses exactly as before.
+ */
+export const PRESSURE_EXEMPT_MISSIONS: ReadonlySet<Mission> = new Set<Mission>(['guardBase', 'stayBack']);
+
 export interface Pressure {
   /** Doctrine is closing out: it plays the Advance posture whatever the orders say, and goes for the enemy spire. */
   on: boolean;
@@ -318,6 +375,8 @@ export interface Pressure {
  *   cap    my units, cargo included, are within CAP_MARGIN of MAX_UNITS_PER_PLAYER: the economy is full, waiting helps nobody. This one
  *          is a fact about my own army, so fog does not touch it.
  * When neither holds the standing orders (Hold the Line, Fall Back, Advance) decide behaviour exactly as before.
+ * Pressure turns a unit's posture to Advance, and it does so for every unit EXCEPT those whose mission is guardBase or stayBack
+ * (PRESSURE_EXEMPT_MISSIONS, pressesType): a guard told to stay at the base is not marched to the front by a lead.
  */
 export function pressureOf(ctx: Ctx): Pressure {
   return memo(ctx, 'pressure', () => {
@@ -341,6 +400,11 @@ export function pressureOf(ctx: Ctx): Pressure {
     else if (units >= MAX_UNITS_PER_PLAYER - CAP_MARGIN) reason = 'cap';
     return { on: reason !== null, reason, ratio, units };
   });
+}
+
+/** Is Doctrine closing out a won game with units of this type? Pressure being on, and the type's mission not one PRESSURE_EXEMPT_MISSIONS names. */
+export function pressesType(ctx: Ctx, type: UnitTypeId): boolean {
+  return pressureOf(ctx).on && !PRESSURE_EXEMPT_MISSIONS.has(unitOrders(ctx, type).mission);
 }
 
 // ---------------------------------------------------------------- the front: where is home, where is the enemy

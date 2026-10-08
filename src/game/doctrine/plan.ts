@@ -14,13 +14,14 @@ import { CAPTURE_POINTS, displayHp } from '../aw';
 import { actionKey } from '../aw/legal';
 import { areEnemies, manhattan, teamOf } from '../aw/state';
 import type { Action, Coord, MoveType, Then, Unit } from '../aw/types';
-import type { Ctx, Goals, Pressure, PropInfo, StrikeOutcome } from './eval';
+import type { Ctx, Goals, Pressure, PropInfo, Role, StrikeOutcome } from './eval';
 import { covered } from './eval';
 import {
-  INF, capturable, distTo, exposure, threatOn, foeAnchors as foeAnchorsFor, frontFraction, goals, homeGoals, pressureOf, propertyValue, reachFrom,
-  roleMult, roleOf, serviceTiles, starsAt, strike, unitValue, foeApproach, foeGoals, isServiceTile,
+  BASE_LEASH, ESCORT_LEASH, INF, REVEAL_VALUE, baseTiles, capturable, distTo, exposure, threatOn, foeAnchors as foeAnchorsFor, frontFraction, goals,
+  homeGoals, pressesType, pressureOf, propertyValue, reachFrom, revealGain, roleMult, roleOf, serviceTiles, starsAt, strike, unitOrders, unitValue,
+  foeApproach, foeGoals, isServiceTile,
 } from './eval';
-import type { Posture } from './orders';
+import type { Mission, Posture, TargetPriority } from './orders';
 
 export type MoveAction = Extract<Action, { kind: 'move' }>;
 
@@ -64,6 +65,12 @@ const PRESSURE_MIN_GAIN = 2;
 const OPEN_PATH = 6000;
 /** In pressure: what standing on the enemy spire costs a unit that cannot capture, in funds (it keeps my own capturers off the tile). */
 const OFF_SPIRE = 2000;
+/** A scout counts the damage it can take where it ends this many times over: it keeps out of fights it has no need of. */
+const SCOUT_CAUTION = 2;
+/** A scout only strikes a target it is sure to destroy (the chance, from the forecast, that the strike kills). */
+const SCOUT_SURE_KILL = 0.99;
+/** Under fog, how much of the posture's pull a scout keeps (the rest is given to the tiles it would show). */
+const SCOUT_POSTURE_PULL = 0.5;
 
 /** How far along the road between the two bases (0 = mine, 1 = theirs) this posture wants the line of battle at this cycle. */
 function lineFraction(posture: Posture, cycle: number): number {
@@ -86,15 +93,27 @@ interface Plan {
   progress: (d: Coord) => number;
 }
 
-export interface Env {
-  ctx: Ctx;
-  /** Doctrine is closing out a won game (eval.ts pressureOf). */
-  press: Pressure;
-  /** The posture in force: the orders' own, or Advance while in pressure. */
+/** What one TYPE of unit is told this decision (M3.4): its orders resolved (unit type, then group, then army-wide), and what pressure does to them. */
+interface UnitEnv {
+  /** The orders in force for the type: posture, retreat threshold, target priorities, mission. */
+  orders: ReturnType<typeof unitOrders>;
+  /** Pressure is closing out a won game with this type (and its mission does not exempt it, eval.ts PRESSURE_EXEMPT_MISSIONS). */
+  pressed: boolean;
+  /** The posture in force: the type's ordered one, or Advance while it is pressed. */
   posture: Posture;
   P: Params;
   exposureW: number;
   lf: number;
+}
+
+export interface Env {
+  ctx: Ctx;
+  /** Doctrine is closing out a won game (eval.ts pressureOf). Whether a given unit presses is unitEnv(...).pressed. */
+  press: Pressure;
+  /** How much risk the army's relative strength asks for (0.6 well ahead, 1.25 behind), and how the early game's caution fades. */
+  riskFactor: number;
+  creep: number;
+  unitEnvs: Map<string, UnitEnv>;
   byUnit: Map<number, Cand[]>;
   plans: Map<number, Plan>;
   strikes: Map<string, StrikeOutcome>;
@@ -122,10 +141,6 @@ export function groupByUnit(actions: Action[]): Map<number, Cand[]> {
 
 function makeEnv(ctx: Ctx, byUnit: Map<number, Cand[]>): Env {
   const press = pressureOf(ctx);
-  // Hold the Line and Fall Back decide behaviour only while the agent is NOT ahead (or at the cap): in pressure it presses, whatever
-  // the orders say, so a won game gets finished instead of waiting at the line (M3.2).
-  const posture: Posture = press.on ? 'advance' : ctx.orders.posture;
-  const P = PARAMS[posture];
   // Pressure (B.10-style): when my army clearly outweighs what I can see of theirs, take more risk; when it is outweighed, less.
   let mineV = 0;
   for (const u of ctx.mine) mineV += unitValue(u);
@@ -139,14 +154,14 @@ function makeEnv(ctx: Ctx, byUnit: Map<number, Cand[]>): Env {
     if (e.hp < minHp) minHp = e.hp;
   }
   const ratio = mineV / (foeV + 1);
-  let pressure = 1;
-  if (ratio >= 1.4) pressure = 0.6;
-  else if (ratio <= 0.7) pressure = 1.25;
+  let riskFactor = 1;
+  if (ratio >= 1.4) riskFactor = 0.6;
+  else if (ratio <= 0.7) riskFactor = 1.25;
   const creep = Math.max(0.4, 1 - 0.04 * Math.max(0, ctx.cycle - 8));
   const cheapest: Record<string, number> = { ground: INF, air: INF, sea: INF };
   for (const t of Object.values(UNIT_TYPES)) cheapest[t.domain] = Math.min(cheapest[t.domain], t.cost);
   return {
-    ctx, press, posture, P, exposureW: P.exposureW * pressure * (posture === 'fallBack' ? 1 : creep), lf: press.on ? 1 : lineFraction(posture, ctx.cycle), byUnit,
+    ctx, press, riskFactor, creep, unitEnvs: new Map(), byUnit,
     plans: new Map(), strikes: new Map(), asg: null, support: null, guard: undefined,
     maxFoeValue: maxFoe, minFoeHp: minHp, funds: ctx.view.players[ctx.me].funds, cheapest,
   };
@@ -158,6 +173,83 @@ const here = (u: Unit): Coord => ({ x: u.x, y: u.y });
 const same = (a: Coord, b: Coord) => a.x === b.x && a.y === b.y;
 const tileOf = (ctx: Ctx, c: Coord) => ctx.view.tiles[c.y][c.x];
 const moveTypeOf = (u: Unit): MoveType => UNIT_TYPES[u.type].moveType;
+
+// ---------------------------------------------------------------- orders for each kind of unit (M3.4)
+
+/** What a unit of this type is told this decision: its orders resolved type, group, army-wide (eval.ts unitOrders), and what pressure does to them. */
+function unitEnv(env: Env, u: Unit): UnitEnv {
+  let e = env.unitEnvs.get(u.type);
+  if (e) return e;
+  const orders = unitOrders(env.ctx, u.type);
+  // Hold the Line and Fall Back decide behaviour only while the agent is NOT ahead (or at the cap): in pressure it presses, whatever
+  // the orders say, so a won game gets finished instead of waiting at the line (M3.2). Not so for a unit told to guard the base or to stay
+  // back (M3.4, eval.ts PRESSURE_EXEMPT_MISSIONS): it keeps the posture its orders give it.
+  const pressed = pressesType(env.ctx, u.type);
+  const posture: Posture = pressed ? 'advance' : orders.posture;
+  const P = PARAMS[posture];
+  e = {
+    orders, pressed, posture, P,
+    exposureW: P.exposureW * env.riskFactor * (posture === 'fallBack' ? 1 : env.creep),
+    lf: pressed ? 1 : lineFraction(posture, env.ctx.cycle),
+  };
+  env.unitEnvs.set(u.type, e);
+  return e;
+}
+
+const missionOf = (env: Env, u: Unit): Mission => unitEnv(env, u).orders.mission;
+
+/** Does this unit take properties? A capturer told to fight does not (it fights like armour). */
+const takesProperties = (env: Env, u: Unit): boolean => !!UNIT_TYPES[u.type].captures && missionOf(env, u) !== 'fight';
+
+/** Does this transport carry anyone? One told to stay back does not. */
+const ferries = (env: Env, u: Unit): boolean => missionOf(env, u) === 'ferry';
+
+/** The tiles a unit's mission holds it near, and how near (Manhattan distance). */
+interface Leash { tiles: readonly Coord[]; radius: number }
+
+const within = (l: Leash, d: Coord): boolean => l.tiles.some((t) => manhattan(t, d) <= l.radius);
+
+/** guardBase and stayBack: within BASE_LEASH of my base. Null for any other mission, or when I hold no base tile at all. */
+function baseLeash(env: Env, u: Unit): Leash | null {
+  const m = missionOf(env, u);
+  if (m !== 'guardBase' && m !== 'stayBack') return null;
+  const tiles = baseTiles(env.ctx);
+  return tiles.length ? { tiles, radius: BASE_LEASH } : null;
+}
+
+/** My capturers on the map that have a property to take: whom an escort keeps company with. (What the player sees: no hidden unit is in it.) */
+function escortTargets(env: Env, u: Unit): Unit[] {
+  const asg = assignments(env);
+  return env.ctx.mine.filter((c) => c.id !== u.id && !!UNIT_TYPES[c.type].captures && asg.has(c.id));
+}
+
+/** The leash a unit's mission puts it on: its base, or (escort) the capturers it keeps company with. Null when it is held nowhere. */
+function leashFor(env: Env, u: Unit): Leash | null {
+  if (missionOf(env, u) === 'escort') {
+    const tiles = escortTargets(env, u).map(here);
+    return tiles.length ? { tiles, radius: ESCORT_LEASH } : null;
+  }
+  return baseLeash(env, u);
+}
+
+/**
+ * The candidates a unit's mission allows. A guard stays within BASE_LEASH of my base, an escort within ESCORT_LEASH of a capturer it keeps
+ * company with, and an escort never ends on the property such a capturer is heading for (it would be the unit that blocks the capture).
+ * A unit that cannot get inside its leash this turn is not held: the plan brings it back, and it is offered what is left.
+ */
+function missionCands(env: Env, u: Unit, cands: Cand[]): Cand[] {
+  const leash = leashFor(env, u);
+  if (!leash) return cands;
+  let open = cands;
+  if (missionOf(env, u) === 'escort') {
+    const taking: Coord[] = [];
+    for (const [id, a] of assignments(env)) if (id !== u.id) taking.push(a.prop);
+    open = cands.filter((c) => !taking.some((p) => same(p, c.dest)));
+  }
+  const ok = open.filter((c) => within(leash, c.dest));
+  if (ok.length) return ok;
+  return open.length ? open : cands;
+}
 
 function strikeOf(env: Env, a: Unit, from: Coord, t: Unit): StrikeOutcome {
   const key = `${a.id}|${from.x},${from.y}|${t.id}`;
@@ -173,9 +265,9 @@ function futureDamage(t: Unit): number {
   return 0.3 * ut.cost * (t.hp / 100) * (ut.range[0] > 1 ? 1.4 : 1);
 }
 
-/** The orders' target priorities as a multiplier on what damage to this target is worth (1 = no preference, at most 2). */
-function priorityMult(env: Env, t: Unit): number {
-  const list = env.ctx.orders.targetPriority;
+/** The target priorities in force for the ATTACKER's kind of unit as a multiplier on what damage to this target is worth (1 = no preference, at most 2). */
+function priorityMult(env: Env, attacker: Unit, t: Unit): number {
+  const list: readonly TargetPriority[] = unitEnv(env, attacker).orders.targetPriority;
   if (!list.length) return 1;
   const ut = UNIT_TYPES[t.type];
   let bonus = 0;
@@ -207,13 +299,15 @@ function sideFraction(ctx: Ctx, c: Coord): number {
 
 // ---------------------------------------------------------------- capturer assignment (B.4)
 
-function transportsFor(ctx: Ctx): Unit[] {
-  return ctx.mine.filter((u) => !!UNIT_TYPES[u.type].carries);
+/** My transports that carry capturers (not the ones told to stay back). */
+function transportsFor(env: Env): Unit[] {
+  return env.ctx.mine.filter((u) => !!UNIT_TYPES[u.type].carries && ferries(env, u));
 }
 
-function canFerry(ctx: Ctx): boolean {
-  if (transportsFor(ctx).length) return true;
-  return ctx.props.some((p) => p.owner === ctx.me && p.terrain === 'dock');
+function canFerry(env: Env): boolean {
+  if (transportsFor(env).length) return true;
+  // a dock can build a barge, unless barges are told to stay back
+  return env.ctx.props.some((p) => p.owner === env.ctx.me && p.terrain === 'dock') && unitOrders(env.ctx, 'barge').mission === 'ferry';
 }
 
 /** Matches each of my capturers (on the map or loaded) to the property it should take: value / (1 + turns to get there), greedily,
@@ -225,13 +319,12 @@ function assignments(env: Env): Map<number, Asg> {
   env.asg = out;
   const riders: { u: Unit; at: Coord }[] = [];
   for (const u of ctx.mine) {
-    if (UNIT_TYPES[u.type].captures) riders.push({ u, at: here(u) });
-    for (const c of u.cargo) if (UNIT_TYPES[c.type].captures) riders.push({ u: c, at: here(u) });
+    if (takesProperties(env, u)) riders.push({ u, at: here(u) });
+    for (const c of u.cargo) if (takesProperties(env, c)) riders.push({ u: c, at: here(u) });
   }
   riders.sort((a, b) => a.u.id - b.u.id);
   const claimed = new Set<number>();
-  const posture = env.posture;
-  const ferryOk = canFerry(ctx);
+  const ferryOk = canFerry(env);
   const homeG = homeGoals(ctx);
 
   const take = (r: { u: Unit; at: Coord }, p: PropInfo, ferry: boolean, eta: number) => {
@@ -242,7 +335,8 @@ function assignments(env: Env): Map<number, Asg> {
   for (const r of riders) {
     if (!ctx.mine.includes(r.u)) continue; // a capturer riding in a transport is not standing on anything
     const p = capturable(ctx, r.u).find((q) => q.x === r.u.x && q.y === r.u.y);
-    if (p && !claimed.has(p.y * ctx.W + p.x)) take(r, p, false, 0);
+    const leash = baseLeash(env, r.u); // a guard of the base captures only near it
+    if (p && !claimed.has(p.y * ctx.W + p.x) && (!leash || within(leash, p))) take(r, p, false, 0);
   }
   // pass 2: every free capturer against every free property, the best pairs first (so the nearest, fastest capturer gets a prize
   // and not whichever unit happens to have the lowest id)
@@ -251,16 +345,20 @@ function assignments(env: Env): Map<number, Asg> {
   for (const r of riders) {
     if (out.has(r.u.id)) continue;
     const mt = moveTypeOf(r.u);
+    const ue = unitEnv(env, r.u);
+    const posture = ue.posture;
+    const leash = baseLeash(env, r.u);
     const f = reachFrom(ctx, mt, r.at);
     const move = Math.max(1, UNIT_TYPES[r.u.type].move);
     const mine: Pair[] = [];
     for (const p of capturable(ctx, r.u)) {
       const pi = p.y * ctx.W + p.x;
       if (claimed.has(pi)) continue;
+      if (leash && !within(leash, p)) continue;
       const occ = ctx.at.get(pi);
       // An enemy standing on a property keeps a capturer off it, so it is not a target -- except the enemy spire in pressure: the
       // capturer goes up behind the army, and the guard on it is what the attacks below are for (openPath).
-      if (occ && occ.owner !== ctx.me && areEnemies(ctx.view, ctx.me, occ.owner) && !(env.press.on && p.hq)) continue;
+      if (occ && occ.owner !== ctx.me && areEnemies(ctx.view, ctx.me, occ.owner) && !(ue.pressed && p.hq)) continue;
       const d = f[pi];
       const ferry = d >= INF;
       if (ferry && !ferryOk) continue;
@@ -269,7 +367,7 @@ function assignments(env: Env): Map<number, Asg> {
       // the posture's reach: Hold the Line does not send capturers deep into the enemy's half while there is work nearer home,
       // Fall Back keeps them close to the base. Far properties are not forbidden, only a poor second choice.
       if (posture === 'fallBack' && distTo(ctx, mt, homeG, p) > 10) value *= 0.05;
-      if (posture === 'holdTheLine' && sideFraction(ctx, p) > env.lf + 0.22) value *= 0.35;
+      if (posture === 'holdTheLine' && sideFraction(ctx, p) > ue.lf + 0.22) value *= 0.35;
       if (posture === 'advance') value *= 1 + sideFraction(ctx, p);
       mine.push({ r, p, ferry, eta, score: value / (1 + eta) });
     }
@@ -334,7 +432,7 @@ function needOf(env: Env, u: Unit): Need {
   const t = UNIT_TYPES[u.type];
   if (!serviceTiles(ctx, u).length) return null;
   const onService = isServiceTile(ctx, u, u);
-  const limit = ctx.orders.retreatAtHp;
+  const limit = unitEnv(env, u).orders.retreatAtHp;
   if (limit > 0) {
     const hp = displayHp(u.hp);
     if (hp <= limit || (onService && hp <= Math.min(8, limit + 3) && hp < 10)) return 'hp';
@@ -376,8 +474,11 @@ function makePlan(env: Env, u: Unit): Plan {
   const t = UNIT_TYPES[u.type];
   const mt = t.moveType;
   const now = here(u);
-  const role = roleOf(t);
-  const posture = env.posture;
+  const ue = unitEnv(env, u);
+  const mission = ue.orders.mission;
+  // A capturer told to fight is planned as a front-line unit: it has no property to take (M3.4).
+  const role: Role = mission === 'fight' ? 'combat' : roleOf(t);
+  const posture = ue.posture;
   const sv = stepValue(u, posture);
 
   const need = needOf(env, u);
@@ -407,25 +508,28 @@ function makePlan(env: Env, u: Unit): Plan {
   const posturePlan = (lfShift: number, step: number): Plan => {
     // In pressure a unit that cannot capture heads for the tile NEXT to the enemy spire, not the spire: a bastion that parked on it
     // kept thirteen of its own breachers off it for twenty cycles (tether-ridges, 36 units to 4, the spire still untaken).
-    if (posture === 'advance') return toward(env.press.on && role !== 'capturer' ? foeApproach(ctx) : foeGoals(ctx), step);
+    if (posture === 'advance') return toward(ue.pressed && role !== 'capturer' ? foeApproach(ctx) : foeGoals(ctx), step);
     if (posture === 'fallBack') return ring(step);
-    return line(Math.max(0.05, env.lf + lfShift), step);
+    return line(Math.max(0.05, ue.lf + lfShift), step);
   };
   // A transport with nothing to ferry keeps to the posture the player ordered even in pressure: ahead of the army it would stand on the
   // property its own capturer is walking to (a mule parked on the far city blocked the capture it had carried the trooper to).
   const supportPlan = (lfShift: number, step: number): Plan => {
-    const ordered = ctx.orders.posture;
+    const ordered = ue.orders.posture;
     if (ordered === 'advance') return toward(foeGoals(ctx), step);
     if (ordered === 'fallBack') return ring(step);
     return line(Math.max(0.05, lineFraction(ordered, ctx.cycle) + lfShift), step);
   };
+  // A guard (guardBase) or a transport that stays back (stayBack) holds the ring of three tiles round my base (the leash in missionCands
+  // holds it there; this is what brings it back when it is not).
+  const guarding = mission === 'guardBase' || mission === 'stayBack';
 
   if (role === 'capturer') {
     const a = assignments(env).get(u.id);
     if (a) {
       const step = Math.max(150, Math.min(500, propertyValue(ctx, a.prop) * 0.05));
       if (a.ferry) {
-        const ts = transportsFor(ctx).filter((x) => x.cargo.length < (UNIT_TYPES[x.type].carries ?? 0));
+        const ts = transportsFor(env).filter((x) => x.cargo.length < (UNIT_TYPES[x.type].carries ?? 0));
         if (ts.length) return toward(goals(`ferry:${ts.map((x) => x.id).join('.')}`, ts.map(here), true), step);
         const docks = ctx.props.filter((p) => p.owner === ctx.me && p.terrain === 'dock');
         return toward(goals('docks', docks, true), step);
@@ -433,7 +537,7 @@ function makePlan(env: Env, u: Unit): Plan {
       const chase = toward(goals(`prop:${a.prop.x},${a.prop.y}`, [a.prop], true), step);
       // Going for the enemy spire in pressure, a capturer goes up WITH the army: a step onto a tile the enemy can strike, with no armed unit
       // of mine within two tiles of it, earns nothing (it is the unit that ends the game, and it waits for the escorts to clear the way).
-      if (env.press.on && a.prop.hq && a.prop.owner !== null && areEnemies(ctx.view, ctx.me, a.prop.owner)) {
+      if (ue.pressed && a.prop.hq && a.prop.owner !== null && areEnemies(ctx.view, ctx.me, a.prop.owner)) {
         return { progress: (d) => {
           const gain = chase.progress(d);
           return gain > 0 && covered(ctx, d) && !escorted(env, u, d) ? 0 : gain;
@@ -441,10 +545,11 @@ function makePlan(env: Env, u: Unit): Plan {
       }
       return chase;
     }
-    return posturePlan(-0.05, sv);
+    return guarding ? ring(sv) : posturePlan(-0.05, sv);
   }
 
   if (role === 'transport') {
+    if (mission === 'stayBack') return ring(sv);
     if (u.cargo.length) {
       const asg = assignments(env);
       const rider = u.cargo.map((c) => asg.get(c.id)).find((x) => !!x);
@@ -461,7 +566,7 @@ function makePlan(env: Env, u: Unit): Plan {
   }
 
   if (role === 'indirect') {
-    const base = posturePlan(-0.08, sv);
+    const base = guarding ? ring(sv) : posturePlan(-0.08, sv);
     const range = t.range ?? [2, 3];
     const foes = ctx.foes;
     const ownDirect = ctx.mine.filter((x) => x.id !== u.id && !!UNIT_TYPES[x.type].range && UNIT_TYPES[x.type].range![0] === 1 && UNIT_TYPES[x.type].domain === t.domain);
@@ -499,6 +604,22 @@ function makePlan(env: Env, u: Unit): Plan {
   }
 
   // direct fighters: ground, air, naval
+  if (guarding) return ring(sv);
+  if (mission === 'escort') {
+    // keep company with a capturer that has a property to take; with none to keep company with it fights on the line like any front-line unit
+    const mates = escortTargets(env, u);
+    if (mates.length) return toward(goals(`escort:${mates.map((c) => `${c.x},${c.y}`).join('.')}`, mates.map(here), false), sv);
+    return posturePlan(0, sv);
+  }
+  if (mission === 'scout') {
+    // Under fog the scout still has the posture's line to go to, but it pulls less than the tiles it would show: it goes where more of
+    // what it cannot see now comes into view (revealGain reads only the observation, D-016). With fog down nothing is unseen, so there is
+    // nothing to show and it moves exactly as a strike unit does (what is left of the mission is its caution in a fight, see evalCand).
+    const base = posturePlan(0, sv);
+    if (!ctx.fogged) return base;
+    const r0 = revealGain(ctx, u, now);
+    return { progress: (d) => SCOUT_POSTURE_PULL * base.progress(d) + REVEAL_VALUE * (revealGain(ctx, u, d) - r0) };
+  }
   return posturePlan(0, sv);
 }
 
@@ -519,9 +640,10 @@ function escorted(env: Env, u: Unit, d: Coord): boolean {
  * In pressure, an attack that clears the way for my capturers is worth more than its damage: a unit standing ON an enemy spire keeps every
  * capturer off the tile that ends the game, and the units around it make the same wall. Returns funds: OPEN_PATH for the unit on the
  * spire, half for one within two tiles of it, scaled by how much of it the strike takes away (the chance to kill it, then the damage).
+ * `u` is the attacker: a guard or a stay-back unit is not pressed (eval.ts PRESSURE_EXEMPT_MISSIONS), so it is not drawn to the spire.
  */
-function openPath(env: Env, tgt: Unit, so: StrikeOutcome): number {
-  if (!env.press.on) return 0;
+function openPath(env: Env, u: Unit, tgt: Unit, so: StrikeOutcome): number {
+  if (!unitEnv(env, u).pressed) return 0;
   let weight = 0;
   for (const s of env.ctx.foeSpires) {
     const dist = manhattan(tgt, s);
@@ -552,11 +674,13 @@ function prodBlocked(env: Env, d: Coord): boolean {
 function posBase(env: Env, u: Unit, d: Coord): number {
   const ctx = env.ctx;
   const t = UNIT_TYPES[u.type];
-  let v = starsAt(ctx, u, d) * t.cost * env.P.starW;
+  const ue = unitEnv(env, u);
+  let v = starsAt(ctx, u, d) * t.cost * ue.P.starW;
   v += planFor(env, u).progress(d);
   if (prodBlocked(env, d)) v -= Math.min(4000, 300 + 0.15 * env.funds);
+  const takes = takesProperties(env, u);
   if (!same(d, u)) {
-    if (t.captures) {
+    if (takes) {
       const tile = tileOf(ctx, u);
       const p = ctx.props.find((q) => q.x === u.x && q.y === u.y);
       if (p && (tile.owner === null || areEnemies(ctx.view, u.owner, tile.owner)) && tile.capture < CAPTURE_POINTS) {
@@ -566,7 +690,7 @@ function posBase(env: Env, u: Unit, d: Coord): number {
   }
   if (guardId(env) === u.id && ctx.homeSpires.some((s) => same(s, d))) v += STOP_LOSS * 0.5;
   // In pressure a unit that cannot capture does not park on the enemy spire: it is the one tile my capturers need.
-  if (env.press.on && !t.captures && ctx.foeSpires.some((s) => same(s, d))) v -= OFF_SPIRE;
+  if (ue.pressed && !takes && ctx.foeSpires.some((s) => same(s, d))) v -= OFF_SPIRE;
   return v;
 }
 
@@ -620,6 +744,7 @@ function lastEnemy(env: Env): boolean {
 
 function evalCand(env: Env, u: Unit, c: Cand, mode: Need): Eval | null {
   const ctx = env.ctx;
+  const ue = unitEnv(env, u);
   const t = UNIT_TYPES[u.type];
   const d = c.dest;
   const kind = c.then.kind;
@@ -639,23 +764,24 @@ function evalCand(env: Env, u: Unit, c: Cand, mode: Need): Eval | null {
       const dis = disruption(env, target, so);
       const killsWin = lastEnemy(env) && so.killP >= 0.99; // the last enemy unit I can see, with no fog: destroying it wins
       if (mode && !killsWin && !(staying && isServiceTile(ctx, u, u))) return null;
-      const pm = priorityMult(env, target);
+      if (missionOf(env, u) === 'scout' && so.killP < SCOUT_SURE_KILL) return null; // a scout takes only the fights it wins outright
+      const pm = priorityMult(env, u, target);
       const tcost = UNIT_TYPES[target.type].cost;
       let dealt = (so.dealtHp / 100) * tcost * roleMult(ctx, target) * pm;
       let kill = so.killP * (0.5 * unitValue(target, false) * pm + futureDamage(target));
       const taken = (so.counterHp / 100) * t.cost;
-      if (env.posture === 'fallBack') {
+      if (ue.posture === 'fallBack') {
         const near = distTo(ctx, moveTypeOf(u), homeGoals(ctx), target) <= 9;
         if (!near) {
           dealt *= 0.5;
           kill *= 0.5;
         }
       }
-      const opens = openPath(env, target, so);
+      const opens = openPath(env, u, target, so);
       if (taken > dealt && so.killP < 0.9 && dis.value <= 0 && opens <= 0 && !killsWin) return null;
       let focus = 0;
       if (so.killP < 1 && supportOf(env, target) >= target.hp) focus = 0.3 * unitValue(target, false) * (so.dealtHp / target.hp);
-      ev.value = dealt + kill + dis.value + opens + focus - env.P.counterW * taken + posBase(env, u, d);
+      ev.value = dealt + kill + dis.value + opens + focus - ue.P.counterW * taken + posBase(env, u, d);
       ev.hpAfter = Math.max(1, u.hp - so.counterHp);
       ev.cls = t.range && t.range[0] > 1 ? 3 : so.killP >= 0.5 ? 4 : 5;
       if (dis.value > 0.3 * (dis.spire ? SPIRE_STAKE : 3000) && dis.value > 0) {
@@ -671,7 +797,9 @@ function evalCand(env: Env, u: Unit, c: Cand, mode: Need): Eval | null {
 
     case 'capture': {
       const p = ctx.props.find((q) => q.x === d.x && q.y === d.y);
-      if (!p) return null;
+      if (!p || !takesProperties(env, u)) return null;
+      const leash = baseLeash(env, u);
+      if (leash && !within(leash, d)) return null; // a guard of the base captures only near it
       const tile = tileOf(ctx, d);
       const remaining = tile.capture;
       const apply = displayHp(u.hp);
@@ -694,7 +822,7 @@ function evalCand(env: Env, u: Unit, c: Cand, mode: Need): Eval | null {
       const a = assignments(env).get(u.id);
       if (!a) return null;
       const x = ctx.at.get(d.y * ctx.W + d.x);
-      if (!x) return null;
+      if (!x || !ferries(env, x)) return null; // a transport told to stay back carries no one
       const xt = UNIT_TYPES[x.type];
       const pv = propertyValue(ctx, a.prop);
       if (a.ferry) ev.value = pv * 0.5;
@@ -767,14 +895,17 @@ const SHORTLIST = 14;
 function chooseForUnit(env: Env, u: Unit, cands: Cand[], pick: (n: number) => number): Scored | null {
   const ctx = env.ctx;
   const t = UNIT_TYPES[u.type];
+  const ue = unitEnv(env, u);
   const mode = needOf(env, u);
   const indirect = !!t.range && t.range[0] > 1;
-  const expW = env.exposureW * (indirect ? 2 : 1);
+  // a scout counts the damage it could take where it ends several times over: it keeps out of fights it has no need of
+  const expW = ue.exposureW * (indirect ? 2 : 1) * (ue.orders.mission === 'scout' ? SCOUT_CAUTION : 1);
 
   interface Row { c: Cand; ev: Eval; pre: number }
   const rows: Row[] = [];
   let stay: Row | null = null;
-  for (const c of cands) {
+  // A unit that needs repair goes to be repaired wherever that is; otherwise its mission may hold it near the base or near a capturer.
+  for (const c of mode ? cands : missionCands(env, u, cands)) {
     const ev = evalCand(env, u, c, mode);
     if (!ev) continue;
     ev.value += serviceBonus(env, u, c.dest, mode);
@@ -812,7 +943,7 @@ function chooseForUnit(env: Env, u: Unit, cands: Cand[], pick: (n: number) => nu
   const chosen: Row = bestRow;
   if (chosen === stay) return null;
   const gain = bestScore - stayScore;
-  if (chosen.ev.cls > 2 && gain < (env.press.on ? PRESSURE_MIN_GAIN : MIN_GAIN)) return null;
+  if (chosen.ev.cls > 2 && gain < (ue.pressed ? PRESSURE_MIN_GAIN : MIN_GAIN)) return null;
   return { action: chosen.c.a, score: gain, cls: chosen.ev.cls };
 }
 
@@ -821,12 +952,21 @@ export function bestUnitAction(ctx: Ctx, byUnit: Map<number, Cand[]>, pick: (n: 
   const env = makeEnv(ctx, byUnit);
   const choices: Scored[] = [];
   const mine = [...ctx.mine].sort((a, b) => a.id - b.id);
+  const chosen = new Map<number, Scored>();
   for (const u of mine) {
     if (u.acted) continue;
     const cands = byUnit.get(u.id);
     if (!cands) continue;
     const s = chooseForUnit(env, u, cands, pick);
-    if (s) choices.push(s);
+    if (s) chosen.set(u.id, s);
+  }
+  for (const u of mine) {
+    const s = chosen.get(u.id);
+    if (!s) continue;
+    // An escort moves after the capturers it keeps company with, so it ends near where they ended and not where they were (M3.4). While
+    // one of them still has something to do, the escort waits: that capturer's choice is in this list, so it acts, and the escort is free next call.
+    if (missionOf(env, u) === 'escort' && escortTargets(env, u).some((c) => !c.acted && chosen.has(c.id))) continue;
+    choices.push(s);
   }
   if (!choices.length) return null;
   let top = -Infinity;
