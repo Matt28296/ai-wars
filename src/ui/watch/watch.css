@@ -37,6 +37,11 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 }
 .aww-chip--warn { border-color: var(--warn); color: var(--warn); }
 .aww-toolbar { margin-left: auto; }
+@media (min-width: 901px) {
+  /* The toolbar takes what the chips leave of the row instead of wrapping under them, and wraps its own two groups when that is short:
+     in a narrow stage (1024 px wide) that saves the board a row's height. */
+  .aww-toolbar { flex: 1 1 0; min-width: 0; }
+}
 .aww-victory {
   display: inline-flex; align-items: center; gap: var(--space-2); height: 26px; padding: 0 var(--space-3);
   border: 1px solid var(--signal); background: var(--signal-soft); color: var(--signal); text-transform: uppercase;
@@ -67,7 +72,7 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aww-toolbar-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2) var(--space-4); }
 .aww-stage3d {
   position: relative; width: 100%; aspect-ratio: var(--aww-3d-ratio, 1.6);
-  min-height: 280px; max-height: max(280px, calc(100vh - 234px));
+  min-height: 280px; max-height: max(280px, calc(100vh - 234px - var(--aww-chrome-h, 0px)));
   border: 1px solid var(--line-strong); background: var(--map-shade); overflow: hidden;
 }
 .aww-stage3d-canvas { display: block; width: 100%; height: 100%; outline: none; }
@@ -171,7 +176,7 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aww-intel-empty { flex: 1; display: grid; place-items: center; padding: var(--space-4); text-align: center; border: 1px dashed var(--line); }
 
 /* ---- event log ---- */
-.aww-log { display: block; width: 100%; height: var(--aww-log-h, clamp(200px, calc(100vh - 562px), 420px)); }
+.aww-log { display: block; width: 100%; height: var(--aww-log-h, clamp(200px, calc(100vh - 562px - var(--aww-chrome-h, 0px)), 420px)); }
 .aww-log > .aw-frame-in { display: flex; flex-direction: column; }
 .aww-log-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4) var(--space-2); border-bottom: 1px solid var(--line); }
 .aww-log-toggle { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink-muted); cursor: pointer; }
@@ -291,3 +296,42 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aww-stagebox { grid-area: stage; min-width: 0; position: relative; }
 .aww-overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; pointer-events: none; }
 .aww-overlay > * { pointer-events: auto; }
+
+/* ---- the page fits the window (G15) ----
+   In the two-column layout the page is exactly one screen tall: the window less the chrome above it (--aww-chrome-h, which the page that
+   hosts the view sets once: 0 when the view stands alone, the "Back to briefing" strip's height on the deployed screen). The stage takes
+   the height the controls leave, the board fills the stage, and in the side column the log takes what the player panels and the intel card
+   leave, never less than --aww-log-min. A window too short for all of that scrolls, as it always did. Stacked (900px and under) it is the
+   long single column it was, and --aww-fit says which of the two applies, so Stage.tsx sizes its board for the layout in force. */
+.aww-root { --aww-fit: 0; --aww-log-min: 120px; --aww-stage-min: 400px; }
+@media (min-width: 901px) {
+  .aww-root {
+    --aww-fit: 1;
+    height: calc(100vh - var(--aww-chrome-h, 0px));
+    height: calc(100dvh - var(--aww-chrome-h, 0px));
+  }
+  .aww-main { height: 100%; grid-template-rows: minmax(var(--aww-stage-min), 1fr) auto; }
+  .aww-stage, .aww-stagebox { align-self: stretch; min-height: 0; }
+  .aww-stage, .aww-stagebox > .aww-stage { display: flex; flex-direction: column; }
+  .aww-stagebox { display: flex; flex-direction: column; }
+  .aww-stagebox > .aww-stage { flex: 1 1 0; }
+  .aww-banner-row { flex: none; }
+  .aww-board-wrap { flex: 1 1 0; min-height: 0; align-items: center; }
+  .aww-frame { align-self: center; }
+  .aww-board-wrap > .aww-stage3d { align-self: stretch; aspect-ratio: auto; height: 100%; max-height: none; }
+  .aww-side { align-self: stretch; min-height: 0; }
+  .aww-intel { flex: none; }
+  .aww-log { flex: 1 1 0; height: var(--aww-log-h, auto); min-height: var(--aww-log-min); max-height: 420px; }
+  /* Four or five player panels cannot share a short window with the intel card and a log: the column scrolls in itself, so the page never
+     does and the playback bar stays where it is. */
+  .aww-side:has(.aww-huds--many) { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) var(--panel); }
+}
+
+/* Three or more panels share the side column with the intel card and the log, so each panel is drawn tighter (Hud.tsx TIGHT_AT). */
+.aww-huds--tight { gap: var(--space-2); }
+.aww-huds--tight .aw-hud > .aw-frame-in { gap: var(--space-2); padding: 5px var(--space-3) 5px 5px; }
+.aww-huds--tight .aw-hud-body { gap: 1px; }
+.aww-huds--tight .aw-hud-top { min-height: 20px; }
+.aww-huds--tight .aw-hud-top > .heading { font-size: 16px; line-height: 20px; }
+.aww-huds--tight .aw-hud-funds > .stat { font-size: 18px; line-height: 20px; }
+.aww-huds--tight .aww-hud-meta { margin-top: 0; min-height: 16px; }

@@ -7,6 +7,8 @@ import { POWER_STAR } from '../../game/aw';
 import type { FactionId, PlayerIndex, PowerState } from '../../game/aw';
 import type { ObservedPlayer } from '../../game/aw/observe';
 import { hudMood } from '../portraits/mood';
+import { nationTextOf, seatOf } from './seats';
+import type { SeatPortrait, Seats } from './seats';
 import { knownUnitCount } from './timeline';
 import type { TimelineStep, ViewFrame } from './timeline';
 
@@ -25,6 +27,14 @@ export interface PlayerPanelModel {
   factionName: string;
   commanderId: string;
   commanderName: string;
+  /** The panel's heading: the seat's own name when the view names its seats (G15), else the commander's name. */
+  title: string;
+  /** The line under the heading: the nation's name, or "No nation named" for a masked seat. */
+  nationText: string;
+  /** The nation is not named: the sigil is the unmarked mark and the portrait is the unmarked plate. */
+  masked: boolean;
+  /** Which face the panel draws. 'commander' is the old way (the commander's bust, or the monogram when there is none). */
+  portrait: SeatPortrait;
   initials: string;
   /** The portrait's face: neutral, grim once defeated, happy while a power is active. */
   mood: Mood;
@@ -93,17 +103,38 @@ export function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-export function playerPanels(step: TimelineStep): PlayerPanelModel[] {
+const monogramOf = (name: string): string => name.split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+
+/** The monogram a seat's plate carries when it has no bust: the agent is CO, drones are DR, a side with no name is ??. */
+function initialsFor(portrait: SeatPortrait, def: { initials: string } | undefined, name: string): string {
+  switch (portrait) {
+    case 'agent': return 'CO';
+    case 'drones': return 'DR';
+    case 'unmarked': return '??';
+    default: return def?.initials ?? monogramOf(name);
+  }
+}
+
+/**
+ * One panel per player. `seats` (a view's `people`) names each one; with none the panel is headed by the commander's name and the
+ * nation line is the nation, exactly as before.
+ */
+export function playerPanels(step: TimelineStep, seats?: Seats): PlayerPanelModel[] {
   const f = step.frame;
   return f.players.map((p): PlayerPanelModel => {
     const def = Object.prototype.hasOwnProperty.call(COMMANDERS, p.commander) ? COMMANDERS[p.commander] : undefined;
+    const seat = seatOf(seats, p.index);
     return {
       index: p.index,
       faction: p.faction,
       factionName: FACTIONS[p.faction].name,
       commanderId: p.commander,
       commanderName: def?.name ?? 'Commander',
-      initials: def?.initials ?? 'CO',
+      title: seat ? seat.name : def?.name ?? 'Commander',
+      nationText: seat ? nationTextOf(seats, p.index, p.faction) : FACTIONS[p.faction].name,
+      masked: seat?.nation === 'masked',
+      portrait: seat ? seat.portrait : 'commander',
+      initials: seat ? initialsFor(seat.portrait, def, seat.name) : def?.initials ?? 'CO',
       mood: hudMood({ defeated: p.defeated, active: p.powerState === 'none' ? null : p.powerState }),
       funds: p.funds,
       meter: starMeter(p, step.powerUses[p.index] ?? 0),

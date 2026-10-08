@@ -1,11 +1,13 @@
 // Playback controls and nothing else: play or pause, step back and forward, speed, a scrubber. There are no unit controls of any kind.
 import { useMemo, useState } from 'react';
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
-import { Button, Sigil, cx, factionShort, markOf } from './kit';
+import { Button, Sigil, cx, markOf } from './kit';
 import { SPEEDS } from './timing';
 import type { Speed } from './timing';
 import { cycleOfStep, fractionOfStep, scrubTip, stepAtPointer, timelineMarks } from './controls';
 import type { PlaybackAction, PlaybackState } from './controls';
+import { isMasked, labelOf, seatOf, uniqueLabels } from './seats';
+import type { Seats } from './seats';
 import type { Timeline, ViewFrame, Viewer } from './timeline';
 
 const ICON = {
@@ -124,18 +126,25 @@ export interface ViewerToggleProps {
   frame: ViewFrame;
   viewer: Viewer;
   onChange: (v: Viewer) => void;
+  /** How the view names its seats (WatchView's `people`). Absent: each button is its nation's short name, as ever. */
+  seats?: Seats;
 }
 
-/** Which side of the fog the log and board are read from: one of the players, or the omniscient post-match view. */
-export function ViewerToggle({ frame, viewer, onChange }: ViewerToggleProps): ReactElement {
-  const options: { value: Viewer; label: ReactNode; text: string }[] = [
-    ...frame.players.map((p) => ({
+/**
+ * Which side of the fog the log and board are read from: one of the players, or the omniscient post-match view. No two buttons share a
+ * label: the mission's own words are unique, and a nation that two seats share is told apart by number.
+ */
+export function ViewerToggle({ frame, viewer, onChange, seats }: ViewerToggleProps): ReactElement {
+  const words = uniqueLabels(frame.players.map((p) => labelOf(seats, p.index, p.faction)));
+  const options: { value: Viewer; label: ReactNode; text: string; title?: string }[] = [
+    ...frame.players.map((p, i) => ({
       value: p.index as Viewer,
-      text: `${factionShort(p.faction)}`,
+      text: words[i],
+      title: seatOf(seats, p.index) ? `Watching as ${seatOf(seats, p.index)?.name}` : undefined,
       label: (
         <>
-          <Sigil faction={p.faction} size={14} tone="current" />
-          <span>{factionShort(p.faction)}</span>
+          <Sigil faction={p.faction} size={14} tone="current" masked={isMasked(seats, p.index)} />
+          <span>{words[i]}</span>
         </>
       ),
     })),
@@ -152,7 +161,7 @@ export function ViewerToggle({ frame, viewer, onChange }: ViewerToggleProps): Re
           aria-checked={o.value === viewer}
           className={cx('aww-viewer-opt', 'label', o.value === viewer && 'aww-viewer-opt--on')}
           onClick={() => onChange(o.value)}
-          title={o.value === 'all' ? 'Omniscient post-match view' : `See only what ${o.text} sees`}
+          title={o.value === 'all' ? 'Omniscient post-match view' : o.title ?? `See only what ${o.text} sees`}
         >
           {o.label}
         </button>
