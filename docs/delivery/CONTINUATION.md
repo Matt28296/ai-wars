@@ -10,7 +10,7 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
 2. **Set the default branch to `main`.** CodeRabbit skips every ai-wars PR until it is. GitHub: Settings → General → Default branch.
 3. **Publish the game to npm when A1 and G17 are ready (D-023).** It makes the connect step one line (`claude mcp add ascendant-wars -- npx ascendant-wars`). It is a public release, so it needs a yes.
 
-## Where things stand (2026-10-08 19:2xZ)
+## Where things stand (2026-10-08 20:1xZ)
 
 - Direction: fork Blacklink, swap its Fire Emblem layer for an Advance Wars-family layer, keep the agent-as-commander core (`DECISIONS.md` D-001).
 - `main` holds:
@@ -23,7 +23,7 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
     - G8a/G8b properties, table, intro, storm, framing; G10 battle feel; G11 the living board;
     - G12 ambient occlusion and high/medium/low quality tiers (`?quality=`).
 
-  2,727 tests, every merge on green CI, each PR re-tested against everything merged before it.
+  2,799 tests, every merge on green CI, each PR re-tested against everything merged before it.
 - **G14 (merged, #55): the player commands their agent.**
   - The objective screen has an orders card above Deploy: six unit groups (Advance / Hold / Fall back) and Powers, with missions, retreat, targets and single unit types under "More". It is saved per mission.
   - Deploy plays live. The player's turn is computed only when playback reaches it, under the orders set at that moment (D-022).
@@ -36,10 +36,13 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
   - Tools: `list_missions`, `start_mission`, `unit_info`, `observe`, `legal_actions`, `act`, `end_turn`, `get_orders`. Inputs are ids, enums and integers only.
   - Fog-honest: the agent sees only its side, in the tools and in the live feed on 127.0.0.1. The full record is served only after the match ends.
   - Each match gets a fresh, unannounced luck seed, so the agent cannot replay the battle offline.
-  - The browser screen for it is G17.
-- **In flight:** G17, "Connect your agent": the title's third choice opens three short connect steps; the agent's local server also serves the game page, so the agent hands the player one link to watch its battle live (only its own view until the match ends). On `aw/g17-connect` from `504fffc`.
-- **Next:** G18, the clean battle screen (D-023).
-- **Known follow-ups:** glass-waste's middle seat never wins; arcology-coast is mostly undecided at 40 cycles.
+  - **G17 (merged, #57):** the title's "Connect your agent" opens three short connect steps with Copy buttons. The agent's local server also serves the game page, so `start_mission` hands the agent one link (`live.watch`) for its person; the agent is told to pass it on. That page plays the battle live from the agent's side only, and adds the result, the debrief and "All" when the match ends. The server answers only its own Host, GET/HEAD only, inside `dist/` only.
+- **In flight:** G18, the clean battle screen (D-023): the board first, one slim bar (cycle, turn, funds, Orders, Details, View), and players, intel and the log in one drawer. On `aw/g18-clean` from `e7a3ff8`.
+- **Then:** a frozen-clock beauty pass of the whole game; the follow-ups below.
+- **Known follow-ups:**
+  - glass-waste's middle seat never wins; arcology-coast is mostly undecided at 40 cycles;
+  - orders from the page to a connected agent (the agent's `get_orders` still returns the defaults; it needs a local write route);
+  - mission story lines describe Doctrine's default play, which an outside agent may not follow.
 - Process: D-017 (private scratch space; the receipt is the last write). The lead reads every builder's screenshots, plants a regression in each change, and screenshots the integrated view before merging. Dev servers start with `setsid sh -c 'echo $$ > pidfile; exec pnpm dev ...'`, so the pidfile holds the real process group.
 - The `wip/*` branches on GitHub are stale backups. The git proxy refuses branch deletes (HTTP 403), so Matthew can delete them on the Branches page.
 
@@ -49,7 +52,7 @@ Items 1 and 2 under *Decisions waiting*: the repository is public (D-003), and i
 
 ## Next actions (none need the platform)
 
-1. Verify and merge G17.
-2. G18 (D-023).
+1. Verify and merge G18 (D-023).
+2. Orders from the page to a connected agent.
 3. A frozen-clock "beauty pass" of the integrated game at 1280 and 390; fix what reads cheap.
 4. When D-003 clears: M2 platform fork, then a hosted MCP server for ranked play (A1's server runs locally).
