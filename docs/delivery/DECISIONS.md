@@ -238,3 +238,19 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
      - The start screen shows the connect steps in at most three short lines, with a copy button and a link to play with the built-in commander.
   3. **The one-line connect command** (`npx ascendant-wars`) needs the game published to npm, which is a public release, so it waits on Matthew's or Edgy's yes. Until then the steps use a local copy of the repository.
 - **Reversible:** yes.
+
+### D-024: movement speed and smoothness are measured on every change to the battle screen (2026-10-08, RULED)
+- **Matthew, in this session (~21:3xZ):** *"Make sure to monitor for in game movement speed, smoothness etc"*.
+- **Decided:**
+  1. **What is measured:**
+     - frame pacing: fps, frame-interval p50/p95/p99/max, dropped frames, long tasks;
+     - unit glide speed against `TIMINGS` (`src/ui/watch/timing.ts`: 140 ms a tile at 1x, 70 at 2x, no glide at 4x or with reduced motion);
+     - no teleports, and glides ending on their tile;
+     - camera continuity;
+     - playback cadence at each speed.
+  2. **When:** every order that touches `src/ui/board3d`, `src/ui/watch` or a battle screen reports `pnpm motion --compare <main baseline>`. The lead re-measures before merging, and a broken budget (`docs/delivery/MOTION.md`, from P1) blocks the merge.
+  3. **The honest caveat:** this build machine has no GPU, so WebGL runs in software (SwiftShader). Its absolute fps is a floor, not a player's experience; only same-machine comparisons count.
+  4. **First finding (lead, production builds, first-light):**
+     - G18's bigger board dropped the software-rendered frame rate from 5.5 to 4.0 fps on desktop and from 16 to 10.3 on phone, at the 'low' tier, which has no step below it.
+     - G18 is held until P1 adds render-scale steps below 'low' and shows the bigger board is at least as smooth as main's.
+- **Reversible:** the budgets are; the measuring is not optional.
