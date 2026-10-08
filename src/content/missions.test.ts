@@ -1,4 +1,5 @@
-// M4.0 Act I of the campaign: missions 1-4 as data; M4.1 Act II, "False Colors": missions 5-7 (the second half of this file). Spec:
+// M4.0 Act I of the campaign: missions 1-4 as data; M4.1 Act II, "False Colors": missions 5-7; M4.2 Act III, "Thin Air": missions 8-11 (the last
+// third of this file). Spec:
 // docs/STORY.md "Act I", "Act II" and "Writing rules for dialogue", docs/delivery/DECISIONS.md D-004, D-005 and D-007,
 // docs/research/quality-bar.md section 15 (the par values the score uses). Every expectation is computed here from
 // the story text, from the map rows or from the engine's own queries, never copied back from missions.ts or mission-maps.ts. Known-bad
@@ -8,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FACTIONS, TERRAIN_CODES, TERRAIN_TYPES, UNIT_TYPES } from '../data';
 import { DAMAGE } from '../data/damage';
-import { IllegalActionError, applyAction, attackTargets, canSeeUnit, createGame, effectiveVision, incomeOf, propertyCount, scoreCard } from '../game/aw';
+import { IllegalActionError, applyAction, attackTargets, canCaptureHere, canSeeUnit, createGame, effectiveMove, effectiveVision, forecast, incomeOf, propertyCount, scoreCard, visibility } from '../game/aw';
 import type { Action, CreateGameOptions, PlayerSetup } from '../game/aw';
 import { simulate } from '../game/aw/sim';
 import type { SimPolicy } from '../game/aw/sim';
@@ -900,18 +901,21 @@ describe('Act II: the campaign act, and the campaign across both acts', () => {
     expect(ACT_II_OUTLINE[2][3]).toContain('Elder Maru Ingram');
     expect(ROOT_AND_BRANCH.location).toContain('Elder');
   });
-  it('lays the whole campaign out in order: acts 1 and 2, missions 1-7, ids / orders / maps / map names unique, no skirmish map shadowed', () => {
-    expect(ALL_ACTS.map((a) => a.act)).toEqual([1, 2]);
-    expect(ALL_MISSIONS).toHaveLength(7);
-    expect(ALL_MISSIONS.map((m) => m.order)).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    expect(ALL_ACTS.flatMap((a) => a.missions)).toEqual(ALL_MISSIONS.map((m) => m.id));
-    for (const a of ALL_ACTS) expect(ALL_MISSIONS.filter((m) => m.act === a.act).map((m) => m.id), `act ${a.act}`).toEqual(a.missions);
-    expect(duplicates(ALL_MISSIONS.map((m) => m.id))).toEqual([]);
-    expect(duplicates(ALL_MISSIONS.map((m) => m.mapId))).toEqual([]);
-    for (const m of ALL_MISSIONS) expect(m.id, m.id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
-    expect(Object.keys(ALL_MISSION_MAPS).sort()).toEqual(ALL_MISSIONS.map((m) => m.mapId).sort());
-    expect(new Set(Object.values(ALL_MISSION_MAPS).map((m) => m.name)).size).toBe(7);
-    for (const [key, map] of Object.entries(ALL_MISSION_MAPS)) {
+  it('lays acts 1 and 2 out in order: missions 1-7, ids / orders / maps / map names unique, no skirmish map shadowed (the whole campaign is checked under Act III)', () => {
+    const acts = ALL_ACTS.filter((a) => a.act <= 2);
+    const missions = ALL_MISSIONS.filter((m) => m.act <= 2);
+    const maps = Object.entries(ALL_MISSION_MAPS).filter(([id]) => missions.some((m) => m.mapId === id));
+    expect(acts.map((a) => a.act)).toEqual([1, 2]);
+    expect(missions).toHaveLength(7);
+    expect(missions.map((m) => m.order)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(acts.flatMap((a) => a.missions)).toEqual(missions.map((m) => m.id));
+    for (const a of acts) expect(missions.filter((m) => m.act === a.act).map((m) => m.id), `act ${a.act}`).toEqual(a.missions);
+    expect(duplicates(missions.map((m) => m.id))).toEqual([]);
+    expect(duplicates(missions.map((m) => m.mapId))).toEqual([]);
+    for (const m of missions) expect(m.id, m.id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+    expect(maps.map(([id]) => id).sort()).toEqual(missions.map((m) => m.mapId).sort());
+    expect(new Set(maps.map(([, m]) => m.name)).size).toBe(7);
+    for (const [key, map] of maps) {
       expect(map.id, key).toBe(key);
       expect(MAPS[key], `${key} must not shadow a skirmish map`).toBeUndefined();
     }
@@ -1632,4 +1636,1082 @@ describe('every Act II mission plays under simulate', () => {
     expect(history.every((h) => h.winner === null)).toBe(true);
     expect(history.filter((h) => h.cycle === 8), 'the agent, Rook, the drones and Juno each took their turn in cycle 8').toHaveLength(4);
   });
+});
+
+// ================================================================================================================================
+// M4.2 Act III, "Thin Air": missions 8-11. Spec: docs/STORY.md "Act III" (the outline; the entries for Corvin, Sable, Sefa, Dax, Rook, Ilse and
+// ECHO), "The secret", "Writing rules for dialogue" and D-007. Same method as Acts I and II above: every expectation comes from the story
+// text, the map rows, the data tables or the engine, never from missions.ts, and each group carries a planted failure it must keep catching.
+// Representation choices the tests pin down: the escort of mission 9 is a survive objective as long as the convoy's transit time; the Night
+// Wing's turn in mission 10 is a cycle event (a team cannot change mid-battle), with the drones a third team; mission 11 seats Sefa and Rook as
+// allies of the agent (D-007), never as the player.
+// ================================================================================================================================
+
+const ACT_III = ALL_MISSIONS.filter((m) => m.act === 3);
+const [TETHER_LINE, NIGHT_WING, DUEL_AT_ASHGRAVE, AUDIT] = ACT_III;
+const ACT_III_LINES = ACT_III.flatMap(linesOf);
+const ACT_III_STORY = STORY.slice(STORY.indexOf('### Act III'), STORY.indexOf('### Act IV'));
+const ACT_III_OUTLINE = [...ACT_III_STORY.matchAll(/^(\d+)\. \*\*([^*]+)\*\* — ([^\n]+)$/gm)];
+
+const MINOR_SPEAKERS_III = ['Tether Control', 'Coast Watch'];
+const ACT_III_SPEAKERS = ['echo', 'rook', 'ilse', 'sefa', 'dax', 'corvin', 'sable', 'narrator', ...MINOR_SPEAKERS_III];
+// STORY: ECHO never uses "!" (and the order adds Ilse, Sefa and the narrator; Dax is "smooth" and the minor voices are officials).
+// Act III may name the Hollow Choir, the Lattice and the Glass Waste, and may never name VESPER, Cantor, Mira or the Lattice core.
+const ACT_III_RULES: DialogueRules = {
+  speakers: ACT_III_SPEAKERS,
+  neverShouts: new Set(['echo', 'ilse', 'sefa', 'dax', 'narrator', ...MINOR_SPEAKERS_III]),
+  spoilers: [/vesper/i, /\bcantor\b/i, /\bmira\b/i, /lattice core/i],
+};
+
+const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const TENS_WORDS: Record<number, string> = { 20: 'twenty', 30: 'thirty', 40: 'forty', 50: 'fifty', 60: 'sixty' };
+/** A whole number in the words the story uses: 4 -> "four", 27 -> "twenty-seven", 120 -> "one hundred twenty". */
+function spell(n: number): string {
+  if (n < 20) return ONES[n];
+  if (n < 100) { const r = n % 10; return TENS_WORDS[n - r] + (r ? `-${ONES[r]}` : ''); }
+  const r = n % 100;
+  return `${ONES[Math.floor(n / 100)]} hundred${r ? ` ${spell(r)}` : ''}`;
+}
+
+/** The cheapest movement cost between two tiles for a move type (terrain only, units do not block); -1 when unreachable. */
+function pathCost(map: MapDef, from: { x: number; y: number }, to: { x: number; y: number }, mt: MoveType): number {
+  const h = map.terrain.length;
+  const w = map.terrain[0].length;
+  const dist = Array.from({ length: h }, () => new Array<number>(w).fill(Infinity));
+  dist[from.y][from.x] = 0;
+  const open = [{ ...from }];
+  while (open.length) {
+    open.sort((a, b) => dist[a.y][a.x] - dist[b.y][b.x]);
+    const cur = open.shift()!;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const c = TERRAIN_TYPES[TERRAIN_CODES[map.terrain[ny][nx]]].cost[mt];
+      if (c === null || dist[cur.y][cur.x] + c >= dist[ny][nx]) continue;
+      dist[ny][nx] = dist[cur.y][cur.x] + c;
+      open.push({ x: nx, y: ny });
+    }
+  }
+  return Number.isFinite(dist[to.y][to.x]) ? dist[to.y][to.x] : -1;
+}
+
+/** A copy of the state in which player `by` finishes capturing the spire owned by `spireOwner` (one capture point left, a Trooper on it). */
+function captureSpire(state: GameState, spireOwner: number, by = 0): GameState {
+  const s = clone(state);
+  let at: { x: number; y: number } | undefined;
+  s.tiles.forEach((row, y) => row.forEach((t, x) => { if (t.terrain === 'spire' && t.owner === spireOwner) at = { x, y }; }));
+  if (!at) throw new Error(`player ${spireOwner} has no spire`);
+  const spot = at;
+  s.units = s.units.filter((u) => !(u.x === spot.x && u.y === spot.y));
+  s.tiles[spot.y][spot.x].capture = 1;
+  const id = s.nextUnitId++;
+  s.units.push({ id, type: 'trooper', owner: by, x: spot.x, y: spot.y, hp: 100, charge: 99, ammo: 0, acted: false, cargo: [] });
+  s.current = by;
+  return applyAction(s, { kind: 'move', unitId: id, path: [spot], then: { kind: 'capture' } }).state;
+}
+
+/** Can the agent's Trooper capture Sefa's own spire? (False: a unit cannot capture an ally's property.) */
+function canCaptureCheck(state: GameState): boolean {
+  const spire = state.tiles.flatMap((row, y) => row.map((t, x) => ({ t, x, y }))).find((c) => c.t.terrain === 'spire' && c.t.owner === 3)!;
+  const s = clone(state);
+  s.units = s.units.filter((u) => !(u.x === spire.x && u.y === spire.y));
+  const id = s.nextUnitId++;
+  s.units.push({ id, type: 'trooper', owner: 0, x: spire.x, y: spire.y, hp: 100, charge: 99, ammo: 0, acted: false, cargo: [] });
+  return canCaptureHere(s, s.units.find((u) => u.id === id)!);
+}
+
+/** The same mission players with every commander set to one that does not exist, so no commander modifier touches a measurement. */
+const plainPlayers = (m: Mission): PlayerSetup[] => setupFor(m, 1).players.map((p) => ({ ...p, commander: 'none' }));
+
+describe('Act III helpers (known answers for the measuring tools used below)', () => {
+  it('spell writes numbers as the story does', () => {
+    expect([4, 15, 27, 41, 120].map(spell)).toEqual(['four', 'fifteen', 'twenty-seven', 'forty-one', 'one hundred twenty']);
+  });
+  it('pathCost is the cheapest terrain cost and refuses water for foot units', () => {
+    const tiny: MapDef = {
+      id: 'tiny', name: 'Tiny', description: 'A strip.', players: 2, terrain: ['..f.=', '.~~~~'], owners: ['.....', '.....'], units: [],
+    };
+    expect(pathCost(tiny, { x: 0, y: 0 }, { x: 4, y: 0 }, 'foot')).toBe(1 + 1 + 1 + 1); // canopy costs a foot unit 1
+    expect(pathCost(tiny, { x: 0, y: 0 }, { x: 4, y: 0 }, 'hover')).toBe(1 + 1 + 3 + 1); // canopy costs hover 3
+    expect(pathCost(tiny, { x: 0, y: 0 }, { x: 2, y: 1 }, 'foot')).toBe(-1); // sea
+  });
+});
+
+// ---------------------------------------------------------------- the act, and the campaign across all three acts
+
+describe('Act III: the campaign act, and the campaign across acts 1-3', () => {
+  it('has act 3, "Thin Air", with the tagline STORY.md prints under the heading and the four mission ids in outline order', () => {
+    const head = /### Act III — ([^\n]+)\n\*"([^"]+)"\*/.exec(STORY);
+    expect(head, 'STORY.md Act III heading').not.toBeNull();
+    expect(head![1]).toBe('Thin Air');
+    const act = ALL_ACTS.find((a) => a.act === 3);
+    expect(act, 'act 3 is listed').toBeDefined();
+    expect(act!.title).toBe(head![1]);
+    expect(act!.tagline).toBe(head![2]);
+    const idsFromTitles = ACT_III_OUTLINE.map((m) => m[2].toLowerCase().replace(/ /g, '-')); // 'Duel at Ashgrave' -> 'duel-at-ashgrave'
+    expect(act!.missions).toEqual(idsFromTitles);
+    expect(act!.missions).toEqual(ACT_III.map((m) => m.id));
+  });
+  it('follows the Act III outline in STORY.md: titles and numbers in order, and the places it names', () => {
+    expect(ACT_III_OUTLINE.map((m) => m[2])).toEqual(['Tether Line', 'Night Wing', 'Duel at Ashgrave', 'Audit']);
+    expect(ACT_III.map((m) => m.title)).toEqual(ACT_III_OUTLINE.map((m) => m[2]));
+    expect(ACT_III.map((m) => m.order)).toEqual(ACT_III_OUTLINE.map((m) => Number(m[1])));
+    expect(ACT_III.map((m) => m.order)).toEqual([8, 9, 10, 11]);
+    expect(ACT_III.every((m) => m.act === 3)).toBe(true);
+    expect(TETHER_LINE.location, "the Kestrel Dominion's home is the Tether Ridges").toBe(FACTIONS.kestrel.home);
+    expect(AUDIT.location, "Tidewell's coast").toBe(FACTIONS.tidewell.home);
+    expect(ACT_III_OUTLINE[2][3]).toContain('Corvin meets Rook');
+    expect(DUEL_AT_ASHGRAVE.location).toContain('Ashgrave');
+    expect(ACT_III_OUTLINE[1][3]).toContain('ion storm over the passes');
+    expect(NIGHT_WING.location).toContain('Passes');
+  });
+  it('lays the whole campaign out in order across acts 1-3: missions 1-11, ids / orders / maps / map names unique, no skirmish map shadowed', () => {
+    expect(ALL_ACTS.map((a) => a.act)).toEqual([1, 2, 3]);
+    expect(ALL_MISSIONS).toHaveLength(11);
+    expect(ALL_MISSIONS.map((m) => m.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(ALL_ACTS.flatMap((a) => a.missions)).toEqual(ALL_MISSIONS.map((m) => m.id));
+    for (const a of ALL_ACTS) expect(ALL_MISSIONS.filter((m) => m.act === a.act).map((m) => m.id), `act ${a.act}`).toEqual(a.missions);
+    expect(duplicates(ALL_MISSIONS.map((m) => m.id))).toEqual([]);
+    expect(duplicates(ALL_MISSIONS.map((m) => m.mapId))).toEqual([]);
+    for (const m of ALL_MISSIONS) expect(m.id, m.id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+    expect(Object.keys(ALL_MISSION_MAPS).sort()).toEqual(ALL_MISSIONS.map((m) => m.mapId).sort());
+    expect(new Set(Object.values(ALL_MISSION_MAPS).map((m) => m.name)).size).toBe(11);
+    for (const [key, map] of Object.entries(ALL_MISSION_MAPS)) {
+      expect(map.id, key).toBe(key);
+      expect(MAPS[key], `${key} must not shadow a skirmish map`).toBeUndefined();
+    }
+    for (const map of Object.values(ALL_MISSION_MAPS)) expect(Object.values(MAPS).some((s) => s.name === map.name), `${map.name} reuses a skirmish map name`).toBe(false);
+  });
+  it('would notice a duplicated mission id, an Act III mission filed under another act, or a tagline copied from the wrong act', () => {
+    expect(duplicates([...ALL_MISSIONS.map((m) => m.id), 'audit'])).toEqual(['audit']);
+    expect(duplicates([...ALL_MISSIONS.map((m) => m.mapId), 'm8-tether-line'])).toEqual(['m8-tether-line']);
+    expect(ALL_ACTS[2].tagline).not.toBe(ALL_ACTS[1].tagline);
+    expect(ALL_ACTS[2].missions.some((id) => ALL_ACTS[1].missions.includes(id)), 'no mission belongs to two acts').toBe(false);
+    expect(ALL_ACTS[2].missions.slice(0, 3)).not.toEqual(ACT_III.map((m) => m.id));
+    expect(ALL_ACTS[2].missions.length, 'a missing mission would shorten the act').toBe(4);
+  });
+});
+
+describe('the four Act III missions: shape', () => {
+  it('have 6-14 briefing lines, 2-6 events (start, victory and defeat among them), 4-10 debrief lines, and every event is once', () => {
+    expect(ACT_III).toHaveLength(4);
+    for (const m of ACT_III) {
+      expect(m.briefing.length, `${m.id} briefing`).toBeGreaterThanOrEqual(6);
+      expect(m.briefing.length, `${m.id} briefing`).toBeLessThanOrEqual(14);
+      expect(m.events.length, `${m.id} events`).toBeGreaterThanOrEqual(2);
+      expect(m.events.length, `${m.id} events`).toBeLessThanOrEqual(6);
+      expect(m.debrief.length, `${m.id} debrief`).toBeGreaterThanOrEqual(4);
+      expect(m.debrief.length, `${m.id} debrief`).toBeLessThanOrEqual(10);
+      const kinds = m.events.map((e) => e.trigger.kind);
+      for (const k of ['start', 'victory', 'defeat']) expect(kinds, `${m.id} has a ${k} event`).toContain(k);
+      for (const e of m.events) {
+        expect(e.once, `${m.id} ${e.trigger.kind}`).toBe(true);
+        expect(e.lines.length, `${m.id} ${e.trigger.kind}`).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+  it('have a title, a location, a one-line summary and an objective sentence, no turn limit (D-013), fog in missions 9 and 11 only, and the ion storm in mission 9 only', () => {
+    for (const m of ACT_III) {
+      expect(m.title.length, m.id).toBeGreaterThan(0);
+      expect(m.location.length, m.id).toBeGreaterThan(0);
+      expect(m.summary, m.id).toMatch(/^[A-Z][^\n]+\.$/);
+      expect(m.summary.length, m.id).toBeLessThanOrEqual(160);
+      expect(m.objectiveText, m.id).toMatch(/^[A-Z][^\n]+\.$/);
+      expect(m.turnLimit, `${m.id}: the engine reads turnLimit as a versus day limit (D-013)`).toBeUndefined();
+    }
+    expect(ACT_III.map((m) => m.fog)).toEqual([false, true, false, true]);
+    expect(ACT_III.map((m) => m.weather)).toEqual(['clear', 'ionstorm', 'clear', 'clear']);
+    expect(ACT_III_OUTLINE[1][3], 'STORY puts the ion storm in mission 9').toContain('Ion Storm weather');
+    expect(ALL_MISSIONS.filter((m) => m.act !== 3).every((m) => m.weather === 'clear'), 'Acts I and II have no storm').toBe(true);
+  });
+  it('sets the ion storm on mission 9: the engine starts in a storm that never lifts and fogs the map whatever the fog flag says, and clear weather shows everything (known-bad control)', () => {
+    const s = createGame(setupFor(NIGHT_WING, 1));
+    expect(s.weather).toBe('ionstorm');
+    expect(s.baseWeather, 'the storm is the base weather, so nothing restores clear sky').toBe('ionstorm');
+    expect(s.weatherTurnsLeft, '0 turns left means permanent').toBe(0);
+    expect(visibility(s, 0).flat().some((seen) => !seen), 'part of the map is hidden from the agent').toBe(true);
+    // The engine fogs a storm even when the fog flag is off, which is why the mission sets fog on beside it.
+    expect(visibility(createGame({ ...setupFor(NIGHT_WING, 1), fog: false }), 0).flat().some((seen) => !seen)).toBe(true);
+    expect(NIGHT_WING.fog).toBe(true);
+    // Known-bad control: the same map with clear weather and no fog shows every tile.
+    const clear = createGame({ ...setupFor(NIGHT_WING, 1), fog: false, weather: 'clear' });
+    expect(visibility(clear, 0).flat().every(Boolean)).toBe(true);
+    for (const m of [TETHER_LINE, DUEL_AT_ASHGRAVE, AUDIT]) expect(createGame(setupFor(m, 1)).weather, m.id).toBe('clear');
+  });
+  it('have par values the score can use: whole positive cycles, a positive power, and a survival whose par is not shorter than the survival', () => {
+    for (const m of ACT_III) {
+      expect(Number.isInteger(m.par.cycles) && m.par.cycles > 0, `${m.id} par.cycles`).toBe(true);
+      expect(Number.isFinite(m.par.power) && m.par.power > 0, `${m.id} par.power`).toBe(true);
+      expect(() => scoreCard(createGame(setupFor(m, 1)), 0, m.par), m.id).not.toThrow();
+      if (m.objective.kind === 'survive') expect(m.par.cycles, m.id).toBeGreaterThanOrEqual(m.objective.cycles);
+    }
+    expect(ACT_III.map((m) => m.par.cycles)).toEqual([12, 5, 14, 14]);
+    expect(() => scoreCard(createGame(setupFor(NIGHT_WING, 1)), 0, { cycles: 0, power: 2 }), 'a zero par is refused').toThrow();
+  });
+  it('mean what the design says: a rout for the armour, a five-cycle survival for the escort, and spire captures for the duel and the audit', () => {
+    expect(TETHER_LINE.objective).toEqual({ kind: 'rout' });
+    expect(NIGHT_WING.objective).toEqual({ kind: 'survive', cycles: 5 });
+    expect(ONES.indexOf(/for (\w+) cycles/.exec(NIGHT_WING.objectiveText)![1]), 'the objective sentence says the number').toBe(5);
+    expect(DUEL_AT_ASHGRAVE.objective).toEqual({ kind: 'hq' });
+    expect(AUDIT.objective).toEqual({ kind: 'hq' });
+    expect(ACT_III_OUTLINE[2][3]).toContain('HQ capture');
+    expect(ACT_III_OUTLINE[1][3]).toContain('escort');
+    expect(ACT_III_OUTLINE[0][3]).toContain('Teaches ridges, walkers, defense stars');
+    expect(DUEL_AT_ASHGRAVE.objectiveText).toMatch(/^Capture Ashgrave Spire/);
+    expect(AUDIT.objectiveText).toMatch(/^Capture the Harbour Exchange/);
+  });
+});
+
+// ---------------------------------------------------------------- players: D-007
+
+describe('Act III players (D-007: the agent is the commander, the named cast are NPCs)', () => {
+  it('seat the agent as player 0 (human, "agent", Helion), Rook as an AI ally on its team, the opposing force in slot 2, and exactly one human', () => {
+    expect(ACT_III.map((m) => m.players.length)).toEqual([3, 3, 4, 4]);
+    for (const m of ACT_III) {
+      const [me, ally, foe] = m.players;
+      expect(me, m.id).toMatchObject({ faction: 'helion', commander: 'agent', controller: 'human', team: 0 });
+      expect(ally, m.id).toMatchObject({ faction: 'helion', commander: 'rook', controller: 'ai', team: me.team });
+      expect(foe.controller, m.id).toBe('ai');
+      expect(foe.team, m.id).not.toBe(me.team);
+      expect(m.players.filter((p) => p.controller === 'human'), m.id).toHaveLength(1);
+    }
+  });
+  it('uses the opponents STORY.md names: the Highlord, then Sable, then the Highlord again, then the unmarked Choir', () => {
+    expect(TETHER_LINE.players[2]).toMatchObject({ faction: 'kestrel', commander: 'corvin' });
+    expect(NIGHT_WING.players[2]).toMatchObject({ faction: 'kestrel', commander: 'sable' });
+    expect(DUEL_AT_ASHGRAVE.players[2]).toMatchObject({ faction: 'kestrel', commander: 'corvin' });
+    expect(AUDIT.players[2]).toMatchObject({ faction: 'choir', commander: 'none' }); // Dax hands the fabricators over; the Choir has no named commander yet
+    expect(ACT_III_OUTLINE[0][3]).toContain('Corvin Ashgrave');
+    expect(ACT_III_OUTLINE[1][3]).toContain('Sable Ashgrave');
+    expect(ACT_III_OUTLINE[3][3]).toContain('Dax is exposed');
+  });
+  it('names real commanders of the right faction, leaves "agent" and "none" unknown, and pays every player exactly 1000 a property (no Act III commander changes income)', () => {
+    for (const m of ACT_III) {
+      for (const p of m.players) {
+        if (p.commander === 'agent' || p.commander === 'none') continue;
+        expect(COMMANDERS[p.commander], `${m.id} ${p.commander}`).toBeDefined();
+        expect(COMMANDERS[p.commander].faction, `${m.id} ${p.commander}`).toBe(p.faction);
+      }
+      const s = createGame(setupFor(m, 1));
+      for (let p = 0; p < m.players.length; p++) {
+        expect(incomeOf(s, p), `${m.id} player ${p}`).toBe(1000 * tilesOf(mapOf(m), (c, o) => 'CFADH'.includes(c) && o === String(p)).length);
+      }
+    }
+    expect(COMMANDERS.corvin.pronouns).toBe('he/him');
+    expect(COMMANDERS.sable.pronouns).toBe('she/her');
+  });
+  it('keeps VESPER and Cantor out of Act III: the Choir has players in missions 10 and 11 only, and never a named commander', () => {
+    const choir = ACT_III.flatMap((m) => m.players.map((p) => ({ m: m.id, p }))).filter((x) => x.p.faction === 'choir');
+    expect(choir.map((x) => x.m)).toEqual(['duel-at-ashgrave', 'audit']);
+    for (const x of choir) expect(x.p.commander, x.m).toBe('none');
+    expect(ALL_MISSIONS.flatMap((m) => m.players).filter((p) => ['cantor', 'vesper'].includes(p.commander))).toEqual([]);
+    expect(ALL_MISSIONS.flatMap((m) => m.players).filter((p) => p.faction === 'choir').length, 'the Choir fields players in missions 1, 6, 10 and 11').toBe(4);
+  });
+  it('mission 10: the Choir is a third team hostile to both armies, so its Wasp may shoot the Helion line and the Highlord\'s line alike (and only the Helion line if it sat on his team)', () => {
+    const [me, rook, corvin, drones] = DUEL_AT_ASHGRAVE.players;
+    expect(new Set([me.team, rook.team, corvin.team, drones.team]).size, 'three teams').toBe(3);
+    expect(drones.team).not.toBe(corvin.team);
+    const units: MapDef['units'] = [
+      { type: 'wasp', owner: 3, x: 12, y: 3 }, { type: 'trooper', owner: 0, x: 12, y: 4 }, { type: 'trooper', owner: 2, x: 11, y: 3 }, { type: 'trooper', owner: 1, x: 4, y: 9 },
+    ];
+    const s = probe(DUEL_AT_ASHGRAVE, units);
+    const wasp = s.units.find((u) => u.owner === 3)!;
+    const targets = attackTargets(s, wasp.id, { x: 12, y: 3 }).map((c) => `${c.x},${c.y}`).sort();
+    expect(targets).toEqual(['11,3', '12,4']);
+    // Known-bad control: put the drones on the Highlord's team and his Trooper stops being a target.
+    const allied = probe(DUEL_AT_ASHGRAVE, units, { players: setupFor(DUEL_AT_ASHGRAVE, 1).players.map((p, i) => (i === 3 ? { ...p, team: corvin.team } : p)) });
+    const wasp2 = allied.units.find((u) => u.owner === 3)!;
+    expect(attackTargets(allied, wasp2.id, { x: 12, y: 3 }).map((c) => `${c.x},${c.y}`)).toEqual(['12,4']);
+  });
+  it('mission 11 (D-007): Sefa and Rook are AI allies on the agent\'s team, the Choir is the only enemy, and "player controls Sefa" is read as the agent attached to her fleet', () => {
+    expect(ACT_III_OUTLINE[3][3]).toContain('player controls Sefa');
+    expect(ACT_III_OUTLINE[3][3]).toContain('Two-front allied mission');
+    const [me, rook, choir, sefa] = AUDIT.players;
+    expect(sefa).toMatchObject({ faction: 'tidewell', commander: 'sefa', controller: 'ai', team: me.team });
+    expect(rook).toMatchObject({ commander: 'rook', controller: 'ai', team: me.team });
+    expect(choir.team).not.toBe(me.team);
+    expect(AUDIT.players.filter((p) => p.team !== me.team)).toHaveLength(1);
+    expect(AUDIT.players.filter((p) => p.controller === 'human')).toHaveLength(1);
+    expect(AUDIT.players.some((p) => p.commander === 'sefa' && p.controller === 'human'), 'Sefa is never the player').toBe(false);
+    expect(textOf(AUDIT, 'echo')).toMatch(/your agent is attached to Admiral Tamura's fleet as its adjutant/);
+    // Engine: Sefa's Dreadnought shells the Choir's Trooper on the beach and never the agent's Trooper beside it.
+    const units: MapDef['units'] = [
+      { type: 'dreadnought', owner: 3, x: 10, y: 3 }, { type: 'trooper', owner: 0, x: 10, y: 6 }, { type: 'trooper', owner: 2, x: 12, y: 6 }, { type: 'trooper', owner: 1, x: 3, y: 11 },
+    ];
+    const s = probe(AUDIT, units, { fog: false });
+    const ship = s.units.find((u) => u.owner === 3)!;
+    expect(attackTargets(s, ship.id, { x: 10, y: 3 }).map((c) => `${c.x},${c.y}`)).toEqual(['12,6']);
+    // Known-bad control: give Sefa a team of her own and the agent's Trooper is a target.
+    const foe = probe(AUDIT, units, { fog: false, players: setupFor(AUDIT, 1).players.map((p, i) => (i === 3 ? { ...p, team: 9 } : p)) });
+    const ship2 = foe.units.find((u) => u.owner === 3)!;
+    expect(attackTargets(foe, ship2.id, { x: 10, y: 3 }).map((c) => `${c.x},${c.y}`)).toContain('10,6');
+  });
+});
+
+// ---------------------------------------------------------------- maps
+
+describe('the Act III maps', () => {
+  it('pass checkMap with the default options: every player slot owns exactly one spire and a fabricator', () => {
+    for (const m of ACT_III) {
+      expect(checkMap(mapOf(m)), m.id).toEqual([]);
+      for (let p = 0; p < m.players.length; p++) {
+        expect(countOf(mapOf(m), 'H', String(p)), `${m.id} p${p} spires`).toBe(1);
+        expect(countOf(mapOf(m), 'F', String(p)), `${m.id} p${p} fabricators`).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+  it('would catch a broken Act III map: a spire removed, a fabricator removed, a spire sealed behind water, a unit on ground it cannot enter', () => {
+    const noSable = clone(mapOf(NIGHT_WING));
+    const sp = spireOf(noSable, 2);
+    setCell(noSable.terrain, sp.x, sp.y, '.');
+    setCell(noSable.owners, sp.x, sp.y, '.');
+    expect(checkMap(noSable).map((i) => i.rule)).toEqual(['spire']);
+    const noRelayFab = clone(mapOf(DUEL_AT_ASHGRAVE));
+    const f = tilesOf(noRelayFab, (c, o) => c === 'F' && o === '3')[0];
+    setCell(noRelayFab.terrain, f.x, f.y, '.');
+    setCell(noRelayFab.owners, f.x, f.y, '.');
+    expect(checkMap(noRelayFab).map((i) => i.rule)).toEqual(['fabricator']);
+    const sealed = clone(mapOf(AUDIT));
+    const t = spireOf(sealed, 3);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (sealed.terrain[t.y + dy]?.[t.x + dx] !== undefined) setCell(sealed.terrain, t.x + dx, t.y + dy, '~');
+    expect(checkMap(sealed).map((i) => i.rule)).toContain('reach-base');
+    const stranded = clone(mapOf(TETHER_LINE));
+    stranded.units.push({ type: 'bastion', owner: 2, x: 9, y: 4 }); // a tread unit on a ridge
+    expect(checkMap(stranded).map((i) => i.rule)).toEqual(['unit-terrain']);
+    for (const m of ACT_III) expect(checkMap(mapOf(m)), `${m.id}: the unbroken map is fine`).toEqual([]);
+  });
+  it('seat exactly as many players as the mission has, with every unit and property owner one of them, and describe themselves in one sentence that agrees with the mission', () => {
+    for (const m of ACT_III) {
+      const map = mapOf(m);
+      expect(map.players, m.id).toBe(m.players.length);
+      for (const u of map.units) expect(u.owner, m.id).toBeLessThan(m.players.length);
+      for (let p = 0; p < m.players.length; p++) expect(map.units.filter((u) => u.owner === p).length, `${m.id} player ${p} starts with units`).toBeGreaterThan(0);
+      expect(map.description, m.id).toMatch(/^[A-Z][^.!?]*\.$/);
+      expect(map.description.length, m.id).toBeLessThan(200);
+      expect(map.recommended?.fog, `${m.id} recommended fog`).toBe(m.fog);
+      expect(map.recommended?.weather, `${m.id} recommended weather`).toBe(m.weather);
+      expect(map.recommended?.startFunds, `${m.id} recommended funds`).toBe(m.players[0].funds);
+    }
+  });
+  it('have the sizes they were drawn at and are drawn for their story beat, not mirrored', () => {
+    expect(ACT_III.map((m) => `${mapOf(m).terrain[0].length}x${mapOf(m).terrain.length}`)).toEqual(['22x14', '24x12', '24x14', '24x14']);
+    for (const m of ACT_III) expect(symmetryOf(mapOf(m)), m.id).toBe('none');
+  });
+  it('place the agent\'s whole team on the west and the opposing spire on the east, with no allied unit starting within four tiles of anyone else\'s', () => {
+    for (const m of ACT_III) {
+      const map = mapOf(m);
+      const width = map.terrain[0].length;
+      const mine = m.players.map((p, i) => (p.team === m.players[0].team ? i : -1)).filter((i) => i >= 0);
+      const allies = map.units.filter((u) => mine.includes(u.owner));
+      const others = map.units.filter((u) => !mine.includes(u.owner));
+      for (const u of allies) expect(u.x, `${m.id} ally ${u.type} at (${u.x},${u.y})`).toBeLessThan(width / 2);
+      expect(spireOf(map, 2).x, `${m.id}: the opposing spire`).toBeGreaterThan(width / 2);
+      const gap = Math.min(...allies.flatMap((a) => others.map((f) => Math.abs(a.x - f.x) + Math.abs(a.y - f.y))));
+      expect(gap, `${m.id}: nearest ally-to-other distance at the start`).toBeGreaterThanOrEqual(4);
+    }
+  });
+  it('mission 8 is a ridge line: a spine with a maglev gate and a low pass, crests flanking the gate, Colossus walkers on the spine, and treads and hover held to the gates', () => {
+    const map = mapOf(TETHER_LINE);
+    for (const x of [9, 10, 11]) expect(map.terrain.map((row) => row[x]).filter((ch) => ch === '^').length, `spine column ${x}`).toBeGreaterThanOrEqual(10);
+    for (const x of [9, 10, 11]) {
+      expect(map.terrain[6][x], 'the Tether Line gate is maglev').toBe('=');
+      expect(map.terrain[11][x], 'the low pass is flats').toBe('.');
+    }
+    for (const x of [7, 8]) { // foothill crests above and below the road, on the Helion side of the gate
+      expect(map.terrain[5][x]).toBe('^');
+      expect(map.terrain[7][x]).toBe('^');
+      expect(map.terrain[6][x]).toBe('=');
+    }
+    expect(spireOf(map, 2).y, 'the Tether Gate spire is at the end of the line').toBe(6);
+    const corvin = map.units.filter((u) => u.owner === 2);
+    const onRidge = (u: { x: number; y: number }) => map.terrain[u.y][u.x] === '^';
+    expect(corvin.filter((u) => u.type === 'colossus').length).toBe(2);
+    expect(corvin.filter((u) => u.type === 'colossus').every(onRidge), 'both walkers start on the spine').toBe(true);
+    for (const u of corvin.filter((x) => ['tread', 'hover'].includes(UNIT_TYPES[x.type].moveType))) expect(onRidge(u), `${u.type} cannot stand on a ridge`).toBe(false);
+    // The lesson in the geometry: with both gates sealed, treads and hover units cannot cross the spine, but walkers and foot units still can.
+    const a = spireOf(map, 0);
+    const b = spireOf(map, 2);
+    expect(distances(map, a, costFor('tread'))[b.y][b.x], 'treads reach the Tether Gate by the gates').toBeGreaterThan(0);
+    const sealed = clone(map);
+    for (const y of [6, 11]) for (const x of [9, 10, 11]) setCell(sealed.terrain, x, y, '^');
+    expect(distances(sealed, a, costFor('tread'))[b.y][b.x], 'sealed: treads are stopped').toBe(-1);
+    expect(distances(sealed, a, costFor('hover'))[b.y][b.x], 'sealed: hover units are stopped').toBe(-1);
+    expect(distances(sealed, a, costFor('walker'))[b.y][b.x], 'sealed: walkers climb over').toBeGreaterThan(0);
+    expect(distances(sealed, a, costFor('foot'))[b.y][b.x], 'sealed: foot units climb over').toBeGreaterThan(0);
+  });
+  it('mission 9 is a mountain pass: mostly ridge, a monotone maglev staircase from the convoy to a neutral uplink, a Night Wing plateau, and an escort that takes five cycles', () => {
+    const map = mapOf(NIGHT_WING);
+    expect(countOf(map, '^') / (map.terrain.length * map.terrain[0].length), 'mostly ridge').toBeGreaterThan(0.4);
+    const exit = tilesOf(map, (c, o) => c === 'U' && o === '.');
+    expect(exit, 'one neutral uplink at the top of the road').toHaveLength(1);
+    const mules = map.units.filter((u) => u.owner === 1 && u.type === 'mule');
+    expect(mules).toHaveLength(3);
+    for (const u of mules) expect(map.terrain[u.y][u.x], 'the convoy starts on the road').toBe('=');
+    const mule = UNIT_TYPES.mule;
+    const costs = mules.map((u) => pathCost(map, u, exit[0], mule.moveType));
+    for (const [i, c] of costs.entries()) {
+      const manhattan = Math.abs(mules[i].x - exit[0].x) + Math.abs(mules[i].y - exit[0].y);
+      expect(c, `Mule ${i}: the road is a staircase with no detour`).toBe(manhattan);
+      expect(Math.ceil(c / mule.move), `Mule ${i}: cycles to the uplink`).toBe(5);
+      expect(c, `Mule ${i}: four cycles are not enough`).toBeGreaterThan(4 * mule.move);
+    }
+    expect(Math.max(...costs)).toBe(27);
+    expect(Math.ceil(24 / mule.move), 'known-bad: a 24-step road would take four cycles, not five').toBe(4);
+    // Sable's plateau: her spire, fabricator and skyport sit north-east of the valley, and her wing is Wasps, a Raptor and an Anvil.
+    for (const ch of 'HFA') for (const t of tilesOf(map, (c, o) => c === ch && o === '2')) { expect(t.x).toBeGreaterThanOrEqual(14); expect(t.y).toBeLessThanOrEqual(3); }
+    const sable = map.units.filter((u) => u.owner === 2);
+    expect(new Set(sable.filter((u) => UNIT_TYPES[u.type].domain === 'air').map((u) => u.type))).toEqual(new Set(['wasp', 'raptor', 'anvil']));
+    expect(sable.filter((u) => u.type === 'wasp').length).toBeGreaterThanOrEqual(3);
+    for (const p of [0, 1]) expect(map.units.filter((u) => u.owner === p && u.type === 'warden').length, `p${p} Wardens`).toBeGreaterThanOrEqual(1);
+  });
+  it('mission 10 is a duel: a field between the lines, a city and two outcrops in its middle, two terraces each crossed by one maglev gate, a Choir relay on the north edge, and a drone squad on each flank', () => {
+    const map = mapOf(DUEL_AT_ASHGRAVE);
+    const height = map.terrain.length;
+    for (const x of [16, 19]) {
+      const column = map.terrain.map((row) => row[x]);
+      expect(column.filter((ch) => ch === '^').length, `terrace wall at x=${x}`).toBe(height - 1);
+      expect(column.filter((ch) => ch !== '^'), `the one gate at x=${x}`).toEqual(['=']);
+      expect(map.terrain[7][x]).toBe('=');
+    }
+    const spire = spireOf(map, 2);
+    expect(spire.x, "the Highlord's spire is at the top of the heights").toBeGreaterThanOrEqual(20);
+    expect(map.terrain[spire.y][spire.x - 1], 'the road reaches it').toBe('=');
+    expect(map.terrain[7][11], 'the city in the middle of the field').toBe('C');
+    expect(map.terrain[5][11] + map.terrain[9][11], 'an outcrop either side of it').toBe('^^');
+    const relay = spireOf(map, 3);
+    expect(relay.y, 'the relay is on the north edge').toBeLessThanOrEqual(2);
+    expect(countOf(map, 'F', '3')).toBeGreaterThanOrEqual(1);
+    const drones = map.units.filter((u) => u.owner === 3);
+    expect(drones.filter((u) => u.y <= 5)).toHaveLength(3);
+    expect(drones.filter((u) => u.y >= 8)).toHaveLength(3);
+    expect(drones.filter((u) => u.y > 5 && u.y < 8), 'nothing in the middle').toHaveLength(0);
+    for (const d of drones) for (const o of map.units.filter((u) => u.owner !== 3)) expect(Math.abs(d.x - o.x) + Math.abs(d.y - o.y), `drone ${d.type} at (${d.x},${d.y}) stands off`).toBeGreaterThanOrEqual(3);
+    // Sable's wing is the Highlord's own air force: three Wasps and a Raptor, on the terraces.
+    const wing = map.units.filter((u) => u.owner === 2 && UNIT_TYPES[u.type].domain === 'air');
+    expect(wing.filter((u) => u.type === 'wasp').length).toBeGreaterThanOrEqual(3);
+    expect(wing.filter((u) => u.type === 'raptor').length).toBeGreaterThanOrEqual(1);
+    for (const u of wing) expect(u.x).toBeGreaterThanOrEqual(17);
+    // Treads cannot climb the terraces except at the gates: sealing the two gates in the first wall cuts the spire off from them.
+    const sealed = clone(map);
+    setCell(sealed.terrain, 16, 7, '^');
+    expect(distances(sealed, spireOf(map, 0), costFor('tread'))[spire.y][spire.x], 'sealed: no tread route').toBe(-1);
+    expect(distances(map, spireOf(map, 0), costFor('tread'))[spire.y][spire.x], 'open: a tread route').toBeGreaterThan(0);
+  });
+  it('mission 11 is a coast: a northern sea over a beach, a fleet front in the north-west and a land front in the south-west, three Choir fabricators on the beach each in reach of both, and the Exchange at the end of the coast road', () => {
+    const map = mapOf(AUDIT);
+    expect(countOf(map, '~')).toBeGreaterThan(80);
+    expect(countOf(map, 's')).toBeGreaterThanOrEqual(15);
+    const fabs = tilesOf(map, (c, o) => c === 'F' && o === '2');
+    expect(fabs).toHaveLength(3);
+    const dock = tilesOf(map, (c, o) => c === 'D' && o === '3')[0];
+    const bySea = distances(map, dock, costFor('sea'));
+    const onFoot = distances(map, spireOf(map, 0), costFor('foot'));
+    const dread = UNIT_TYPES.dreadnought.range!;
+    for (const f of fabs) {
+      expect(map.terrain[f.y - 1][f.x], `fabricator (${f.x},${f.y}) has a beach in front of it`).toBe('s');
+      expect(onFoot[f.y][f.x], `(${f.x},${f.y}) is reachable on foot from the agent's spire`).toBeGreaterThan(0);
+      const seaTiles = tilesOf(map, (c, _o, x, y) => c === '~' && bySea[y][x] >= 0 && Math.abs(x - f.x) + Math.abs(y - f.y) <= dread[1]);
+      expect(seaTiles.length, `(${f.x},${f.y}) is within a Dreadnought's reach of water the fleet can sail`).toBeGreaterThan(0);
+    }
+    for (const d of tilesOf(map, (c, o) => c === 'D' && o === '3')) {
+      expect([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => map.terrain[d.y + dy][d.x + dx] === '~'), `dock (${d.x},${d.y}) touches the sea`).toBe(true);
+    }
+    const exchange = spireOf(map, 2);
+    expect(map.terrain[exchange.y][exchange.x - 1], 'the coast road ends at the Exchange').toBe('=');
+    expect(countOf(map, 'A', '2'), 'a Choir skyport').toBe(1);
+    // Two fronts: the fleet and its garrison in the north, the Helion bases in the south, a clear gap between them.
+    const fleet = map.units.filter((u) => u.owner === 3);
+    const land = map.units.filter((u) => u.owner === 0 || u.owner === 1);
+    expect(fleet.every((u) => u.y <= 5)).toBe(true);
+    expect(land.every((u) => u.y >= 8)).toBe(true);
+    expect(fleet.filter((u) => UNIT_TYPES[u.type].domain === 'sea').map((u) => u.type).sort()).toEqual(['barge', 'barge', 'dreadnought', 'picket', 'picket']);
+    for (const f of fleet) for (const l of land) expect(Math.abs(f.x - l.x) + Math.abs(f.y - l.y), 'the fronts are apart').toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('createGame on the Act III maps', () => {
+  it('builds each mission from its own players, with its own fog and weather, and pays player 0 its mission funds plus 1000 a property on turn one', () => {
+    for (const m of ACT_III) {
+      const map = mapOf(m);
+      const s = createGame(setupFor(m, 1));
+      expect(s.mapId, m.id).toBe(m.mapId);
+      expect(s.players.map((p) => p.commander), m.id).toEqual(m.players.map((p) => p.commander));
+      expect(s.players.map((p) => p.team), m.id).toEqual(m.players.map((p) => p.team));
+      expect(s.units, m.id).toHaveLength(map.units.length);
+      expect(s.fog, m.id).toBe(m.fog);
+      expect(s.weather, m.id).toBe(m.weather);
+      expect(s.objective, m.id).toEqual(m.objective);
+      expect(s.players[0].funds, m.id).toBe((m.players[0].funds ?? 0) + 1000 * tilesOf(map, (c, o) => 'CFADH'.includes(c) && o === '0').length);
+      for (let p = 1; p < m.players.length; p++) expect(s.players[p].funds, `${m.id} player ${p} has not started a turn`).toBe(m.players[p].funds ?? 0);
+      expect(countOf(map, 'F', '0') > 0 && s.players[0].funds >= 1000, `${m.id}: something to buy`).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------- objectives and triggers
+
+describe('Act III objectives and triggers', () => {
+  it('gives every spire objective an enemy spire to take, and refuses a map without one or a mission whose enemy has joined the agent\'s team', () => {
+    for (const m of [TETHER_LINE, DUEL_AT_ASHGRAVE, AUDIT]) expect(hqProblems(m, mapOf(m)), m.id).toEqual([]);
+    expect(tilesOf(mapOf(TETHER_LINE), (c, o) => c === 'H' && o === '2'), 'a rout can also be won by taking the Tether Gate spire').toHaveLength(1);
+    expect(TETHER_LINE.objectiveText).toMatch(/spire/);
+    expect(hqProblems(NIGHT_WING, mapOf(NIGHT_WING)), 'only hq objectives are judged').toEqual([]);
+    const noSpire = clone(mapOf(AUDIT));
+    const s = spireOf(noSpire, 2);
+    setCell(noSpire.terrain, s.x, s.y, 'C');
+    expect(hqProblems(AUDIT, noSpire)).toHaveLength(1);
+    const allied = clone(AUDIT);
+    allied.players[2].team = 0;
+    expect(hqProblems(allied, mapOf(allied))).toHaveLength(1);
+  });
+  it('plays mission 10 as ECHO says: the Highlord\'s spire alone does not end it while the drones stand; the battle is won when the relay falls or the drones are gone', () => {
+    const start = createGame(setupFor(DUEL_AT_ASHGRAVE, 1));
+    const corvinFell = captureSpire(start, 2);
+    expect(corvinFell.players[2].defeated, 'the Highlord is defeated by his spire').toBe(true);
+    expect(corvinFell.players[3].defeated).toBe(false);
+    expect(corvinFell.winnerTeam, 'the drones still stand').toBeNull();
+    const relayFell = captureSpire(start, 3);
+    expect(relayFell.players[3].defeated).toBe(true);
+    expect(relayFell.winnerTeam, 'the Highlord still stands').toBeNull();
+    expect(captureSpire(corvinFell, 3).winnerTeam, 'the Highlord, then the relay').toBe(0);
+    expect(captureSpire(relayFell, 2).winnerTeam, 'the relay, then the Highlord').toBe(0);
+    const noDrones = clone(start);
+    noDrones.units = noDrones.units.filter((u) => u.owner !== 3);
+    expect(captureSpire(noDrones, 2).winnerTeam, 'the drones gone, the Highlord\'s spire wins it').toBe(0);
+    expect(DUEL_AT_ASHGRAVE.objectiveText).toMatch(/Capture Ashgrave Spire and drive the Choir drones from the field/);
+  });
+  it('plays mission 11 as the text says: capturing the Exchange routs the Choir and hands its three fabricators to the agent (the coast is retaken)', () => {
+    const start = createGame(setupFor(AUDIT, 1));
+    const won = captureSpire(start, 2);
+    expect(won.winnerTeam).toBe(0);
+    const fabricators = tilesOf(mapOf(AUDIT), (c) => c === 'F').filter((t) => mapOf(AUDIT).owners[t.y][t.x] === '2');
+    expect(fabricators).toHaveLength(3);
+    for (const f of fabricators) expect(won.tiles[f.y][f.x].owner, `fabricator (${f.x},${f.y})`).toBe(0);
+    // Known-bad control: capturing a Tidewell spire is not a win for the agent's team (it would be capturing an ally's, which no unit can do).
+    expect(canCaptureCheck(start)).toBe(false);
+  });
+  it('plays the escort as a survival: with every side only ending its turns, team 0 (the agent, the convoy and nobody else) wins as cycle 5 ends and not before (known answer)', () => {
+    let s = createGame(setupFor(NIGHT_WING, 1));
+    const history: { cycle: number; winner: number | null }[] = [];
+    for (let guardCount = 0; guardCount < 200 && s.winnerTeam === null; guardCount++) {
+      history.push({ cycle: s.cycle, winner: s.winnerTeam });
+      s = applyAction(s, { kind: 'endTurn' }).state;
+    }
+    expect(s.winnerTeam).toBe(0);
+    expect(s.cycle, 'won as cycle 5 ended').toBe(5);
+    expect(history.every((h) => h.winner === null)).toBe(true);
+    expect(history.filter((h) => h.cycle === 5), 'the agent, the convoy and the Night Wing each took their turn in cycle 5').toHaveLength(3);
+  });
+  it('points every Act III trigger at a real player and, for a capture, at a property that can be captured, and refuses bad ones', () => {
+    for (const m of ACT_III) for (const e of m.events) expect(triggerProblems(m, e.trigger), `${m.id} ${JSON.stringify(e.trigger)}`).toEqual([]);
+    expect(AUDIT.events.some((e) => e.trigger.kind === 'propertyCaptured' && e.trigger.by === 0 && e.trigger.terrain === 'fabricator'), 'a retaken fabricator is watched').toBe(true);
+    expect(TETHER_LINE.events.some((e) => e.trigger.kind === 'powerUsed' && e.trigger.player === 2), 'the Highlord\'s power is watched').toBe(true);
+    expect(DUEL_AT_ASHGRAVE.events.some((e) => e.trigger.kind === 'powerUsed' && e.trigger.player === 2)).toBe(true);
+    for (const e of NIGHT_WING.events) if (e.trigger.kind === 'cycle') expect(e.trigger.cycle).toBeLessThanOrEqual(5);
+    // Known-bad triggers must keep being reported.
+    expect(triggerProblems(NIGHT_WING, { kind: 'cycle', cycle: 6 })).toHaveLength(1); // after the 5 cycles of the escort
+    expect(triggerProblems(NIGHT_WING, { kind: 'cycle', cycle: 0 })).toHaveLength(1);
+    expect(triggerProblems(DUEL_AT_ASHGRAVE, { kind: 'powerUsed', player: 4 })).toHaveLength(1); // no fifth player
+    expect(triggerProblems(DUEL_AT_ASHGRAVE, { kind: 'unitDestroyed', owner: 3, count: 99 })).toHaveLength(1);
+    expect(triggerProblems(TETHER_LINE, { kind: 'propertyCaptured', by: 0, terrain: 'dock' })).toHaveLength(1); // no dock on the ridges
+    expect(triggerProblems(AUDIT, { kind: 'propertyCaptured', by: 0, terrain: 'flats' })).toHaveLength(1); // not a property
+    expect(triggerProblems(AUDIT, { kind: 'propertyCaptured', by: 0, terrain: 'dock' }), 'the only docks are Sefa\'s, an ally\'s, which no unit can capture').toHaveLength(1);
+    expect(triggerProblems(NIGHT_WING, { kind: 'propertyCaptured', by: 0, terrain: 'uplink' }), 'the pass has an uplink to take').toEqual([]);
+  });
+  it('tells the Night Wing\'s turn at a cycle trigger strictly inside the battle, with the Highlord, his daughter and ECHO all in it', () => {
+    const turn = DUEL_AT_ASHGRAVE.events.find((e) => e.lines.some((l) => l.speaker === 'sable' && /Father/.test(l.text)) && e.lines.some((l) => l.speaker === 'corvin'));
+    expect(turn, 'the turn event').toBeDefined();
+    expect(turn!.trigger.kind).toBe('cycle');
+    const cycle = turn!.trigger.kind === 'cycle' ? turn!.trigger.cycle : -1;
+    expect(cycle, 'after the opening').toBeGreaterThan(1);
+    expect(cycle, 'before the par').toBeLessThan(DUEL_AT_ASHGRAVE.par.cycles);
+    expect(turn!.lines[0].speaker, 'ECHO announces it').toBe('echo');
+    expect(turn!.lines.some((l) => l.speaker === 'echo' && /turning on the Choir drones/.test(l.text))).toBe(true);
+    expect(DUEL_AT_ASHGRAVE.briefing.some((l) => l.speaker === 'sable'), 'she is in position before it').toBe(true);
+    // Nothing in the briefing or the opening event has her turn already.
+    expect(DUEL_AT_ASHGRAVE.briefing.filter((l) => /Count them|turning on/.test(l.text))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------- the writing rules
+
+describe('the Act III writing rules', () => {
+  it('keeps every line at or under 220 characters, and at least 90% of them (in each mission and in the act) at or under 140', () => {
+    expect(ACT_III_LINES.length).toBeGreaterThan(100);
+    expect(ACT_III_LINES.filter((l) => l.text.length > 220)).toEqual([]);
+    for (const m of ACT_III) expect(share140(linesOf(m)), `${m.id}: ${linesOf(m).filter((l) => l.text.length > 140).length} of ${linesOf(m).length} lines are over 140`).toBeGreaterThanOrEqual(0.9);
+    expect(share140(ACT_III_LINES)).toBeGreaterThanOrEqual(0.9);
+    const padded: DialogueLine[] = [...Array(3).fill({ speaker: 'echo', text: 'Short.' }), { speaker: 'echo', text: 'x'.repeat(150) }];
+    expect(share140(padded), 'known-bad: a quarter of the lines running long fails the same measure').toBeLessThan(0.9);
+  });
+  it('keeps every line to one to three sentences (a fragment of four words or fewer is not counted as a sentence)', () => {
+    for (const l of ACT_III_LINES) {
+      const full = sentencesOf(l.text).filter((s) => wordsOf(s).length >= 5);
+      expect(full.length, `${l.speaker}: ${l.text}`).toBeLessThanOrEqual(3);
+      expect(sentencesOf(l.text).length, `${l.speaker}: ${l.text}`).toBeLessThanOrEqual(6);
+    }
+  });
+  it('uses only the Act III cast as speakers, with every speaker used, a mood from the list, and each commander on a net of their own nation', () => {
+    expect(new Set(ACT_III_LINES.map((l) => l.speaker))).toEqual(new Set(ACT_III_SPEAKERS));
+    for (const s of ['echo', 'rook', 'ilse', 'sefa', 'dax', 'corvin', 'sable']) expect(COMMANDERS[s], s).toBeDefined();
+    for (const l of ACT_III_LINES) expect(l.mood === undefined || ['neutral', 'happy', 'angry', 'grim', 'surprised', 'smug'].includes(l.mood), `${l.speaker} mood`).toBe(true);
+    for (const l of ACT_III_LINES) {
+      const faction = COMMANDERS[l.speaker]?.faction;
+      if (faction === 'kestrel') expect(l.channel, `${l.speaker} speaks over a Kestrel net`).toMatch(/Kestrel|Night wing/);
+      if (faction === 'tidewell') expect(l.channel, `${l.speaker} speaks over a Tidewell net`).toMatch(/Tidewell/);
+      if (l.speaker === 'ilse') expect(l.channel).toBe('Helion command net');
+    }
+    expect(ACT_III_LINES.filter((l) => l.speaker === 'Tether Control').every((l) => /Kestrel/.test(l.channel ?? ''))).toBe(true);
+    expect(ACT_III_LINES.filter((l) => l.speaker === 'Coast Watch').every((l) => /Tidewell/.test(l.channel ?? ''))).toBe(true);
+  });
+  it('passes every dialogue rule: length, speakers, no "!" from ECHO, Ilse, Sefa, Dax, the narrator or the officials, no spoilers, no profanity, no real-world names, no manual control', () => {
+    for (const m of ACT_III) expect(dialogueProblems(linesOf(m), ACT_III_RULES), m.id).toEqual([]);
+    expect(ACT_III_LINES.filter((l) => l.speaker === 'echo' || l.speaker === 'ilse' || l.speaker === 'sefa' || l.speaker === 'narrator').filter((l) => l.text.includes('!'))).toEqual([]);
+  });
+  it('would catch each planted violation, passes a clean line, and lets Act III name what Act III may name', () => {
+    const line = (speaker: string, text: string): DialogueLine => ({ speaker, text });
+    const bad: [string, DialogueLine, RegExp][] = [
+      ['over 220', line('rook', 'Okay. '.repeat(40)), /over 220/],
+      ['Act II speaker', line('juno', 'Sky is open.'), /speaker not allowed/],
+      ['Act II speaker 2', line('Grove Relay', 'Column in the weald.'), /speaker not allowed/],
+      ['echo bang', line('echo', 'Ridge captured!'), /exclamation/],
+      ['ilse bang', line('ilse', 'Captain! Fire for effect!'), /exclamation/],
+      ['sefa bang', line('sefa', 'Withdraw at once!'), /exclamation/],
+      ['dax bang', line('dax', 'The figures are clear!'), /exclamation/],
+      ['narrator bang', line('narrator', 'The storm broke!'), /exclamation/],
+      ['Tether Control bang', line('Tether Control', 'Armour is released!'), /exclamation/],
+      ['VESPER', line('echo', 'The signal bears the mark of VESPER.'), /spoiler/],
+      ['Cantor', line('sable', 'Cantor is on the line.'), /spoiler/],
+      ['Mira', line('corvin', 'My daughter Mira built this node.'), /spoiler/],
+      ['Lattice core', line('narrator', 'Under the glass, the Lattice core slept.'), /spoiler/],
+      ['profanity', line('rook', 'Well, damn.'), /profanity/],
+      ['real world', line('narrator', 'The treaty was signed in Paris.'), /real-world/],
+      ['manual control', line('echo', 'Select the Colossus and move it to the ridge.'), /control units/],
+      ['manual control 2', line('echo', 'You should send your Breacher to the crest.'), /control units/],
+      ['empty', line('sable', '   '), /empty/],
+    ];
+    for (const [name, l, kind] of bad) {
+      const problems = dialogueProblems([l], ACT_III_RULES);
+      expect(problems.length, name).toBeGreaterThanOrEqual(1);
+      expect(problems.some((p) => kind.test(p)), `${name}: ${problems.join('; ')}`).toBe(true);
+    }
+    expect(dialogueProblems([line('echo', 'Observation: a ridge gives four defense stars. That is the whole recommendation.')], ACT_III_RULES)).toEqual([]);
+    expect(dialogueProblems([line('rook', 'Okay! Okay! Nobody panic!')], ACT_III_RULES), 'Rook may shout').toEqual([]);
+    expect(dialogueProblems([line('corvin', 'Form on me!')], ACT_III_RULES), 'the Highlord is not on the never-shouts list').toEqual([]);
+    const allowed = line('narrator', 'The Hollow Choir sang over the Glass Waste, and the Lattice net never stopped.');
+    expect(dialogueProblems([allowed], ACT_III_RULES), 'Act III may name all three').toEqual([]);
+    expect(dialogueProblems([allowed]).some((p) => /spoiler/.test(p)), 'Act I still may not').toBe(true);
+    expect(dialogueProblems([line('echo', 'You never move a unit.')], ACT_III_RULES), 'a negation is not an instruction').toEqual([]);
+  });
+  it('bans VESPER, Cantor, Mira and the Lattice core from every Act III string, not only from dialogue, and does not over-ban the names Act III may use', () => {
+    const strings: string[] = [];
+    for (const m of ACT_III) {
+      strings.push(m.id, m.title, m.location, m.summary, m.mapId, m.objectiveText);
+      for (const l of linesOf(m)) strings.push(l.speaker, l.text, l.channel ?? '');
+    }
+    for (const a of ALL_ACTS.filter((x) => x.act === 3)) strings.push(a.title, a.tagline, ...a.missions);
+    for (const m of ACT_III) { const map = mapOf(m); strings.push(map.id, map.name, map.description, map.author ?? ''); }
+    expect(strings.length).toBeGreaterThan(400);
+    for (const text of strings) for (const re of ACT_III_RULES.spoilers) expect(re.test(text), `${re} in "${text}"`).toBe(false);
+    for (const planted of ['It was VESPER', 'Cantor sang', 'Mira Varga', 'the Lattice core']) {
+      expect(ACT_III_RULES.spoilers.some((re) => re.test(planted)), planted).toBe(true);
+    }
+    expect(ACT_III_RULES.spoilers.some((re) => re.test('the Hollow Choir and Lattice traffic in the Glass Waste')), 'not over-banned').toBe(false);
+    expect(ACT_III_RULES.spoilers.some((re) => re.test('Admiral Tamura')), '"admiral" holds the letters of "mira" and must not trip the ban').toBe(false);
+    // No Act III player is a Choir commander, so no data field names one either.
+    expect(ACT_III.flatMap((m) => m.players).filter((p) => ['cantor', 'vesper'].includes(p.commander))).toEqual([]);
+  });
+  it('names the Hollow Choir, the Lattice and the Glass Waste where the story allows, and keeps all three out of mission 8', () => {
+    const names = (m: Mission, re: RegExp) => linesOf(m).filter((l) => re.test(l.text)).length;
+    expect(names(NIGHT_WING, /Hollow Choir/), 'the parley names the hulls ECHO knows from Ashfall').toBeGreaterThanOrEqual(1);
+    expect(names(DUEL_AT_ASHGRAVE, /Hollow Choir/)).toBeGreaterThanOrEqual(1);
+    expect(names(DUEL_AT_ASHGRAVE, /Glass Waste/)).toBeGreaterThanOrEqual(1);
+    expect(names(AUDIT, /Glass Waste/)).toBeGreaterThanOrEqual(1);
+    expect(names(AUDIT, /Lattice/)).toBeGreaterThanOrEqual(1);
+    expect(names(TETHER_LINE, /choir|lattice|glass waste|vesper|cantor/i), 'mission 8 is about the Highlord alone').toBe(0);
+    expect(ACT_III_LINES.filter((l) => /lattice core/i.test(l.text))).toEqual([]);
+    expect(ACT_III_LINES.some((l) => l.text.includes(FACTIONS.choir.name.replace(/^The /, ''))), 'the faction is named as the data names it').toBe(true);
+  });
+  it('carries none of the names the repo guard denies (the originality list) in any Act III string, and the detector would catch one', () => {
+    const text = JSON.stringify([ACT_III, ALL_ACTS, Object.values(ALL_MISSION_MAPS)], null, 1);
+    expect(guard.scanText('src/content/missions.ts', text)).toEqual([]);
+    for (const bad of guard.DENYLIST.slice(0, 5)) expect(guard.scanText('src/content/missions.ts', `text: '${bad}'`).map((f) => f.rule), `the guard catches ${bad}`).toContain('originality');
+    const planted = guard.DENYLIST[guard.DENYLIST.length - 1]; // taken from the list, so this file never spells a denied name itself
+    expect(guard.scanText('src/content/missions.ts', `${JSON.stringify(ACT_III)} ${planted}`).map((f) => f.match), 'a planted name in Act III text is found').toEqual([planted]);
+  });
+});
+
+// ---------------------------------------------------------------- voices
+
+describe('each Act III speaker sounds like their entry in STORY.md', () => {
+  const by = (speaker: string) => ACT_III_LINES.filter((l) => l.speaker === speaker);
+  const matching = (speaker: string, re: RegExp) => by(speaker).filter((l) => re.test(l.text)).length;
+  const voiceSample = (name: string) => new RegExp(`### ${name}[\\s\\S]*?\\*Voice:\\* "([^"]+)"`).exec(STORY)?.[1];
+  it('ECHO: short telemetry sentences, no exclamation mark, dry curiosity, and a feeling of her own that is not the one she filed before', () => {
+    expect(by('echo').length).toBeGreaterThan(45);
+    for (const l of by('echo')) {
+      expect(l.text, l.text).not.toContain('!');
+      for (const sentence of l.text.split(/(?<=[.?])\s+/)) expect(wordsOf(sentence).length, sentence).toBeLessThanOrEqual(26);
+    }
+    expect(matching('echo', /telemetry|observation|query|recommendation|alert|status|objective|situation|logged|noted|confirmed|contact|audit|posture|terrain|movement/i)).toBeGreaterThanOrEqual(25);
+    expect(matching('echo', /query|observation|telemetry (?:also )?notes|filed them as weather|where did the entry/i), 'dry curiosity').toBeGreaterThanOrEqual(5);
+    const label = (m: Mission) => /Provisional label: (\w+)/.exec(linesOf(m).find((l) => l.speaker === 'echo' && /feeling/.test(l.text))?.text ?? '')?.[1];
+    const earlier = [label(CALDER_SPIRE), label(ROOT_AND_BRANCH)];
+    expect(earlier).toEqual(['pleased', 'unease']);
+    expect(label(DUEL_AT_ASHGRAVE), 'a new feeling in the Highlord\'s debrief').toBe('homesick');
+    expect(earlier).not.toContain(label(DUEL_AT_ASHGRAVE));
+    expect(textOf(DUEL_AT_ASHGRAVE, 'echo')).toMatch(/I have no home/);
+  });
+  it('Rook: earnest, apologises to a ridge and a storm, engineering metaphors, braver than in Act I ("I will", "I intend to")', () => {
+    expect(matching('rook', /sorry|apolog/i)).toBeGreaterThanOrEqual(4);
+    expect(matching('rook', /load-bearing|rebar|engineer|machine|debugging|patch|rewired|shop|engines|engineering|wall/i)).toBeGreaterThanOrEqual(8);
+    expect(matching('rook', /\bI will\b/)).toBeGreaterThanOrEqual(3);
+    expect(TETHER_LINE.briefing.some((l) => l.speaker === 'rook' && /I intend to/.test(l.text)), 'the braver ending of Tidebreak, now at the start').toBe(true);
+    expect(linesOf(FIRST_LIGHT).filter((l) => l.speaker === 'rook' && /I intend to|I will\b/.test(l.text)), 'Rook promises nothing in mission 1').toEqual([]);
+    expect(matching('rook', /Okay\. Okay\./)).toBeGreaterThanOrEqual(3); // still a little nervous
+    expect(by('rook').length).toBeGreaterThanOrEqual(15);
+  });
+  it('Corvin: formal and courtly, no contractions, "Captain" to his enemy, gracious in victory, brittle in defeat, and the STORY.md line word for word', () => {
+    const sample = voiceSample('Corvin Ashgrave');
+    expect(sample, 'STORY.md Corvin voice sample').toBeDefined();
+    expect(by('corvin').some((l) => l.text === sample), 'the sample, as spoken').toBe(true);
+    expect(by('corvin').length).toBeGreaterThanOrEqual(12);
+    expect(matching('corvin', /Captain/)).toBeGreaterThanOrEqual(6);
+    expect(matching('corvin', /Kestrel|altitude|family|continent|mountain|order|forgery|wing|field|quarrels|line|rival/i)).toBeGreaterThanOrEqual(by('corvin').length - 4);
+    for (const l of by('corvin')) expect(l.text, l.text).not.toMatch(/n't\b|\b(?:I'm|I've|I'll|you're|it's|that's)\b/i);
+    const victory = TETHER_LINE.events.find((e) => e.trigger.kind === 'victory')!;
+    expect(victory.lines.filter((l) => l.speaker === 'corvin').every((l) => l.mood !== 'angry'), 'gracious when he gives ground').toBe(true);
+    const defeated = DUEL_AT_ASHGRAVE.debrief.filter((l) => l.speaker === 'corvin');
+    expect(defeated.length).toBeGreaterThanOrEqual(3);
+    expect(defeated.some((l) => l.mood === 'angry'), 'brittle').toBe(true);
+    expect(defeated[defeated.length - 1].mood, 'and then grim').toBe('grim');
+  });
+  it('Sable: sparse and wry, short fragments of lights and dark and signal, one dry line instead of three loud ones, and the STORY.md line word for word', () => {
+    const sample = voiceSample('Sable Ashgrave');
+    expect(sample).toBe('Lights off. Let them guess.');
+    expect(by('sable').some((l) => l.text === sample)).toBe(true);
+    expect(by('sable').length).toBeGreaterThanOrEqual(14);
+    for (const l of by('sable')) {
+      expect(l.text.length, l.text).toBeLessThanOrEqual(125);
+      expect(l.text, l.text).not.toContain('!');
+      expect(l.mood === 'happy', l.text).toBe(false);
+      expect(sentencesOf(l.text).length, l.text).toBeLessThanOrEqual(4);
+    }
+    expect(matching('sable', /lights?|dark|night|wing|storm|channel|shadow|guess|quiet|voice|signal/i) / by('sable').length).toBeGreaterThanOrEqual(0.6);
+    expect(by('sable').some((l) => l.text === 'Talkative convoy.'), 'a wry one-liner').toBe(true);
+    // The parley is encrypted and nothing else is.
+    const parley = NIGHT_WING.debrief.filter((l) => l.speaker === 'sable');
+    expect(parley.length).toBeGreaterThanOrEqual(5);
+    for (const l of parley) expect(l.channel).toBe('Night wing net, encrypted');
+    for (const l of ACT_III_LINES.filter((x) => x.speaker === 'sable' && !parley.includes(x))) expect(l.channel, l.text).toBe('Night wing net, open');
+  });
+  it('Sefa: calm and formal, tide and shore and ship imagery, "Captain" to Rook, never shouts, and the STORY.md line word for word', () => {
+    const sample = voiceSample('Sefa Tamura');
+    expect(sample).toBe('The tide does not hurry, Captain. It simply arrives.');
+    expect(by('sefa').some((l) => l.text.includes(sample!)), 'the sample, in her last words').toBe(true);
+    expect(by('sefa').length).toBeGreaterThanOrEqual(8);
+    expect(matching('sefa', /\btide\b|\binlet\b|\bships?\b|\bshore\b|\bbeach|\bwater\b|\bcurrent\b|\bcoast\b|\bheadland\b|\blaunch\b|\bPicket\b|\bport/i)).toBeGreaterThanOrEqual(7);
+    expect(matching('sefa', /Captain/)).toBeGreaterThanOrEqual(5);
+    expect(by('sefa').filter((l) => l.text.includes('!'))).toEqual([]);
+    expect(by('sefa').every((l) => l.channel === 'Tidewell fleet net, open')).toBe(true);
+  });
+  it('Dax: smooth and numerate, a ledger in every sentence, "correction", faintly condescending, never vulgar, and shaken once the counterparty stops answering', () => {
+    expect(by('dax').length).toBeGreaterThanOrEqual(4);
+    expect(matching('dax', /correction|account|figures|investment|market|ledger|margin|exposure|assets|counterparty/i)).toBe(by('dax').length);
+    expect(matching('dax', /Captain|Admiral/)).toBeGreaterThanOrEqual(4);
+    expect(matching('dax', /correction/)).toBeGreaterThanOrEqual(1);
+    expect(STORY).toContain('Let\'s call it a correction');
+    const last = by('dax')[by('dax').length - 1];
+    expect(last.mood, 'the last word is not smug').not.toBe('smug');
+    expect(last.text).toMatch(/counterparty has stopped answering/);
+    expect(by('dax').every((l) => l.channel === 'Tidewell command, open')).toBe(true);
+  });
+  it('Ilse: clipped and dry, "Captain" first, firing-data flavour, never longer than 140 characters, only on the radio, and Dax speaks only in mission 11', () => {
+    expect(by('ilse').length).toBeGreaterThanOrEqual(5);
+    for (const l of by('ilse')) {
+      expect(l.text, l.text).toMatch(/^Captain/);
+      expect(l.text.length, l.text).toBeLessThanOrEqual(140);
+      expect(l.channel).toBe('Helion command net');
+    }
+    expect(matching('ilse', /bearing|range|ranged|fire|crest|Arcs|artillery|battery|logs|front|field/i)).toBeGreaterThanOrEqual(4);
+    expect(ACT_III.filter((m) => linesOf(m).some((l) => l.speaker === 'dax')).map((m) => m.id)).toEqual(['audit']);
+    expect(ACT_III.filter((m) => linesOf(m).some((l) => l.speaker === 'sefa')).map((m) => m.id)).toEqual(['audit']);
+    expect(ACT_III.filter((m) => linesOf(m).some((l) => l.speaker === 'corvin')).map((m) => m.id)).toEqual(['tether-line', 'duel-at-ashgrave']);
+    expect(ACT_III.filter((m) => linesOf(m).some((l) => l.speaker === 'sable')).map((m) => m.id)).toEqual(['night-wing', 'duel-at-ashgrave']);
+  });
+  it('humour lands in the middle and grief at the ends: every debrief closes on the narrator or a grim line, no defeat event is cheerful, and each mission has a banter beat mid-way', () => {
+    for (const m of ACT_III) {
+      const last = m.debrief[m.debrief.length - 1];
+      expect(last.speaker === 'narrator' || last.mood === 'grim', `${m.id}: ${last.text}`).toBe(true);
+      for (const e of m.events.filter((x) => x.trigger.kind === 'defeat')) expect(e.lines.every((l) => l.mood !== 'happy'), m.id).toBe(true);
+      const mid = m.events.filter((x) => x.trigger.kind === 'cycle').flatMap((e) => e.lines);
+      expect(mid.some((l) => l.speaker === 'rook' || l.speaker === 'sefa' || l.speaker === 'dax'), `${m.id}: a banter beat mid-mission`).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------- the story beats
+
+describe('faithful to the Act III outline', () => {
+  it('speaks to the human about what the agent is doing (D-007): every mission names the agent and a standing order, all three postures are named, and a power policy is explained', () => {
+    for (const m of ACT_III) {
+      const text = textOf(m, 'echo');
+      expect(text, m.id).toMatch(/your agent/i);
+      expect(text, m.id).toMatch(/your human|for the human|composition weights|standing orders|posture|policy|target priorities/i);
+      expect(POSTURES.some((p) => text.includes(p)), `${m.id} names a posture`).toBe(true);
+    }
+    for (const p of POSTURES) expect(ACT_III.some((m) => textOf(m, 'echo').includes(p)), `Act III names ${p}`).toBe(true);
+    expect(ACT_III_LINES.some((l) => l.speaker === 'echo' && /power policy/.test(l.text)), 'D-005: the power policy').toBe(true);
+    expect(ACT_III_LINES.filter((l) => MANUAL_CONTROL.test(l.text))).toEqual([]);
+    // Nobody but ECHO explains the agent's orders; the commanders speak as people.
+    for (const l of ACT_III_LINES.filter((x) => POSTURES.some((p) => x.text.includes(p)))) expect(l.speaker, l.text).toBe('echo');
+  });
+  it('mission 8: Kestrel armour comes down the ridges, and the ridge, walker and defense-star numbers ECHO gives are the data\'s', () => {
+    const echoText = textOf(TETHER_LINE, 'echo');
+    expect(ACT_III_OUTLINE[0][3]).toContain('restore order');
+    expect(TETHER_LINE.briefing.some((l) => l.speaker === 'corvin' && /restore order to all of it/.test(l.text)), 'the Highlord\'s declaration').toBe(true);
+    expect(TETHER_LINE.briefing.some((l) => l.speaker === 'corvin' && /Kestrel is gracious/.test(l.text))).toBe(true);
+    const comp = /(\w+) Colossus walkers, (\w+) Bastions and (\w+) Breachers/.exec(echoText)!;
+    const corvin = mapOf(TETHER_LINE).units.filter((u) => u.owner === 2);
+    expect(comp.slice(1).map((w) => ONES.indexOf(w.toLowerCase()))).toEqual(['colossus', 'bastion', 'breacher'].map((t) => corvin.filter((u) => u.type === t).length));
+    // Defense stars: "A ridge gives four defense stars, and flats give one."
+    const stars = /A ridge gives (\w+) defense stars, and flats give (\w+)\./.exec(echoText)!;
+    expect(stars[1]).toBe(spell(TERRAIN_TYPES.ridge.def));
+    expect(stars[2]).toBe(spell(TERRAIN_TYPES.flats.def));
+    expect(stars[1]).not.toBe(stars[2]);
+    // Ridges: foot 2, exo 1, tread and hover not at all, so a Bastion keeps to the road.
+    const climb = /A Trooper climbs a ridge for (\w+), a Breacher for (\w+)\./.exec(echoText)!;
+    expect(UNIT_TYPES.trooper.moveType).toBe('foot');
+    expect(UNIT_TYPES.breacher.moveType).toBe('exo');
+    expect(climb[1]).toBe(spell(TERRAIN_TYPES.ridge.cost.foot!));
+    expect(climb[2]).toBe(spell(TERRAIN_TYPES.ridge.cost.exo!));
+    expect(TERRAIN_TYPES.ridge.cost.tread).toBeNull();
+    expect(TERRAIN_TYPES.ridge.cost.hover).toBeNull();
+    expect(UNIT_TYPES.bastion.moveType).toBe('tread');
+    expect(echoText).toMatch(/Treads and hover units cannot climb at all, so a Bastion keeps to the road/);
+    // Walkers: "A Colossus is a walker. It moves four and climbs a ridge for two, and a Trooper does it one percent damage."
+    const walker = /A Colossus is a walker\. It moves (\w+) and climbs a ridge for (\w+), and a Trooper does it (\w+) percent damage/.exec(echoText)!;
+    expect(UNIT_TYPES.colossus.moveType).toBe('walker');
+    expect(walker[1]).toBe(spell(UNIT_TYPES.colossus.move));
+    expect(walker[2]).toBe(spell(TERRAIN_TYPES.ridge.cost.walker!));
+    expect(walker[3]).toBe(spell(DAMAGE.trooper.secondary!.colossus!));
+    expect(DAMAGE.arc.primary!.colossus!, 'Arcs do better').toBeGreaterThan(DAMAGE.trooper.secondary!.colossus!);
+    expect(DAMAGE.salvo.primary!.colossus!, 'Salvos do better').toBeGreaterThan(DAMAGE.trooper.secondary!.colossus!);
+    expect(echoText).toMatch(/Arcs and Salvos do better/);
+    // A Trooper on a crest sees three tiles further (D-012.2): "five tiles, not two".
+    const crest = probe(TETHER_LINE, [{ type: 'trooper', owner: 0, x: 7, y: 5 }, { type: 'trooper', owner: 1, x: 3, y: 9 }, { type: 'trooper', owner: 2, x: 13, y: 5 }]);
+    const sees = /sees (\w+) tiles, not (\w+)\./.exec(echoText)!;
+    expect(sees[1]).toBe(spell(effectiveVision(crest, crest.units[0])));
+    expect(sees[2]).toBe(spell(effectiveVision(crest, crest.units[0], { x: 4, y: 4 })));
+    expect(effectiveVision(crest, crest.units[0])).toBe(UNIT_TYPES.trooper.vision + 3);
+    // The Highlord's numbers: Lineage 15/15, Surge +10% and Overclock +20% firepower, and the tether strike's 5 health and 1 tile.
+    const lineage = /Lineage gives every Kestrel unit (\w+) percent firepower and (\w+) defense/.exec(echoText)!;
+    const passive = COMMANDERS.corvin.passive.modifiers[0];
+    expect(lineage[1]).toBe(spell(passive.firepower!));
+    expect(lineage[2]).toBe(spell(passive.defense!));
+    const firepower = (mods: { firepower?: number }[]) => mods.reduce((n, m) => n + (m.firepower ?? 0), 0);
+    const powers = /(\w+) percent more for a Surge, (\w+) for an Overclock/.exec(echoText)!;
+    expect(powers[1]).toBe(spell(firepower(COMMANDERS.corvin.surge!.modifiers)));
+    expect(powers[2]).toBe(spell(firepower(COMMANDERS.corvin.overclock!.modifiers)));
+    const strike = COMMANDERS.corvin.overclock!.effects.find((e) => e.kind === 'strike');
+    expect(strike).toMatchObject({ kind: 'strike', aim: 'mostValue' });
+    const struck = /strikes the best cluster for (\w+) health, (\w+) tile around/.exec(echoText)!;
+    expect(struck[1]).toBe(spell(strike!.kind === 'strike' ? strike!.hp : -1));
+    expect(struck[2]).toBe(spell(strike!.kind === 'strike' ? strike!.radius : -1));
+  });
+  it('mission 8: each defense star takes a tenth off a healthy unit\'s damage, by the engine\'s own forecast on the mission\'s own terrain (maglev 0 stars to ridge 4)', () => {
+    const lowDamage = (defender: { x: number; y: number }, attacker: { x: number; y: number }) => {
+      const s = probe(TETHER_LINE, [
+        { type: 'trooper', owner: 0, x: attacker.x, y: attacker.y }, { type: 'trooper', owner: 2, x: defender.x, y: defender.y }, { type: 'trooper', owner: 1, x: 3, y: 9 },
+      ], { players: plainPlayers(TETHER_LINE) });
+      return forecast(s, s.units.find((u) => u.owner === 0)!.id, attacker, defender).damage[0];
+    };
+    // maglev (5,6), flats (4,6), canopy (5,1), arcology (6,3), ridge (7,5): stars 0, 1, 2, 3, 4 from the data table.
+    const tiles = [
+      { at: { x: 5, y: 6 }, from: { x: 4, y: 6 } }, { at: { x: 4, y: 6 }, from: { x: 3, y: 6 } }, { at: { x: 5, y: 1 }, from: { x: 4, y: 1 } },
+      { at: { x: 6, y: 3 }, from: { x: 5, y: 3 } }, { at: { x: 7, y: 5 }, from: { x: 6, y: 5 } },
+    ];
+    const map = mapOf(TETHER_LINE);
+    const stars = tiles.map((t) => TERRAIN_TYPES[TERRAIN_CODES[map.terrain[t.at.y][t.at.x]]].def);
+    expect(stars).toEqual([0, 1, 2, 3, 4]);
+    const base = DAMAGE.trooper.secondary!.trooper!; // Trooper against Trooper: 55
+    const expected = stars.map((s) => Math.floor((base * 100 * 10 * (100 - 10 * s)) / 100000)); // the formula in combat.ts, at full health, luck 0
+    const measured = tiles.map((t) => lowDamage(t.at, t.from));
+    expect(measured, 'forecast against the formula').toEqual(expected);
+    expect(measured).toEqual([55, 49, 44, 38, 33]);
+    for (let i = 0; i + 1 < measured.length; i++) expect(measured[i] - measured[i + 1], `star ${i} to ${i + 1}: a tenth of ${base} is ${base / 10}`).toBeGreaterThanOrEqual(5);
+    for (let i = 0; i + 1 < measured.length; i++) expect(measured[i] - measured[i + 1]).toBeLessThanOrEqual(6);
+    expect(measured[1], 'known-bad: a defender on flats takes more than one on a ridge').toBeGreaterThan(measured[4]);
+  });
+  it('mission 9: the ion storm costs the agent a tile of sight and the Wasp a tile of speed, and costs Sable nothing; the Warden answers the Wasp; ECHO\'s numbers are the data\'s', () => {
+    const echoText = textOf(NIGHT_WING, 'echo');
+    const units: MapDef['units'] = [{ type: 'trooper', owner: 0, x: 3, y: 6 }, { type: 'trooper', owner: 2, x: 5, y: 6 }, { type: 'trooper', owner: 1, x: 6, y: 9 }, { type: 'wasp', owner: 2, x: 15, y: 7 }];
+    const storm = probe(NIGHT_WING, units);
+    const mine = storm.units.find((u) => u.owner === 0)!;
+    const hers = storm.units.find((u) => u.owner === 2 && u.type === 'trooper')!;
+    const wasp = storm.units.find((u) => u.type === 'wasp')!;
+    const clear = probe(NIGHT_WING, units, { weather: 'clear', fog: false });
+    const said = /A Trooper sees (\w+) tile in the storm\. A Wasp moves (\w+), not (\w+)\./.exec(echoText)!;
+    expect(said[1]).toBe(spell(effectiveVision(storm, mine)));
+    expect(said[2]).toBe(spell(effectiveMove(storm, wasp)));
+    expect(said[3]).toBe(spell(effectiveMove(clear, clear.units.find((u) => u.type === 'wasp')!)));
+    expect(effectiveVision(storm, mine), 'one tile less than clear sky').toBe(effectiveVision(clear, clear.units[0]) - 1);
+    expect(effectiveMove(storm, wasp)).toBe(UNIT_TYPES.wasp.move - 1);
+    // Ghost Wing: "her units see one tile further", which cancels the storm for her and for nobody else.
+    const ghost = COMMANDERS.sable.passive.modifiers.find((m) => m.vision)!;
+    expect(/her units see (\w+) tile further/.exec(echoText)![1]).toBe(spell(ghost.vision!));
+    expect(effectiveVision(storm, hers)).toBe(UNIT_TYPES.trooper.vision);
+    expect(effectiveVision(storm, hers) - effectiveVision(storm, mine)).toBe(ghost.vision);
+    // ... so at two tiles apart in the storm she sees the agent's Trooper and it cannot see hers.
+    expect(canSeeUnit(storm, 2, mine), 'Sable sees the agent').toBe(true);
+    expect(canSeeUnit(storm, 0, hers), 'the agent cannot see Sable').toBe(false);
+    expect(canSeeUnit(clear, 0, clear.units.find((u) => u.owner === 2 && u.type === 'trooper')!), 'known-bad control: in clear air both see').toBe(true);
+    const plain = probe(NIGHT_WING, units, { players: plainPlayers(NIGHT_WING) });
+    expect(canSeeUnit(plain, 2, plain.units.find((u) => u.owner === 0)!), 'known-bad control: without Ghost Wing she is as blind as anyone').toBe(false);
+    // The answer to the wing, from the damage table, and what she flies.
+    expect(/A Warden does (.+?) percent to a Wasp/.exec(echoText)![1]).toBe(spell(DAMAGE.warden.primary!.wasp!));
+    expect(echoText).toMatch(/She flies Wasps, a Raptor and an Anvil/);
+    const air = new Set(mapOf(NIGHT_WING).units.filter((u) => u.owner === 2 && UNIT_TYPES[u.type].domain === 'air').map((u) => u.type));
+    expect([...air].sort()).toEqual(['anvil', 'raptor', 'wasp']);
+  });
+  it('mission 9: the escort is a survival as long as the convoy\'s crossing: three Mules, twenty-seven tiles for the rear one, six a cycle, five cycles', () => {
+    const map = mapOf(NIGHT_WING);
+    const echoText = textOf(NIGHT_WING, 'echo');
+    const exit = tilesOf(map, (c, o) => c === 'U' && o === '.')[0];
+    const mules = map.units.filter((u) => u.type === 'mule');
+    const rear = Math.max(...mules.map((u) => pathCost(map, u, exit, 'hover')));
+    expect(/(\w+) Mules on the high road/.exec(echoText)![1]).toBe(spell(mules.length));
+    expect(/The relay is (\S+) tiles from the rear Mule, and a Mule moves (\w+)\./.exec(echoText)!.slice(1)).toEqual([spell(rear), spell(UNIT_TYPES.mule.move)]);
+    const cycles = Math.ceil(rear / UNIT_TYPES.mule.move);
+    expect(/needs (\w+) cycles to clear the pass/.exec(echoText)![1]).toBe(spell(cycles));
+    expect(NIGHT_WING.objective).toEqual({ kind: 'survive', cycles });
+    expect(NIGHT_WING.par.cycles).toBe(cycles);
+    // The logs the convoy carries are the ones Act II ends on: "sealed", bound for Calder.
+    expect(ROOT_AND_BRANCH.debrief.some((l) => l.speaker === 'ilse' && /sealed/.test(l.text) && /Calder/.test(l.text))).toBe(true);
+    expect(NIGHT_WING.briefing.some((l) => /sealed Ashfall logs/.test(l.text))).toBe(true);
+    expect(POLLEN_COUNT.location).toContain('Ashfall');
+    expect(NIGHT_WING.briefing.some((l) => l.speaker === 'ilse' && /Calder/.test(l.text))).toBe(true);
+  });
+  it('mission 9: the stealth wing catches the convoy and lets it go, and a secret parley under the storm names the Highlord\'s field at Ashgrave', () => {
+    expect(ACT_III_OUTLINE[1][3]).toContain('catches Rook\'s convoy');
+    expect(ACT_III_OUTLINE[1][3]).toContain('and lets it go');
+    expect(ACT_III_OUTLINE[1][3]).toContain('secret parley');
+    // She attacks (the wing is told to take the tail) and then holds fire when the crossing is done.
+    const attack = NIGHT_WING.events.find((e) => e.trigger.kind === 'cycle' && e.lines.some((l) => l.speaker === 'sable' && /Take the tail/.test(l.text)));
+    expect(attack, 'the attack').toBeDefined();
+    const victory = NIGHT_WING.events.find((e) => e.trigger.kind === 'victory')!;
+    expect(victory.lines.some((l) => l.speaker === 'sable' && /Hold fire/.test(l.text) && /Let them go/.test(l.text)), 'she lets it go').toBe(true);
+    expect(victory.lines.some((l) => l.speaker === 'echo' && /breaking off/.test(l.text))).toBe(true);
+    // The parley: ECHO opens it, Sable speaks on the encrypted net, Rook answers, and the debrief ends on the narrator.
+    expect(NIGHT_WING.debrief[0].speaker).toBe('echo');
+    expect(NIGHT_WING.debrief[0].text).toMatch(/encrypted/);
+    expect(NIGHT_WING.debrief.some((l) => l.speaker === 'rook')).toBe(true);
+    const text = NIGHT_WING.debrief.map((l) => l.text).join('\n');
+    expect(text).toMatch(/Ashgrave/);
+    expect(text).toMatch(/came over the Link/);
+    expect(text).toMatch(/Hollow Choir hulls from Ashfall/);
+    expect(DUEL_AT_ASHGRAVE.location).toBe('Ashgrave Heights');
+    expect(NIGHT_WING.debrief[NIGHT_WING.debrief.length - 1].speaker).toBe('narrator');
+  });
+  it('mission 10: the Highlord meets the column in the open, the Night Wing turns on the drones mid-battle, and the numbers and gates ECHO gives are the map\'s and the data\'s', () => {
+    const echoText = textOf(DUEL_AT_ASHGRAVE, 'echo');
+    const map = mapOf(DUEL_AT_ASHGRAVE);
+    expect(ACT_III_OUTLINE[2][3]).toContain('Mid-battle Sable turns her wing against the Choir drones shadowing both armies');
+    expect(DUEL_AT_ASHGRAVE.briefing.filter((l) => l.speaker === 'corvin').length, 'the Highlord invites the duel').toBeGreaterThanOrEqual(2);
+    expect(DUEL_AT_ASHGRAVE.briefing.some((l) => l.speaker === 'rook' && /engineer/.test(l.text))).toBe(true);
+    // "Two squads, one on each flank, standing off": the map has two groups of three, north and south.
+    const drones = map.units.filter((u) => u.owner === 3);
+    const groups = [drones.filter((u) => u.y <= 5).length, drones.filter((u) => u.y >= 8).length];
+    expect(groups).toEqual([3, 3]);
+    expect(/(\w+) squads, one on each flank/.exec(echoText)![1]).toBe(spell(groups.length).replace(/^t/, 'T'));
+    // The Overclock, by name and by number.
+    const overclock = COMMANDERS.corvin.overclock!;
+    expect(echoText).toContain(overclock.name);
+    const strike = overclock.effects.find((e) => e.kind === 'strike');
+    expect(/strikes (\w+) health/.exec(echoText)![1]).toBe(spell(strike!.kind === 'strike' ? strike!.hp : -1));
+    // The terraces: ridge, four stars, two gates on the maglev road.
+    expect(/The terraces are ridge, (\w+) stars each/.exec(echoText)![1]).toBe(spell(TERRAIN_TYPES.ridge.def));
+    const gates = [16, 19].filter((x) => map.terrain[7][x] === '=').length;
+    expect(/through the (\w+) gates on the maglev road/.exec(echoText)![1]).toBe(spell(gates));
+    // The turn, the truth and the end.
+    const text = DUEL_AT_ASHGRAVE.debrief.map((l) => l.text).join('\n');
+    expect(text).toMatch(/forged/);
+    expect(text).toMatch(/Glass Waste/);
+    expect(text).toMatch(/came over the Link/);
+    expect(DUEL_AT_ASHGRAVE.debrief[0].speaker, 'the Highlord speaks first, to his daughter').toBe('corvin');
+    expect(DUEL_AT_ASHGRAVE.debrief.filter((l) => l.speaker === 'sable').length, 'the truth is hers').toBeGreaterThanOrEqual(3);
+    expect(DUEL_AT_ASHGRAVE.debrief.some((l) => l.speaker === 'corvin' && /forgery/.test(l.text))).toBe(true);
+    expect(DUEL_AT_ASHGRAVE.debrief[DUEL_AT_ASHGRAVE.debrief.length - 1].speaker).toBe('narrator');
+    expect(DUEL_AT_ASHGRAVE.debrief[DUEL_AT_ASHGRAVE.debrief.length - 1].text).toMatch(/daughter/);
+    // The forgery is the one Act I found: the Calder order, with a Helion signature (STORY: "forged ... with Helion's signature").
+    expect(STORY).toContain('forged a strike order on Calder Spire with Helion\'s signature');
+    expect(TIDEBREAK.events.some((e) => e.lines.some((l) => /signature is ours/.test(l.text)))).toBe(true);
+  });
+  it('mission 11: Dax is exposed and hands the coast over as his exit, Sefa and Rook retake it with the agent, allied sight is shared, and the voice that counts every channel opens Act IV', () => {
+    const echoText = textOf(AUDIT, 'echo');
+    const map = mapOf(AUDIT);
+    expect(ACT_III_OUTLINE[3][3]).toContain('exposed and hands Tidewell\'s coastal fabricators to the Choir as his "exit"');
+    expect(AUDIT.briefing.some((l) => l.speaker === 'dax' && /\bexit\b/.test(l.text)), 'his own word for it').toBe(true);
+    expect(AUDIT.briefing.some((l) => l.speaker === 'sefa' && /Halloran|Commissioner/.test(l.text))).toBe(true);
+    expect(textOf(AUDIT, 'sefa')).toMatch(/three fabricators/);
+    expect(/Situation: (\w+) fabricators/.exec(echoText)![1]).toBe(spell(tilesOf(map, (c, o) => c === 'F' && o === '2').length));
+    expect(/(\w+) fabricators and the Harbour Exchange/.exec(textOf(AUDIT, 'sefa'))![1]).toBe(spell(3));
+    expect(echoText).toMatch(/The address answers on the old Lattice net/);
+    expect(STORY).toContain('Trades with VESPER'); // the secret ECHO is circling without the name
+    // D-007: attached to the fleet as its adjutant, two fronts, Rook beside, and Sefa's sample line in her last words.
+    expect(AUDIT.briefing.some((l) => l.speaker === 'echo' && /attached to Admiral Tamura's fleet as its adjutant/.test(l.text))).toBe(true);
+    expect(AUDIT.briefing.some((l) => l.speaker === 'echo' && /Two fronts/.test(l.text))).toBe(true);
+    expect(AUDIT.briefing.some((l) => l.speaker === 'rook' && /Admiral/.test(l.text))).toBe(true);
+    // Allied sight is shared: Sefa's Picket (vision 3) shows the agent a Choir Wasp three tiles from it, and without the Picket (or the alliance) the agent is blind.
+    const units: MapDef['units'] = [
+      { type: 'picket', owner: 3, x: 9, y: 3 }, { type: 'wasp', owner: 2, x: 12, y: 3 }, { type: 'trooper', owner: 0, x: 3, y: 8 }, { type: 'trooper', owner: 1, x: 3, y: 11 },
+    ];
+    expect(UNIT_TYPES.picket.vision).toBe(3);
+    const shared = probe(AUDIT, units);
+    expect(canSeeUnit(shared, 0, shared.units.find((u) => u.owner === 2)!), 'the agent sees it through the Picket').toBe(true);
+    const blind = probe(AUDIT, [...units.filter((u) => u.type !== 'picket'), { type: 'trooper', owner: 3, x: 3, y: 2 }]);
+    expect(canSeeUnit(blind, 0, blind.units.find((u) => u.owner === 2)!), 'known-bad control: no Picket, no sight').toBe(false);
+    const apart = probe(AUDIT, units, { players: setupFor(AUDIT, 1).players.map((p, i) => (i === 3 ? { ...p, team: 9 } : p)) });
+    expect(canSeeUnit(apart, 0, apart.units.find((u) => u.owner === 2)!), 'known-bad control: Sefa on a team of her own shares nothing').toBe(false);
+    expect(echoText).toMatch(/Sight is shared across the team/);
+    // The end: Sefa's line, and the voice that opens Act IV ("VESPER speaks to all four nations at once", unnamed here).
+    const actIV = STORY.slice(STORY.indexOf('### Act IV'), STORY.indexOf('**Epilogue'));
+    expect(actIV).toContain('speaks to all four nations at once');
+    expect(AUDIT.debrief[AUDIT.debrief.length - 1].speaker).toBe('narrator');
+    expect(AUDIT.debrief[AUDIT.debrief.length - 1].text).toMatch(/every channel of every nation at once/);
+    expect(AUDIT.debrief[AUDIT.debrief.length - 1].text).not.toMatch(/vesper/i);
+    expect(AUDIT.events.find((e) => e.trigger.kind === 'propertyCaptured')!.lines.some((l) => l.speaker === 'echo' && /Fabricator retaken/.test(l.text))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------- self-play
+
+describe('every Act III mission plays under simulate', () => {
+  const policies: SimPolicy[] = ['greedy', 'random'];
+  for (const m of ACT_III) {
+    for (const policy of policies) {
+      it(`${m.id}: ${policy} policy, seeds 1-3, ends without an exception and with a winner that earned it`, () => {
+        for (const seed of [1, 2, 3]) {
+          const setup = setupFor(m, seed);
+          let started = 0;
+          const result = simulate({ setup, seed, maxCycles: 14, policy, onStart: () => { started++; } });
+          expect(started, `${m.id} ${policy} seed ${seed}`).toBe(1);
+          expect(result.actions.length, `${m.id} ${policy} seed ${seed}`).toBeGreaterThan(0);
+          expect(result.cycles).toBeGreaterThanOrEqual(1);
+          expect(result.cycles).toBeLessThanOrEqual(14);
+          expect(result.state.players).toHaveLength(m.players.length);
+          const team0 = m.players[0].team;
+          const rivals = result.state.players.filter((p) => p.team !== team0);
+          if (m.objective.kind === 'survive' && result.winnerTeam === team0 && rivals.some((p) => !p.defeated)) {
+            expect(result.cycles, `${m.id} survive win`).toBeGreaterThanOrEqual(m.objective.cycles); // a win before cycle 5 must come from routing the wing
+          }
+          if ((m.objective.kind === 'hq' || m.objective.kind === 'rout') && result.winnerTeam === team0) {
+            expect(rivals.every((p) => p.defeated), `${m.id} ${m.objective.kind} win by ${policy} seed ${seed}: every rival defeated`).toBe(true);
+          }
+          if (result.winnerTeam !== null) expect(result.state.players.some((p) => p.team === result.winnerTeam && !p.defeated)).toBe(true);
+        }
+      });
+    }
+  }
 });
