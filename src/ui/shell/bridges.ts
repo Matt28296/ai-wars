@@ -62,6 +62,8 @@ export const sound = {
   setVolume(kind: 'music' | 'sfx', v: number) {
     try { realAudio()?.setVolume(kind, v); } catch { /* ignore */ }
   },
+  /** Another screen (battle) took over the music: the next music() call always restarts. */
+  forget() { currentTrack = null; },
 };
 
 // ---------------------------------------------------------------- art

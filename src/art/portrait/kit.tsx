@@ -2,14 +2,14 @@
 // with mood-driven brows, eyes and mouth. Characters layer hair, clothes and gear on top.
 import type { ReactNode } from 'react';
 import type { Mood } from '../../content/types';
-import { p } from '../geom';
+import { p, ps } from '../geom';
 import { FACE_INK, MOUTH_DARK, SCLERA, TEETH, type Ramp } from '../palette';
 
 export type { Mood };
 
 /** Filled polygon from a points string. */
 export function F({ d, c, o, k }: { d: string; c: string; o?: number; k?: string | number }) {
-  return <path key={k} d={p(d)} style={{ fill: c }} opacity={o} />;
+  return <path key={k} d={ps(d)} style={{ fill: c }} opacity={o} />;
 }
 /** Raw path. */
 export function R({ d, c, o, rule }: { d: string; c: string; o?: number; rule?: 'evenodd' }) {
@@ -17,10 +17,17 @@ export function R({ d, c, o, rule }: { d: string; c: string; o?: number; rule?: 
 }
 /** Open stroke from a points string. */
 export function L({ d, c, w = 1, o, cap = 'round' }: { d: string; c: string; w?: number; o?: number; cap?: 'round' | 'butt' | 'square' }) {
-  const n = d.trim().split(/[\s,]+/).map(Number);
+  return <path d={polyline(d)} style={{ fill: 'none', stroke: c, strokeWidth: w, strokeLinecap: cap, strokeLinejoin: 'round' }} opacity={o} />;
+}
+
+/** "x,y x,y M x,y x,y" → open path. */
+export function polyline(d: string): string {
   let s = '';
-  for (let i = 0; i < n.length; i += 2) s += (i === 0 ? 'M' : 'L') + n[i] + ' ' + n[i + 1];
-  return <path d={s} style={{ fill: 'none', stroke: c, strokeWidth: w, strokeLinecap: cap, strokeLinejoin: 'round' }} opacity={o} />;
+  for (const part of d.split('M')) {
+    const n = part.trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    for (let i = 0; i < n.length; i += 2) s += (i === 0 ? 'M' : 'L') + n[i] + ' ' + n[i + 1];
+  }
+  return s;
 }
 
 export interface FaceStyle {
@@ -60,32 +67,32 @@ export const JAWS: Record<Jaw, { face: string; shade: string; light: string }> =
   young: {
     face: '35,22 32.5,31 32,44 34.5,52.5 40.5,59.5 47.5,63.8 54.5,65 59.5,62.6 63.8,57 66.2,50 67.6,45 67.8,39.5 66.6,31 63.5,22.5 56,18 43,18',
     shade: '62.5,30 66.6,31 67.8,39.5 67.6,45 66.2,50 63.8,57 59.5,62.6 54.5,65 50,64.6 56.5,61.2 60.6,55.6 62.7,49.2 63.2,43.2 62.7,37',
-    light: '36,41 41,39.5 43.5,49 40.5,52.5 36.5,49.5',
+    light: '37.6,47.4 43.4,46.2 44.6,48.4 39.6,50.6',
   },
   soft: {
     face: '35.5,22 33,31 32.6,43.5 35,51.5 40.5,58.5 47.5,63 54,64.4 59,62 63,56.5 65.6,50 67,45 67.2,39.5 66.2,31 63.5,22.5 56,18 43,18',
     shade: '62.5,30 66.2,31 67.2,39.5 67,45 65.6,50 63,56.5 59,62 54,64.4 50,64 56,60.6 60,55.2 62.2,49 62.8,43.2 62.5,37',
-    light: '36.5,41 41,39.5 43.5,48.5 40.5,52 37,49',
+    light: '37.6,47.4 43.4,46.2 44.6,48.4 39.6,50.6',
   },
   narrow: {
     face: '36,22 33.6,31 33.2,43.5 35.4,51.5 41,59 48,64.5 54.5,66 58.6,63.4 62.4,57.6 65,50.5 66.4,45 66.6,39.5 65.8,31 63,22.5 56,18 43.5,18',
     shade: '62,30 65.8,31 66.6,39.5 66.4,45 65,50.5 62.4,57.6 58.6,63.4 54.5,66 50.5,65.4 56,61.6 59.4,56 61.6,49.4 62.2,43.4 61.9,37',
-    light: '37,41 41.5,39.5 43.5,48.5 40.5,52 37.5,49',
+    light: '37.6,47.4 43.4,46.2 44.6,48.4 39.6,50.6',
   },
   square: {
     face: '34.5,22 32,31 31.6,44.5 33.6,53.5 39,60.5 46.5,64.8 55,65.6 60.5,63.6 64.5,58.4 66.8,51 68,45.5 68.2,39.5 67,31 64,22.5 56,18 43,18',
     shade: '63,30 67,31 68.2,39.5 68,45.5 66.8,51 64.5,58.4 60.5,63.6 55,65.6 51,65.2 57.4,61.6 61.4,56.2 63.4,49.6 63.6,43.4 63.1,37',
-    light: '35.5,41 40.5,39.5 43,49 40,52.5 36,50',
+    light: '37.6,47.4 43.4,46.2 44.6,48.4 39.6,50.6',
   },
   gaunt: {
     face: '35.5,22 33,31 32.8,43 34.5,50 39.5,57.5 47,63.4 54.5,65.2 59,62.8 62.6,57.4 64.8,51 66.8,45.5 67.2,39.5 66.2,31 63.5,22.5 56,18 43,18',
     shade: '62.5,30 66.2,31 67.2,39.5 66.8,45.5 64.8,51 62.6,57.4 59,62.8 54.5,65.2 50.5,64.8 56,61 59.4,55.6 61.4,50 62.6,45.4 62.6,37',
-    light: '36.5,40.5 41,39 42.5,46 39.5,49 37,47',
+    light: '37.6,47.4 43.4,46.2 44.6,48.4 39.6,50.6',
   },
   broad: {
     face: '34.5,22 31.8,31 31.4,44 33.6,52.5 39.5,59.5 47,63.8 54.5,64.8 60,62.6 64.4,57.4 66.8,50.5 68.2,45 68.4,39.5 67.2,31 64,22.5 56,18 43,18',
     shade: '63,30 67.2,31 68.4,39.5 68.2,45 66.8,50.5 64.4,57.4 60,62.6 54.5,64.8 50.5,64.4 57,60.6 61,55.4 63.2,49.2 63.6,43.2 63.2,37',
-    light: '35.5,41 40.5,39.5 43,49 40,52.5 36,50',
+    light: '37.6,47.4 43.4,46.2 44.6,48.4 39.6,50.6',
   },
 };
 
@@ -150,7 +157,7 @@ function Eye({ e, inner, mood, st, uid }: { e: typeof NEAR; inner: 1 | -1; mood:
       {st.lashes && <L d={`${outerC[0]},${outerC[1]} ${outerC[0] - inner * 1.6},${outerC[1] - 1.3}`} c={FACE_INK} w={1.4} />}
       <L d={`${bO.join(',')} ${bI.join(',')}`} c={st.skin.deep} w={0.6} o={0.8} />
       {mood === 'surprised' && <L d={`${tO[0]},${tO[1] - 1.4} ${tI[0]},${tI[1] - 1.3}`} c={st.skin.shade} w={0.6} />}
-      {(mood === 'grim' || (st.age ?? 0) > 0) && <L d={`${cx - inner * a * 0.4},${cy + b * 1.7} ${cx + inner * a * 0.45},${cy + b * 1.55}`} c={st.skin.shade} w={0.7} />}
+      {(mood === 'grim' || (st.age ?? 0) > 1) && <L d={`${cx - inner * a * 0.4},${cy + b * 1.7} ${cx + inner * a * 0.45},${cy + b * 1.55}`} c={st.skin.shade} w={0.7} />}
     </g>
   );
 }
@@ -323,7 +330,7 @@ export function Face({ st, mood, uid, extra }: { st: FaceStyle; mood: Mood; uid:
     <g>
       <F d={jaw.face} c={st.skin.base} />
       <F d={jaw.shade} c={st.skin.shade} />
-      <F d={jaw.light} c={st.skin.light} o={0.55} />
+      <F d={jaw.light} c={st.skin.light} o={0.32} />
       <AgeLines st={st} mood={mood} />
       {extra}
       <Nose st={st} />

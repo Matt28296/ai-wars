@@ -1,11 +1,14 @@
 // Battle input: keyboard (held-key repeat that accelerates), mouse and touch, turned into abstract commands.
 import { useEffect, useRef } from 'react';
+import { T } from './timings';
 
 export type Cmd =
   | { k: 'move'; dx: number; dy: number; held: boolean }
   | { k: 'confirm'; source: 'key' | 'pointer' }
   | { k: 'cancel'; source: 'key' | 'pointer' }
   | { k: 'cancelHold'; down: boolean }
+  | { k: 'confirmHold'; down: boolean }
+  | { k: 'threat' }
   | { k: 'cycle'; dir: 1 | -1 }
   | { k: 'co' }
   | { k: 'intel' }
@@ -22,11 +25,8 @@ const DIRS: Record<string, [number, number]> = {
 const CONFIRM = new Set(['z', 'Z', 'Enter', ' ']);
 const CANCEL = new Set(['x', 'X', 'Escape', 'Backspace']);
 
-// Repeat timing: first repeat after 220 ms, then 90 ms shrinking 14% per step to a 34 ms floor.
-const FIRST_DELAY = 220;
-const START_INTERVAL = 90;
-const MIN_INTERVAL = 34;
-const ACCEL = 0.86;
+// Repeat timing (QB 2.2): step on key-down, first repeat after ~220 ms, then every ~67 ms; after ~1 s held, ~33 ms.
+const FIRST_DELAY = T.repeatDelay;
 
 const isTyping = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
@@ -43,20 +43,20 @@ export function useKeyboard(dispatch: (c: Cmd) => void, enabled: () => boolean) 
   useEffect(() => {
     const held = new Map<string, [number, number]>();
     let timer: number | undefined;
-    let interval = START_INTERVAL;
+    let heldSince = 0;
 
     const vector = () => {
       let dx = 0, dy = 0;
       for (const [x, y] of held.values()) { dx += x; dy += y; }
       return [Math.sign(dx), Math.sign(dy)] as const;
     };
-    const stop = () => { if (timer) window.clearTimeout(timer); timer = undefined; interval = START_INTERVAL; };
+    const stop = () => { if (timer) window.clearTimeout(timer); timer = undefined; };
     const tick = () => {
       const [dx, dy] = vector();
       if (!dx && !dy) return stop();
       if (en.current()) d.current({ k: 'move', dx, dy, held: true });
-      interval = Math.max(MIN_INTERVAL, interval * ACCEL);
-      timer = window.setTimeout(tick, interval);
+      const fast = performance.now() - heldSince > T.repeatFastAfter;
+      timer = window.setTimeout(tick, fast ? T.repeatFast : T.repeatInterval);
     };
 
     const down = (e: KeyboardEvent) => {
@@ -66,13 +66,23 @@ export function useKeyboard(dispatch: (c: Cmd) => void, enabled: () => boolean) 
       if (dir) {
         e.preventDefault();
         if (e.repeat) return; // our own repeat drives held keys
+        const fresh = held.size === 0;
         held.set(e.key.toLowerCase(), dir);
-        d.current({ k: 'move', dx: dir[0], dy: dir[1], held: false });
-        stop();
-        timer = window.setTimeout(tick, FIRST_DELAY);
+        // a second key while one is held = diagonal step (both axes), keeping the repeat clock running
+        const [dx, dy] = vector();
+        d.current({ k: 'move', dx: fresh ? dir[0] : dx, dy: fresh ? dir[1] : dy, held: false });
+        if (fresh) {
+          heldSince = performance.now();
+          stop();
+          timer = window.setTimeout(tick, FIRST_DELAY);
+        }
         return;
       }
-      if (CONFIRM.has(e.key)) { e.preventDefault(); if (!e.repeat) d.current({ k: 'confirm', source: 'key' }); return; }
+      if (CONFIRM.has(e.key)) {
+        e.preventDefault();
+        if (!e.repeat) { d.current({ k: 'confirm', source: 'key' }); d.current({ k: 'confirmHold', down: true }); }
+        return;
+      }
       if (CANCEL.has(e.key)) {
         e.preventDefault();
         if (e.repeat) return;
@@ -87,6 +97,7 @@ export function useKeyboard(dispatch: (c: Cmd) => void, enabled: () => boolean) 
         case 'c': case 'C': d.current({ k: 'co' }); break;
         case 'i': case 'I': d.current({ k: 'intel' }); break;
         case 'r': case 'R': d.current({ k: 'endTurn' }); break;
+        case 't': case 'T': d.current({ k: 'threat' }); break;
         default: return;
       }
       e.preventDefault();
@@ -97,8 +108,9 @@ export function useKeyboard(dispatch: (c: Cmd) => void, enabled: () => boolean) 
         if (!held.size) stop();
       }
       if (CANCEL.has(e.key)) d.current({ k: 'cancelHold', down: false });
+      if (CONFIRM.has(e.key)) d.current({ k: 'confirmHold', down: false });
     };
-    const blur = () => { held.clear(); stop(); d.current({ k: 'cancelHold', down: false }); };
+    const blur = () => { held.clear(); stop(); d.current({ k: 'cancelHold', down: false }); d.current({ k: 'confirmHold', down: false }); };
 
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
