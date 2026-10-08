@@ -5,13 +5,16 @@
 //
 // A player viewer renders ONLY observe(state, viewer) and its log uses ONLY viewEvents(before, after, events, viewer); 'all' is the
 // omniscient post-match view (timeline.ts). The board, HUD, log and animation are all drawn from the timeline's frames and events.
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import type { Action, CreateGameOptions } from '../../game/aw';
 import { Controls, ViewerToggle } from './Controls';
 import { EventLog } from './EventLog';
 import { Hud } from './Hud';
 import { Stage } from './Stage';
+import { RendererToggle } from '../board3d/stage/RendererToggle';
+import { chooseRenderer, detectWebGL2 } from '../board3d/stage/support';
+import type { RendererChoice } from '../board3d/stage/support';
 import { initialPlayback, keyToAction, playbackReducer } from './controls';
 import { buildLog } from './format';
 import { dwellMs } from './timing';
@@ -21,6 +24,9 @@ import type { Viewer } from './timeline';
 import { planTransition } from './transition';
 import type { TransitionPlan } from './transition';
 import './watch.css';
+
+// The 3D stage (three.js) loads on demand, so a page that shows the flat board never pays for it.
+const Stage3D = lazy(() => import('../board3d/Stage3D').then((m) => ({ default: m.Stage3D })));
 
 export interface WatchViewProps {
   setup: CreateGameOptions;
@@ -53,6 +59,12 @@ export function WatchView({ setup, actions, viewer, onViewerChange, initialStep,
   const timeline = useMemo(() => viewTimeline(record, viewer), [record, viewer]);
   const log = useMemo(() => buildLog(timeline.steps), [timeline]);
   const reducedMotion = useReducedMotion();
+
+  // The 3D board when WebGL2 works and `?renderer=2d` is not in the URL; otherwise (or by the viewer's own toggle) the flat SVG board.
+  const [webgl2] = useState(() => detectWebGL2());
+  const [rendererPick, setRendererPick] = useState<RendererChoice | null>(null);
+  const renderer = chooseRenderer({ webgl2, search: typeof window === 'undefined' ? '' : window.location.search, override: rendererPick });
+  const onStage3DFail = useCallback(() => setRendererPick('2d'), []);
 
   const [pb, dispatch] = useReducer(playbackReducer, undefined, () =>
     initialPlayback(timeline.last, { step: initialStep, speed: initialSpeed, playing: autoPlay }),
@@ -120,17 +132,38 @@ export function WatchView({ setup, actions, viewer, onViewerChange, initialStep,
   }, [log, step.index]);
   const visibleLog = useMemo(() => log.slice(0, logCount), [log, logCount]);
 
+  const toolbar =
+    onViewerChange || webgl2 ? (
+      <div className="aww-toolbar-row">
+        {onViewerChange && <ViewerToggle frame={timeline.steps[0].frame} viewer={viewer} onChange={onViewerChange} />}
+        {webgl2 && <RendererToggle mode={renderer} onChange={setRendererPick} />}
+      </div>
+    ) : undefined;
+
   return (
     <div className="aww-root" data-viewer={String(viewer)} data-step={step.index}>
       <div className="aww-main">
-        <Stage
-          timeline={timeline}
-          step={step.index}
-          plan={plan}
-          onDone={onDone}
-          reducedMotion={reducedMotion}
-          toolbar={onViewerChange ? <ViewerToggle frame={timeline.steps[0].frame} viewer={viewer} onChange={onViewerChange} /> : undefined}
-        />
+        {renderer === '3d' ? (
+          <Suspense
+            fallback={
+              <div className="aww-stage" data-renderer="3d" aria-busy>
+                <div className="aww-board-wrap"><div className="aww-stage3d aww-stage3d--loading label">Loading the 3D board</div></div>
+              </div>
+            }
+          >
+            <Stage3D
+              timeline={timeline}
+              step={step.index}
+              plan={plan}
+              onDone={onDone}
+              reducedMotion={reducedMotion}
+              toolbar={toolbar}
+              onFail={onStage3DFail}
+            />
+          </Suspense>
+        ) : (
+          <Stage timeline={timeline} step={step.index} plan={plan} onDone={onDone} reducedMotion={reducedMotion} toolbar={toolbar} />
+        )}
         <aside className="aww-side">
           <Hud step={step} />
           <EventLog lines={visibleLog} />
