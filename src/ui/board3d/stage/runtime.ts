@@ -16,6 +16,11 @@
 // G12 added the ambient occlusion (ao.ts), the quality tiers (quality.ts) and the terrain's motion freeze (setMotion).
 // G16 added the unit views' two switches: units of a masked owner (the mission names no nation for that seat) are made without a sigil,
 // and reduced motion holds every unit's idle motion still, as it already held the terrain's and the effects kit's.
+// P1 added a floor below the lowest tier (the internal render scale, quality.ts: the drawing buffer shrinks, the canvas does not), and the motion
+// recorder (`?probe=motion`, src/ui/watch/motion): called from THIS frame loop, built only when the address asks, and never touched otherwise.
+// P1 also keeps the playback clock off the frame rate. A plan ends on a TIMER as well as on a frame (a frame that takes 100 ms no longer holds
+// the end of a step back by up to 100 ms), and on a slow machine the stage stops DRAWING for a moment at a step boundary, so the page's own
+// work (React, the dwell timer) is not queued behind a frame for every hop. Measured: a step with nothing to animate cost three frames, not 60 ms.
 import {
   ACESFilmicToneMapping, Color, DirectionalLight, Group, HemisphereLight, PCFShadowMap,
   PerspectiveCamera, SRGBColorSpace, Scene, Vector2, Vector3, WebGLRenderer,
@@ -30,6 +35,7 @@ import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 import type { PlayerIndex, Weather } from '../../../game/aw';
 import { sampleTransition } from '../../watch/transition';
+import { TIMINGS } from '../../watch/timing';
 import type { BannerSample, CutInSample, TransitionPlan, TransitionSample } from '../../watch/transition';
 import { homeFacings } from '../../watch/unitview';
 import type { Facing } from '../../watch/unitview';
@@ -57,12 +63,15 @@ import { Intro, introAction } from './intro';
 import { OCCUPIED_SNAP_DT_SEC, occupiedPredicate, occupiedTiles, sameTiles } from './occupancy';
 import { UnitRegistry } from './registry';
 import { CameraRig, FOV_DEG, MAX_ZOOM_LEVEL, defaultZoomLevel, easeToward, stepZoom, wheelToSteps } from './rig';
-import { AdaptiveQuality, TIERS, chooseStartTier, qualityFromSearch, readSignals } from './quality';
-import type { GlLike, QualitySignals, QualityTier } from './quality';
+import { AdaptiveQuality, TIERS, cheaper, chooseStartTier, qualityFromSearch, readRemembered, readSignals, scaleFloorFor, scaleFromSearch, writeRemembered } from './quality';
+import type { GlLike, QualitySignals, QualityTier, Remembered, StorageLike } from './quality';
 import { createStormStatic } from './storm';
 import type { StormStats, StormStatic } from './storm';
 import { createTable } from './table';
 import type { TableStats, TableView } from './table';
+import { activeBeat, describePlan, installMotionRecorder, pageSpeed } from '../../watch/motion/recorder';
+import { probeRequested } from '../../watch/motion/types';
+import type { FrameSample, MotionProbe, UnitPose } from '../../watch/motion/types';
 
 export interface Overlay { banner: BannerSample | null; cutIn: CutInSample | null }
 
@@ -75,8 +84,8 @@ export interface StageHooks {
   onZoom?(level: number): void;
   /** The GPU side cannot go on (no context, or it was lost). The page falls back to the flat board. */
   onFail(reason: string): void;
-  /** The quality tier in force: once at the start, and again whenever it changes (the adaptive step lowered it, or it was forced). */
-  onQuality?(tier: QualityTier, pinned: boolean): void;
+  /** The quality tier and render scale in force: once at the start, and again whenever either changes (the adaptive step lowered it, or it was forced). */
+  onQuality?(tier: QualityTier, pinned: boolean, scale?: number): void;
 }
 
 export interface StageView {
@@ -101,6 +110,10 @@ export interface StageModules {
   search: string;
   /** The start tier's signals. Default null: read them from the renderer and the page. Tests inject them. */
   signals: QualitySignals | null;
+  /** Builds the motion recorder. Called ONLY when the address asks for it (`?probe=motion`); the default puts the recorder on `window.__awMotion`. */
+  createProbe: () => MotionProbe;
+  /** Where the device's settled tier and scale are remembered. Default: the page's localStorage, or null where there is none or it throws. */
+  storage: () => StorageLike | null;
 }
 
 /** Plain numbers for tests and the dev gallery: what the core is doing now. */
@@ -119,7 +132,18 @@ export interface StageDebug {
   /** The power sweep: whether it is up and what it shows. */
   sweep: SweepStats;
   /** The quality tier in force and what it built: the passes in the composer (by name, in order), the shadow map's side and the pixel ratio. */
-  quality: { tier: QualityTier; pinned: boolean; passes: string[]; shadowMapSize: number; pixelRatio: number; frameMs: number | null };
+  quality: {
+    tier: QualityTier; pinned: boolean; passes: string[]; shadowMapSize: number;
+    /** The tier's pixel ratio (the device's, capped by the tier), before the render scale. */
+    pixelRatio: number;
+    /** The internal render scale in force and whether the address pinned it; the drawing buffer is pixelRatio x scale of the canvas's CSS size. */
+    scale: number; scalePinned: boolean;
+    /** What an earlier battle on this device settled on and this one started from; null when nothing was remembered (or the address pinned a tier). */
+    remembered: Remembered | null;
+    frameMs: number | null;
+  };
+  /** Whether the motion recorder is on (the address asked for it). */
+  probe: boolean;
 }
 
 /** FXAA is on in every tier: the renderer's own antialiasing is therefore off (art-direction.md "Tone and post"). */
@@ -127,6 +151,26 @@ const FXAA_ON = true;
 /** The effects kit's look was tuned with these (bloom, then OutputPass), so only emissives and effects glow. */
 const BLOOM = { strength: 0.6, radius: 0.4, threshold: 0.9 } as const;
 const VIGNETTE = { offset: 0.85, darkness: 0.7 } as const;
+
+/**
+ * A frame slower than this (under 20 fps) makes the stage give the thread back to playback at a step boundary (see `frame`).
+ * A machine that draws faster than this never skips a frame.
+ */
+const YIELD_SLOW_MS = 50;
+/**
+ * How long, at most, the stage stops drawing at a boundary: the pause playback waits between steps (200 ms at 1x) and the same again for the page's
+ * own tasks around it. If nothing moves on by then (the viewer paused), drawing starts again.
+ */
+const YIELD_MS = 2 * TIMINGS.stepPauseMs;
+
+/** The page's localStorage; null where there is none, and where merely asking for it throws (a blocked profile). */
+function pageStorage(): StorageLike | null {
+  try {
+    return typeof window !== 'undefined' && window.localStorage ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The page's own query string, or '' where there is no page (node tests). */
 function pageSearch(): string {
@@ -150,6 +194,18 @@ export class StageRuntime {
   private pinned: boolean;
   private adaptive: AdaptiveQuality | null;
   private pixelRatio = 1;
+  /** The internal render scale in force (1 unless `?scale=` pinned another, or the lowest tier was still slow), and whether it was pinned. */
+  private scale = 1;
+  private scalePinned = false;
+  /** What this device settled on in an earlier battle, if that was read and used for the start. */
+  private remembered: Remembered | null = null;
+  /** The motion recorder; null unless the address asked for it, and then it is the only thing that ever calls it. */
+  private readonly probe: MotionProbe | null;
+  /** What the recorder reads of the last frame: the plan's clock (null when no plan ran), the step shown, and a camera cut waiting to be reported. */
+  private planClock: number | null = null;
+  private shownStep = 0;
+  private planSeq = -1;
+  private cutNext = false;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(FOV_DEG, 1.6, 0.1, 200);
   private readonly hemi = new HemisphereLight(0xcfe3ff, 0x5b4a3a, 1);
@@ -187,6 +243,17 @@ export class StageRuntime {
   private homes: Facing[] = [];
   private planStart = 0;
   private planDone = false;
+  /** The timer that ends the current plan on the clock, whether or not a frame comes (null: none waiting). */
+  private planTimer: ReturnType<typeof setTimeout> | null = null;
+  /** A boundary is coming: after the next drawn frame, stop drawing until `yieldUntil` (only on a slow machine). */
+  private yieldNext = false;
+  private yieldUntil = 0;
+  /** The interval of the last drawn frame that was a real frame time, ms (0 before there is one). */
+  private lastInterval = 0;
+  /** Frames were skipped since the last drawn one, so the next drawn frame's interval spans them and is no frame time. */
+  private skipped = false;
+  /** Frames skipped since the last drawn one (for the recorder). */
+  private skips = 0;
   private overlayUp = false;
   private stormMix = 0;
   private time = 0;
@@ -216,6 +283,8 @@ export class StageRuntime {
       createRenderer: (canvas) => new WebGLRenderer({ canvas, antialias: !FXAA_ON, powerPreference: 'high-performance', stencil: false }),
       search: pageSearch(),
       signals: null,
+      createProbe: () => installMotionRecorder(),
+      storage: pageStorage,
       ...modules,
     };
     this.canvas = document.createElement('canvas');
@@ -253,10 +322,20 @@ export class StageRuntime {
     this.scene.add(this.sweep.mesh);
 
     // The quality tier: forced by the address, else guessed from cheap signals and then lowered (never raised) if the frames run slow.
+    // A device remembers where it settled (7 days): the battle starts there. `?quality=` and `?scale=` win over it, and a forced tier ignores it altogether.
     const forced = qualityFromSearch(this.modules.search ?? '');
+    const forcedScale = scaleFromSearch(this.modules.search ?? '');
+    const width = Math.max(1, Math.floor(host.clientWidth));
     this.pinned = forced !== null;
+    this.remembered = this.pinned ? null : readRemembered(this.storage(), Date.now());
     this.tier = forced ?? chooseStartTier(this.modules.signals ?? this.gatherSignals());
-    this.adaptive = this.pinned ? null : new AdaptiveQuality(this.tier);
+    if (this.remembered) this.tier = cheaper(this.tier, this.remembered.tier);
+    this.scalePinned = forcedScale !== null;
+    // a remembered 0.5 on a canvas that is now narrow (the same browser, a smaller window) is held to what a narrow canvas may have
+    this.scale = forcedScale ?? (this.remembered ? Math.max(this.remembered.scale, scaleFloorFor(width)) : 1);
+    this.adaptive = this.pinned ? null : new AdaptiveQuality(this.tier, {}, { scale: this.scale, pinned: this.scalePinned });
+    this.adaptive?.setCanvasWidth(width);
+    this.probe = probeRequested(this.modules.search ?? '') ? this.modules.createProbe() : null;
     this.setShadowSize(TIERS[this.tier].shadowMapSize);
 
     this.composer = new EffectComposer(r);
@@ -280,7 +359,7 @@ export class StageRuntime {
     this.canvas.style.touchAction = 'pan-y';
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.tick);
-    this.hooks.onQuality?.(this.tier, this.pinned);
+    this.hooks.onQuality?.(this.tier, this.pinned, this.scale);
   }
 
   // ------------------------------------------------------------ quality
@@ -299,6 +378,15 @@ export class StageRuntime {
     const caps = (this.renderer as unknown as { capabilities?: { maxTextureSize?: number } }).capabilities;
     if (signals.maxTextureSize == null && typeof caps?.maxTextureSize === 'number') signals.maxTextureSize = caps.maxTextureSize;
     return signals;
+  }
+
+  /** The storage, or null: asking for it never throws. */
+  private storage(): StorageLike | null {
+    try {
+      return this.modules.storage();
+    } catch {
+      return null;
+    }
   }
 
   /** The sun's shadow map at a new side. three builds the new map on the next frame once the old one is gone. */
@@ -345,7 +433,15 @@ export class StageRuntime {
     this.setShadowSize(TIERS[tier].shadowMapSize);
     this.buildChain();
     this.resize();
-    this.hooks.onQuality?.(this.tier, this.pinned);
+    this.hooks.onQuality?.(this.tier, this.pinned, this.scale);
+  }
+
+  /** Changes the internal render scale: the drawing buffer is resized, the canvas's CSS size is not. A no-op for the scale already in force. */
+  private applyScale(scale: number): void {
+    if (scale === this.scale || this.disposed) return;
+    this.scale = scale;
+    this.resize();
+    this.hooks.onQuality?.(this.tier, this.pinned, this.scale);
   }
 
   /**
@@ -371,19 +467,29 @@ export class StageRuntime {
     return 'unknown';
   }
 
-  /** One frame's interval: the adaptive step lowers the tier after a sustained slow stretch. A hidden tab is not a slow device. */
+  /**
+   * One frame's interval: the adaptive step lowers the tier after a sustained slow stretch, and from the lowest tier the render scale. A hidden tab
+   * is not a slow device.
+   */
   private adapt(frameMs: number, now: number): void {
     const a = this.adaptive;
     if (!a) return;
     if (typeof document !== 'undefined' && document.hidden) return;
+    const before = this.scale;
     const next = a.push(frameMs, now);
     if (next) this.applyTier(next);
+    else this.applyScale(a.scale);
+    // a step down is what this device has settled on so far: the next battle starts there. A pinned tier or scale is somebody's choice, not the device's.
+    if (next || this.scale !== before) {
+      if (!this.pinned && !this.scalePinned) writeRemembered(this.storage(), { tier: this.tier, scale: this.scale }, Date.now());
+    }
   }
 
   // ------------------------------------------------------------ what to show
 
   setView(view: StageView): void {
     if (this.disposed) return;
+    this.wake();
     const prev = this.view;
     this.view = view;
     const step = view.timeline.steps[Math.min(view.step, view.timeline.last)];
@@ -393,6 +499,16 @@ export class StageRuntime {
     if (planChanged) {
       this.planStart = performance.now();
       this.planDone = false;
+      this.clearPlanTimer();
+      const p = view.plan;
+      // the plan ends on the clock even if no frame arrives to say so; a step with nothing to animate is only a pause, so the boundary is now
+      if (p && p.durationMs > 0) this.planTimer = setTimeout(() => this.finishByClock(p), p.durationMs + 1);
+      else if (p) this.yieldNext = true;
+    }
+    // The recorder hears of every view of a step: a new plan, or the viewer arriving at another step (a scrub has no plan, and is still a step shown).
+    if (planChanged || !prev || prev.step !== view.step) {
+      this.planSeq++;
+      this.probe?.stepStart(describePlan(this.planSeq, performance.now(), step.index, view.plan, view.reducedMotion, pageSpeed()));
     }
     this.followReducedMotion(view.reducedMotion);
     this.registry.setMotion(!view.reducedMotion);
@@ -421,6 +537,7 @@ export class StageRuntime {
       this.info = analyseStep(before.frame, step.frame, step.events, view.plan);
       const snap = !view.plan || view.plan.durationMs <= 0;
       this.rig.focusOn(step.index > 0 ? this.info.focus ?? null : null, snap);
+      if (snap) this.cutNext = true; // a declared cut: the recorder lets the camera jump here
     }
   }
 
@@ -517,7 +634,17 @@ export class StageRuntime {
     this.time += dt;
     try {
       // only a frame that drew something says how fast this machine is
-      if (this.frame(now, dt)) this.adapt(frameMs, now);
+      const probe = this.probe;
+      const began = probe ? performance.now() : 0;
+      if (this.frame(now, dt)) {
+        if (probe) probe.frame(this.probeSample(now, performance.now() - began));
+        // a frame after skipped ones has an interval that spans them: that says nothing about how fast this machine draws
+        if (this.skipped) this.skipped = false;
+        else {
+          this.lastInterval = frameMs;
+          this.adapt(frameMs, now);
+        }
+      }
     } catch (err) {
       this.hooks.onFail(err instanceof Error ? err.message : String(err));
       this.disposed = true;
@@ -554,15 +681,18 @@ export class StageRuntime {
     const plan = view.plan;
     let sample: TransitionSample | null = null;
     let t = 0;
+    let ended = false;
     if (plan && plan.durationMs > 0 && !this.planDone) {
       t = now - this.planStart;
       if (t >= plan.durationMs) {
-        this.planDone = true;
-        this.hooks.onDone(plan);
+        this.completePlan(plan, step.index);
+        ended = true;
       } else {
         sample = sampleTransition(plan, t);
       }
     }
+    this.planClock = sample ? t : null;
+    this.shownStep = step.index;
     const reduced = view.reducedMotion;
     const state = mapStage({ frame: step.frame, prev: before.frame, plan, sample, t, info, step: step.index });
     this.syncUnits(state, dt, !reduced && sample !== null);
@@ -578,8 +708,87 @@ export class StageRuntime {
     this.intro.update(dt);
     this.updateCamera(dt, reduced, state);
     this.updateSetting(reduced);
+    // On a slow machine a drawn frame costs the main thread its whole interval, and the page's own work at a step boundary (the end of the step, the
+    // dwell timer, the next step's render) is several tasks, each of which waited for a frame: a step with nothing to animate cost three frames. So for
+    // a moment after a boundary the stage skips drawing (everything else still updates) and the page gets its turns. Never on a fast machine.
+    // The frame that finds the plan over does not draw either: drawing would put the page's reaction to the end of the step (queued by `completePlan`)
+    // behind a whole frame, and the rest state is drawn by the very next one.
+    if ((this.yieldUntil > now || ended) && this.lastInterval > YIELD_SLOW_MS) {
+      this.skipped = true;
+      this.skips++;
+      return false;
+    }
     this.composer.render(dt);
+    if (this.yieldNext) {
+      this.yieldNext = false;
+      this.yieldUntil = now + YIELD_MS;
+    }
     return true;
+  }
+
+  /** The plan has run to its end: tell the recorder and the page, once (called from the frame that saw it, or from the timer, whichever is first). */
+  private completePlan(plan: TransitionPlan, stepIndex: number): void {
+    this.planDone = true;
+    this.yieldNext = true;
+    this.clearPlanTimer();
+    this.probe?.stepDone({ type: 'done', t: performance.now(), seq: this.planSeq, step: stepIndex });
+    this.hooks.onDone(plan);
+  }
+
+  private clearPlanTimer(): void {
+    if (this.planTimer !== null) clearTimeout(this.planTimer);
+    this.planTimer = null;
+  }
+
+  /**
+   * The plan's clock, without a frame: when the plan's time is up the step is over, even if the next frame is a long way off. A hidden tab does not
+   * play on (its frames stop too), and a plan that has been replaced is not this timer's any more.
+   */
+  private finishByClock(plan: TransitionPlan): void {
+    this.planTimer = null;
+    const view = this.view;
+    if (this.disposed || !view || view.plan !== plan || this.planDone) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (performance.now() - this.planStart < plan.durationMs) return; // early by a hair: the frame loop will finish it
+    try {
+      this.completePlan(plan, view.timeline.steps[Math.min(view.step, view.timeline.last)].index);
+    } catch (err) {
+      this.hooks.onFail(err instanceof Error ? err.message : String(err));
+      this.disposed = true;
+      cancelAnimationFrame(this.raf);
+    }
+  }
+
+  /** Something changed that must be seen at once (a new view, a resize, the viewer's hand on the camera): the stage draws again. */
+  private wake(): void {
+    this.yieldUntil = 0;
+    this.yieldNext = false;
+  }
+
+  /** What the motion recorder keeps of the frame just drawn. Only called when the recorder is on. */
+  private probeSample(now: number, jsMs: number): FrameSample {
+    const plan = this.view?.plan ?? null;
+    const units: UnitPose[] = [];
+    if (plan && plan.moves.length > 0) {
+      const seen = new Set<number>();
+      for (const m of plan.moves) {
+        if (seen.has(m.unitId)) continue;
+        seen.add(m.unitId);
+        const v = this.registry.view(m.unitId);
+        if (!v) continue;
+        const p = v.object.position;
+        units.push([m.unitId, p.x, p.y, p.z, activeBeat(plan, m.unitId, this.planClock)]);
+      }
+    }
+    const c = this.camera.position;
+    const cut = this.cutNext;
+    this.cutNext = false;
+    const skips = this.skips;
+    this.skips = 0;
+    return {
+      t: now, js: jsMs, tier: this.tier, scale: this.scale, cam: [c.x, c.y, c.z], seq: this.planSeq, step: this.shownStep,
+      planT: this.planClock, shake: this.shakeApplied, attack: this.attackApplied, cut, skips, units,
+    };
   }
 
   /**
@@ -736,17 +945,21 @@ export class StageRuntime {
 
   private resize(): void {
     if (this.disposed) return;
+    this.wake(); // resizing clears the canvas: it has to be drawn again before anything else
     const w = Math.max(1, Math.floor(this.host.clientWidth));
     const h = Math.max(1, Math.floor(this.host.clientHeight));
+    this.adaptive?.setCanvasWidth(w);
     const pr = Math.min(window.devicePixelRatio || 1, TIERS[this.tier].maxPixelRatio);
+    // the render scale shrinks the DRAWING BUFFER only: setSize(w, h, false) never touches the canvas's CSS size, so the picture stays as large
+    const buf = pr * this.scale;
     this.pixelRatio = pr;
-    this.viewportPx = h * pr;
-    this.renderer.setPixelRatio(pr);
+    this.viewportPx = h * buf;
+    this.renderer.setPixelRatio(buf);
     this.renderer.setSize(w, h, false);
-    this.composer.setPixelRatio(pr);
+    this.composer.setPixelRatio(buf);
     this.composer.setSize(w, h);
     this.bloom?.resolution.set(w, h);
-    this.fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
+    this.fxaa.material.uniforms.resolution.value.set(1 / (w * buf), 1 / (h * buf));
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.rig.setAspect(w / h);
@@ -763,6 +976,7 @@ export class StageRuntime {
   // ------------------------------------------------------------ camera input (camera only: nothing here selects or commands a unit)
 
   zoomStep(dir: 1 | -1): void {
+    this.wake();
     this.intro.skip(); // the viewer took the camera
     this.cameraTaken = true;
     this.userZoomed = true;
@@ -790,8 +1004,12 @@ export class StageRuntime {
         passes: this.composer.passes.map((p) => this.passName(p)),
         shadowMapSize: this.sun.shadow.mapSize.x,
         pixelRatio: this.pixelRatio,
+        scale: this.scale,
+        scalePinned: this.scalePinned,
+        remembered: this.remembered,
         frameMs: this.adaptive?.medianMs() ?? null,
       },
+      probe: this.probe !== null,
     };
   }
 
@@ -825,6 +1043,7 @@ export class StageRuntime {
   private readonly onPointerMove = (e: PointerEvent): void => {
     const d = this.drag;
     if (!d || d.id !== e.pointerId) return;
+    this.wake();
     this.intro.skip();
     this.cameraTaken = true;
     this.rig.pan(e.clientX - d.x, e.clientY - d.y, this.canvas.clientHeight);
@@ -851,6 +1070,8 @@ export class StageRuntime {
     this.cleaned = true;
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.clearPlanTimer();
+    this.probe?.dispose();
     this.ro.disconnect();
     window.removeEventListener('keydown', this.onKey);
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);

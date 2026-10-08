@@ -97,14 +97,72 @@ describe('typedText', () => {
   });
 });
 
-describe('glideEase', () => {
-  it('runs 0 to 1, is half way at half way, and eases at both ends', () => {
+describe('the pace of a glide', () => {
+  it('is 240 ms a tile at 1x and 120 at 2x, none at 4x or under reduced motion', () => {
+    expect(TIMINGS.moveTileMs).toBe(240);
+    expect(moveTileMs(1)).toBe(240);
+    expect(moveTileMs(2)).toBe(120);
+    expect(moveTileMs(4)).toBe(0);
+    expect(moveTileMs(1, true)).toBe(0);
+    expect(moveTileMs(2, true)).toBe(0);
+  });
+});
+
+describe('glideEase: a steady march with a short settle', () => {
+  // Written from the spec, not from the function: one speed for the first 90% of the time (1 / 0.95 of the mean, so that the 10% settle, which covers
+  // the last 0.05 / 0.95 of the path at a falling speed, arrives exactly on time), then a constant slowing to a stop.
+  const CRUISE = 1 / 0.95;
+  const slope = (a: number, b: number): number => (glideEase(b) - glideEase(a)) / (b - a);
+
+  it('runs 0 to 1, clamps outside it, and ends exactly on the destination', () => {
     expect(glideEase(0)).toBe(0);
     expect(glideEase(1)).toBe(1);
-    expect(glideEase(0.5)).toBe(0.5);
-    expect(glideEase(0.1)).toBeLessThan(0.1); // slow start
-    expect(glideEase(0.9)).toBeGreaterThan(0.9); // slow stop
     expect(glideEase(-1)).toBe(0);
     expect(glideEase(2)).toBe(1);
+  });
+
+  it('has no ease-in: the speed is the same from the first moment, tile after tile, and it is the same speed whether the unit is near the start or the middle', () => {
+    expect(glideEase(0.1)).toBeCloseTo(0.1 * CRUISE, 12);
+    expect(glideEase(0.5)).toBeCloseTo(0.5 * CRUISE, 12);
+    expect(slope(0, 0.05)).toBeCloseTo(CRUISE, 9);
+    expect(slope(0.2, 0.3)).toBeCloseTo(CRUISE, 9);
+    expect(slope(0.7, 0.8)).toBeCloseTo(CRUISE, 9);
+    // known-bad: the old smoothstep is not that: it crawls at the start (slope 0.3 over the first tenth of the time) and rushes in the middle (1.5)
+    const smooth = (q: number): number => q * q * (3 - 2 * q);
+    expect((smooth(0.05) - smooth(0)) / 0.05).toBeLessThan(0.2);
+    expect((smooth(0.55) - smooth(0.45)) / 0.1).toBeGreaterThan(1.4);
+  });
+
+  it('never goes faster than its steady speed: the peak is about 1.05 times the mean speed (smoothstep peaks at 1.5), and it never goes backwards', () => {
+    let peak = 0;
+    let prev = 0;
+    for (let i = 1; i <= 1000; i++) {
+      const p = i / 1000;
+      const here = glideEase(p);
+      expect(here, `p ${p}`).toBeGreaterThanOrEqual(prev);
+      peak = Math.max(peak, (here - prev) / 0.001);
+      prev = here;
+    }
+    expect(peak).toBeLessThanOrEqual(CRUISE + 1e-9);
+    expect(peak).toBeCloseTo(CRUISE, 3);
+    expect(peak).toBeLessThan(1.1);
+  });
+
+  it('settles over the last tenth of the time: it meets the steady speed without a jump at 90%, slows steadily, and comes to rest at the end', () => {
+    expect(glideEase(0.9)).toBeCloseTo(0.9 * CRUISE, 12); // the steady part has covered 0.9 / 0.95 of the path
+    expect(slope(0.89, 0.9)).toBeCloseTo(CRUISE, 9);
+    expect(slope(0.9, 0.91)).toBeLessThan(CRUISE); // already slowing
+    expect(slope(0.9, 0.91)).toBeGreaterThan(CRUISE * 0.85);
+    expect(slope(0.99, 1)).toBeCloseTo(CRUISE * 0.05, 6); // the speed falls from 10% of the steady speed to nothing over the last hundredth: 5% on average
+    expect(slope(0.999, 1)).toBeCloseTo(CRUISE * 0.005, 6);
+    // it is a constant slowing: equal steps in the speed
+    const speedAt = (p: number): number => slope(p - 0.005, p + 0.005);
+    expect(speedAt(0.92) - speedAt(0.94)).toBeCloseTo(speedAt(0.94) - speedAt(0.96), 6);
+  });
+
+  it('the settle is the last 5.3% of the path: a quarter of a tile on a path of four and three quarter tiles', () => {
+    const settleShare = 1 - glideEase(0.9);
+    expect(settleShare).toBeCloseTo(0.05 / 0.95, 12);
+    expect(settleShare * 4.75).toBeCloseTo(0.25, 12);
   });
 });

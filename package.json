@@ -17,7 +17,8 @@
     "guard": "node scripts/guard.mjs",
     "balance": "node scripts/balance.mjs",
     "tokens": "node design-system/tools/build.mjs",
-    "agent": "node scripts/agent.mjs"
+    "agent": "node scripts/agent.mjs",
+    "motion": "node scripts/motion.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",
