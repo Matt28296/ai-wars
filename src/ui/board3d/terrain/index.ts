@@ -248,6 +248,9 @@ export function createTerrainKit(input: TerrainInput): TerrainKit {
       for (const t of properties) data[t.index] = Math.round(Math.min(1, Math.max(0, progressAt(t.x, t.y))) * 255);
       capMap.needsUpdate = true;
     },
+    setOccupied() {
+      // Contract stub (lead): the low form of occupied properties is ORDER G8a's. Until it lands, buildings keep their full height.
+    },
     setVisible(visibleAt) {
       const data = fogMap.image.data as Uint8Array;
       for (const t of board.tiles) data[t.index] = visibleAt(t.x, t.y) ? 255 : 0;
