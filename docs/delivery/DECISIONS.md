@@ -221,7 +221,8 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
      - The player's turn N is computed only when playback reaches its start, with the orders in force at that moment. Other players' turns may be computed ahead.
      - Every order change is written into the match record, so a replay stays exact (the D-019 principle).
   3. **Head-to-head (PvP)** keeps D-006: orders lock at match entry.
-- **Reversible:** yes, until G14 ships.
+- **Built:** M3.4 (#51, the engine) and G14 (#55, the orders card, the live battle and the Orders panel). One choice in G14 goes beyond these words: **while a fogged battle is live, the viewer switch is hidden,** so units the player's side cannot see cannot guide the player's orders (D-016). It returns when the battle ends. Without fog it stays. Reversible.
+- **Reversible:** yes; changing the timing now means changing G14.
 
 ### D-023: a very clean interface, and players connect their own AI agent at the start (2026-10-08, RULED)
 - **Matthew, in this session (15:4xZ):** *"I want a very clean user interface and super short simplistic instructions at the start for the user to connect to"*. Asked what the user connects, he chose **"Their own AI agent"**.
