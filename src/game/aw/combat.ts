@@ -1,11 +1,13 @@
-// Combat: weapon choice, the AW2 damage formula, counters, forecasts and threat ranges.
+// Combat (docs/research/mechanics.md section 4): weapon choice, the damage formula, counters, forecasts and threat ranges.
 //
 //   damage = floor((B × ATK/100 + luck) × (AHP/10) × (200 − (DEF + stars × DHP)) / 100)
 //
 // computed in exact integer arithmetic. B = chart value (primary if it has an entry and ammo > 0, else
 // secondary), ATK = 100 + firepower %, DEF = 100 + defense %, AHP/DHP = display HP, stars = terrain stars
-// (0 for air). Damage is in internal HP (1–100).
+// (0 for air). Damage is in internal HP (1–100). Luck always comes from state.rng: the attack's draw first,
+// the counter's second (the counter-first doctrine reverses the order, as the strikes do).
 import { DAMAGE } from '../../data/damage';
+import { illegal } from './errors';
 import { fogActive, visionGrid } from './fog';
 import {
   canFireAfterMove, defenseBonus, effectiveRange, firepowerBonus, hasCounterFirst, luckRange, terrainStarsFor,
@@ -46,12 +48,21 @@ export function damageValue(
   return Math.floor((offense * ahp * defense) / 100000);
 }
 
-/** Direct (range starts at 1), adjacent, and has a weapon against the attacker. */
+/** Spec 4.6: a surviving, direct defender with a usable weapon against a direct attacker that struck from an adjacent tile. */
 export function canCounter(defender: Unit, attacker: Unit, distance: number): boolean {
-  if (distance !== 1) return false;
+  if (distance !== 1 || defender.hp <= 0) return false;
+  if (isIndirectType(unitType(attacker.type))) return false;
   const r = unitType(defender.type).range;
   if (!r || r[0] !== 1) return false;
   return weaponAgainst(defender.type, attacker.type, defender.ammo) !== null;
+}
+
+/** True when the unit has any weapon it could fire right now (a primary with ammo, or any secondary). */
+function hasUsableWeapon(unit: Unit): boolean {
+  const row = DAMAGE[unit.type];
+  if (!row) return false;
+  if (unit.ammo > 0 && row.primary && Object.keys(row.primary).length > 0) return true;
+  return !!row.secondary && Object.keys(row.secondary).length > 0;
 }
 
 function topLevel(state: GameState, id: number): Unit | undefined {
@@ -68,7 +79,9 @@ export function attackTargets(state: GameState, unitId: number, from: Coord): Co
   const t = unitType(unit.type);
   const moved = from.x !== unit.x || from.y !== unit.y;
   if (moved && isIndirectType(t) && !canFireAfterMove(state, unit, from)) return [];
-  const grid = fogActive(state) ? visionGrid(state, unit.owner) : null;
+  // Fog: what the unit sees is measured from where it would stand, not from where it stands now.
+  const seen = moved ? { ...state, units: state.units.map((u) => (u.id === unit.id ? { ...u, x: from.x, y: from.y } : u)) } : state;
+  const grid = fogActive(seen) ? visionGrid(seen, unit.owner) : null;
   const out: Coord[] = [];
   for (const e of state.units) {
     if (!areEnemies(state, unit.owner, e.owner)) continue;
@@ -84,7 +97,7 @@ export function attackTargets(state: GameState, unitId: number, from: Coord): Co
 /** Threat preview: every tile the unit could strike this turn (move + fire for direct units). */
 export function attackRangeTiles(state: GameState, unitId: number): Coord[] {
   const unit = topLevel(state, unitId);
-  if (!unit || !unitType(unit.type).range) return [];
+  if (!unit || !unitType(unit.type).range || !hasUsableWeapon(unit)) return [];
   const t = unitType(unit.type);
   const origins: Coord[] =
     isIndirectType(t) && !canFireAfterMove(state, unit) ? [{ x: unit.x, y: unit.y }] : [...reachable(state, unitId).values()];
@@ -151,15 +164,20 @@ export function forecast(
   };
 }
 
-// ---------- resolution (draft) ----------
+// ---------- resolution ----------
 
-/** Removes a destroyed unit (and its cargo), records stats, emits events. */
+/** The unit followed by everything it carries, nested transports included (a barge can carry a loaded mule). */
+function withCargo(unit: Unit): Unit[] {
+  return [unit, ...unit.cargo.flatMap(withCargo)];
+}
+
+/** Removes a destroyed unit (and all its cargo), resets a capture on its tile, records stats, emits events. */
 export function destroyUnit(ctx: Ctx, unit: Unit, by: PlayerIndex | null, kind: 'destroyed' | 'crashed' = 'destroyed'): void {
   const s = ctx.s;
   removeUnit(ctx, unit.id);
   resetCapture(ctx, unit);
   const at = { x: unit.x, y: unit.y };
-  const lost = [unit, ...unit.cargo];
+  const lost = withCargo(unit);
   for (const u of lost) {
     if (kind === 'crashed') emit(ctx, { kind: 'crashed', unitId: u.id, at });
     else emit(ctx, { kind: 'destroyed', unitId: u.id, at, type: u.type, owner: u.owner });
@@ -185,10 +203,11 @@ function strike(ctx: Ctx, att: Unit, def: Unit, w: Weapon): number {
   def.hp = before - dmg;
   s.players[att.owner].stats.damageDealt += dmg;
   s.players[def.owner].stats.damageTaken += dmg;
-  // Power meter: funds value of display HP removed — ×0.5 to the dealer, ×1.0 to the victim.
-  const value = ((displayHp(before) - displayHp(def.hp)) * unitType(def.type).cost) / 10;
-  if (value > 0) {
-    gainPower(ctx, att.owner, value * 0.5);
+  // Power meter (spec 10.1): value = list cost × internal HP lost / 100 — all of it to the victim's owner, half to the dealer's.
+  // Internal HP, not display HP: a 9-point hit that leaves the display HP at 10 still charges the meter.
+  if (dmg > 0) {
+    const value = (unitType(def.type).cost * dmg) / 100;
+    gainPower(ctx, att.owner, value / 2);
     gainPower(ctx, def.owner, value);
   }
   return dmg;
@@ -197,8 +216,10 @@ function strike(ctx: Ctx, att: Unit, def: Unit, w: Weapon): number {
 /** Attacker (already at its firing position) attacks the enemy at `target`. Assumes legality was checked. */
 export function resolveAttack(ctx: Ctx, attacker: Unit, target: Coord): void {
   const s = ctx.s;
-  const defender = unitAt(s, target)!;
-  const w = weaponAgainst(attacker.type, defender.type, attacker.ammo)!;
+  const defender = unitAt(s, target);
+  if (!defender || !areEnemies(s, attacker.owner, defender.owner)) illegal(`no enemy unit at (${target.x},${target.y})`);
+  const w = weaponAgainst(attacker.type, defender.type, attacker.ammo);
+  if (!w) illegal(`${attacker.type} has no weapon against ${defender.type}`);
   const dist = manhattan(attacker, defender);
   const counters = canCounter(defender, attacker, dist);
   const first = counters && hasCounterFirst(s, defender);
