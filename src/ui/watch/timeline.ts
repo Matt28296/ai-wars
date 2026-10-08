@@ -8,7 +8,7 @@
 //
 // The engine's replay() returns only the final state, so the per-step states are produced by the same two primitives it
 // uses (createGame, then applyAction per action). timeline.test.ts checks the result against replay() itself.
-import { IllegalActionError, applyAction, createGame } from '../../game/aw';
+import { IllegalActionError, applyAction, createGame, resolvedSetup } from '../../game/aw';
 import type { Action, CreateGameOptions, GameEvent, GameState, PlayerIndex, Unit } from '../../game/aw';
 import { observe } from '../../game/aw/observe';
 import type { Observation, ObservedPlayer, ObservedTile } from '../../game/aw/observe';
@@ -22,6 +22,7 @@ export type ViewFrame = Omit<Observation, 'viewer'> & { viewer: Viewer };
 
 /** Everything that happened in a match, kept once and shared by every viewer's timeline. */
 export interface MatchRecord {
+  /** The setup as played, with its first-mover rule written in (resolvedSetup). */
   setup: CreateGameOptions;
   actions: Action[];
   /** states[0] is the start (after the first turn's start-of-turn); states[i + 1] is the state after actions[i]. */
@@ -49,8 +50,12 @@ export interface Timeline {
   last: number;
 }
 
-/** Plays `actions` from `setup`, keeping every state and every action's raw events. An illegal action throws, naming its position. */
-export function recordMatch(setup: CreateGameOptions, actions: Action[]): MatchRecord {
+/**
+ * Plays `actions` from `setup`, keeping every state and every action's raw events. An illegal action throws, naming its position.
+ * The record's setup names its first-mover rule (resolvedSetup), so the record replays the same under a later default.
+ */
+export function recordMatch(input: CreateGameOptions, actions: Action[]): MatchRecord {
+  const setup = resolvedSetup(input);
   let state = createGame(setup);
   const states: GameState[] = [state];
   const rawEvents: GameEvent[][] = [];

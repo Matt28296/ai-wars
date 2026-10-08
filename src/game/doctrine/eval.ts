@@ -276,6 +276,20 @@ export function distTo(ctx: Ctx, mt: MoveType, g: Goals, at: Coord): number {
 export const AHEAD_RATIO = 1.6;
 /** A lead over next to nothing is not a lead (one scout sees one enemy trooper): my army must also be worth at least this much. */
 export const AHEAD_MIN_VALUE = 6000;
+/**
+ * More than one enemy player in view (M3.3): in a three- or four-player game the strongest enemy is hardly ever 1.6 times smaller than
+ * the leader, because the others keep it down, so AHEAD_RATIO alone is never met and nobody presses. The leader is "clearly ahead" there
+ * when it outweighs the strongest enemy by this smaller ratio AND is worth at least FIELD_SHARE of all the enemies together.
+ * Two players: unchanged (one enemy, so only AHEAD_RATIO applies).
+ * Why 1.4 and 0.5: 1.4 is on the same plateau as AHEAD_RATIO in the M3.1 curve above (86% against 88%), and it is the largest margin under which the
+ * board "8 against 6 and 5" stays off, as pressure.test.ts has always required; 0.5 keeps a lead over one strong enemy from counting when four
+ * other armies together are twice as big. Measured (M3.3, Doctrine against Doctrine, 40-cycle cap, rule 'none' or 'gradedFirstIncome'): a single
+ * Glass Waste game had its leader press from cycle 17 instead of 21 and end at 27 instead of 33, but over 50 games undecided went 15 -> 13 and on
+ * 20 Arcology Coast games 13 -> 13, which is inside the noise. It is a cheap, principled rule with no measured gain; one constant turns it off.
+ */
+export const FIELD_LEAD_RATIO = 1.4;
+/** The second half of the multi-enemy rule: my side's army is worth at least this share of the enemy players' armies added together. */
+export const FIELD_SHARE = 0.5;
 /** "At the cap" means this close to it: a player with two fabricators is one turn of building from MAX_UNITS_PER_PLAYER. */
 export const CAP_MARGIN = 2;
 /** In pressure Doctrine builds no more once it fields this many units: the rest would queue behind each other on the way to the front. */
@@ -287,7 +301,7 @@ export interface Pressure {
   /** Doctrine is closing out: it plays the Advance posture whatever the orders say, and goes for the enemy spire. */
   on: boolean;
   reason: PressureReason | null;
-  /** My side's army value over the strongest single enemy's (visible units; 0 when no enemy is in view under fog). */
+  /** My side's army value over the strongest single enemy player's (visible units; 0 when no enemy is in view under fog). */
   ratio: number;
   /** My units, cargo included. */
   units: number;
@@ -295,10 +309,12 @@ export interface Pressure {
 
 /**
  * Whether Doctrine presses to finish the game. Two causes, both read from what the player can see (never the hidden state):
- *   ahead  my side's visible army value is at least AHEAD_RATIO times the strongest single enemy PLAYER's (and at least
- *          AHEAD_MIN_VALUE). Only with fog down: under fog (a fog game, or an ion storm) what I see is a floor under what the enemy has,
- *          not a measure of it, so a lead read from it is not a lead. Measured: in an ion storm both players of one Saltglass Bay game read
- *          "ahead" at 9.05 and 4.87 at the same moment.
+ *   ahead  my side's visible army value is at least AHEAD_MIN_VALUE and either
+ *            - AHEAD_RATIO times the strongest single enemy PLAYER's, or
+ *            - with two or more enemy players in view: FIELD_LEAD_RATIO times the strongest's and FIELD_SHARE of all of theirs together.
+ *          Only with fog down: under fog (a fog game, or an ion storm) what I see is a floor under what the enemy has, not a measure of
+ *          it, so a lead read from it is not a lead. Measured: in an ion storm both players of one Saltglass Bay game read "ahead" at 9.05
+ *          and 4.87 at the same moment.
  *   cap    my units, cargo included, are within CAP_MARGIN of MAX_UNITS_PER_PLAYER: the economy is full, waiting helps nobody. This one
  *          is a fact about my own army, so fog does not touch it.
  * When neither holds the standing orders (Hold the Line, Fall Back, Advance) decide behaviour exactly as before.
@@ -312,11 +328,16 @@ export function pressureOf(ctx: Ctx): Pressure {
     const byOwner = new Map<PlayerIndex, number>();
     for (const e of ctx.foes) byOwner.set(e.owner, (byOwner.get(e.owner) ?? 0) + unitValue(e, false));
     let strongest = 0;
-    for (const v of byOwner.values()) strongest = Math.max(strongest, v);
+    let together = 0;
+    for (const v of byOwner.values()) {
+      strongest = Math.max(strongest, v);
+      together += v;
+    }
     // No enemy in view: with fog down that means there is none left (the whole army is "ahead"); under fog it means nothing, so ratio 0.
     const ratio = ctx.foes.length > 0 ? mine / Math.max(1, strongest) : ctx.fogged ? 0 : mine;
+    const leadsTheField = byOwner.size >= 2 && mine >= FIELD_LEAD_RATIO * strongest && mine >= FIELD_SHARE * together;
     let reason: PressureReason | null = null;
-    if (!ctx.fogged && ratio >= AHEAD_RATIO && mine >= AHEAD_MIN_VALUE) reason = 'ahead';
+    if (!ctx.fogged && mine >= AHEAD_MIN_VALUE && (ratio >= AHEAD_RATIO || leadsTheField)) reason = 'ahead';
     else if (units >= MAX_UNITS_PER_PLAYER - CAP_MARGIN) reason = 'cap';
     return { on: reason !== null, reason, ratio, units };
   });

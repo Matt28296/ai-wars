@@ -45,7 +45,19 @@ const calderFields: MapDef = {
   recommended: { startFunds: 1000 },
 };
 
-// 22x14, mirrorX. A bay with a dock on each shore, shoal landings and a central island; the only land route runs round the north shore, so transports matter.
+// 22x14, mirrorX. A bay with a dock on each shore, shoal landings and a central island; a land route runs round the north shore and a second, shorter one
+// along a causeway on the south edge, so transports matter for the islands and not for the march.
+// M3.3 what changed and why. Measured with Doctrine against Doctrine, 40-cycle cap: the original map's only land route was the north-shore march, 33 steps
+// between the spires against 19 in a straight line. On three seed sets (20, 30 and 30 games) 65%, 80% and 60% of the games were still undecided at the
+// cap, and player 0 won 24 of the 25 that were decided. Changed, in mirror pairs so mirrorX still holds:
+//   rows 12 and 13, x 7-8, 10-11 and 13-14: sea became flats. With the shoals and arcologies already on those rows this is a two-tile-wide causeway
+//   along the south edge from shore to shore, 23 steps between the spires. A one-tile causeway (row 13 only) did little (55% undecided against 65%
+//   on the same 20 games); the two-wide one brought the undecided share to 33-37%. The two islet arcologies on row 12 (x 9 and 12) are now ON the causeway.
+//   (9,5) and (12,5) became islet arcologies and (9,6) and (12,6) shoals beside them: sea all round except the landing shoal, joined to the central
+//   island's shoals, so the bay keeps four arcologies that only a Barge can reach (the islets that the causeway took, replaced in the north bay).
+//   Start funds 2000 -> 1000. With the causeway alone (2000) player 0 won 70% of the decided games (47 decided, 60 games on two seed sets) and 22% were
+//   undecided; with 1000 it won 53% (78 decided, 90 games on three seed sets) and 13% were undecided. Funds alone do not do it: the original map at 1000
+//   still left 60% of the games undecided (30 games). The causeway makes the games end, the lower funds make the first move worth less.
 const saltglassBay: MapDef = {
   id: 'saltglass-bay',
   name: 'Saltglass Bay',
@@ -57,15 +69,15 @@ const saltglassBay: MapDef = {
     '======================', // 2
     '.f=C..f........f..C=f.', // 3
     '..=.C..s~~~~~~s..C.=..', // 4
-    '.f=..F.s~~~~~~s.F..=f.', // 5
-    '.^=...C~~~ss~~~C...=^.', // 6
+    '.f=..F.s~C~~C~s.F..=f.', // 5
+    '.^=...C~~ssss~~C...=^.', // 6
     '.^=f..s~~sCCs~~s..f=^.', // 7
     '.^=.C..~~sUUs~~..C.=^.', // 8
     '.A=....D~~ss~~D....=A.', // 9
     '.H=F...~~~~~~~~...F=H.', // 10
     '..=.C.s~~s~~s~~s.C.=..', // 11
-    'f.=F..C~~C~~C~~C..F=.f', // 12
-    '..f...s~~s~~s~~s...f..', // 13
+    'f.=F..C..C..C..C..F=.f', // 12
+    '..f...s..s..s..s...f..', // 13
   ],
   owners: [
     '......................', // 0
@@ -89,10 +101,13 @@ const saltglassBay: MapDef = {
     { type: 'trooper', owner: 0, x: 3, y: 8 },
     { type: 'trooper', owner: 1, x: 18, y: 8 },
   ],
-  recommended: { startFunds: 2000 },
+  recommended: { startFunds: 1000 },
 };
 
 // 18x14, rot180, fog recommended. Over half canopy; ridges give foot units the +3 vision, and two uplinks sit in the centre beside lookout ridges.
+// M3.3 start funds 4000 (were 2000). Doctrine against Doctrine, fog up, noFirstIncome, 40 games on each of two seed sets: at 2000 player 0 won 33 of 39 and 30 of 40
+// decided games (85% and 75%); at 4000 it won 21 of 37 and 20 of 39 (57% and 51%), with 8% and 3% of the games undecided at the 40-cycle cap. The
+// share is not a straight line in the funds (0: 31%, 3000: 36%, 5000: 44%, 6000: 44%, 8000: 35%, one seed set); 2000 is the outlier, not the trend.
 const canopyHighlands: MapDef = {
   id: 'canopy-highlands',
   name: 'Canopy Highlands',
@@ -136,7 +151,7 @@ const canopyHighlands: MapDef = {
     { type: 'trooper', owner: 0, x: 4, y: 3 },
     { type: 'trooper', owner: 1, x: 13, y: 10 },
   ],
-  recommended: { fog: true, startFunds: 2000 },
+  recommended: { fog: true, startFunds: 4000 },
 };
 
 // 18x16, mirrorY. A two-tile river with three spans, each flanked by ridges that tread and hover units cannot climb: the spans funnel tanks into walkers and artillery.

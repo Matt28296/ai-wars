@@ -1,7 +1,7 @@
 // The timeline model: per-step frames and filtered events, per viewer, over one recorded match.
 // Known answers are worked out here from the fixture's geometry (vision radii, positions), never read back from timeline.ts.
 import { describe, expect, it } from 'vitest';
-import { IllegalActionError, applyAction, createGame } from '../../game/aw';
+import { IllegalActionError, applyAction, createGame, defaultFirstMoverRule } from '../../game/aw';
 import type { Action, GameState } from '../../game/aw';
 import { observe } from '../../game/aw/observe';
 import { replay, stateHash } from '../../game/aw/replay';
@@ -38,6 +38,13 @@ describe('recordMatch', () => {
     expect(rec.states[1].units.find((u) => u.id === 1)).toMatchObject({ x: 3, y: 1 });
     expect(rec.states[3].units.find((u) => u.id === 2)).toMatchObject({ x: 6, y: 1 });
     expect(rec.states[6].units.find((u) => u.id === 2)).toMatchObject({ x: 4, y: 1 });
+  });
+
+  it('keeps its setup with the first-mover rule written in, so it replays the same under a later default (D-019)', () => {
+    expect(setup.firstMoverRule, 'the fixture names no rule').toBeUndefined();
+    expect(rec.setup.firstMoverRule).toBe(defaultFirstMoverRule(setup.players.length));
+    expect(stateHash(replay(rec.setup, STALK).state)).toBe(stateHash(rec.states[rec.states.length - 1]));
+    expect(recordMatch({ ...setup, firstMoverRule: 'none' }, STALK).setup.firstMoverRule, 'a named rule is kept').toBe('none');
   });
 
   it('agrees with the engine\'s own replay(): same final state, same events in order', () => {

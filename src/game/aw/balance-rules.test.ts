@@ -2,7 +2,8 @@
 //   1. forecast() answers "no attack" for a target the attacker cannot strike from the tile it is asked about (out of range, no weapon),
 //      the same answer it gives for an unseen target, so it neither invents damage nor tells a fogged player anything.
 //   2. observe() and observedState() hide what an ENEMY transport carries (cargo: []) and say only whether it carries anything (`loaded`).
-//   3. createGame's `firstMoverRule` pays the player who moves first back: 'none' (the old rule), 'noFirstIncome', 'secondBonus'.
+//   3. createGame's `firstMoverRule` pays the player who moves first back: 'none' (the old rule), 'noFirstIncome', 'gradedFirstIncome' (M3.3),
+//      'secondBonus'. A game that names no rule gets the default for its player count (M3.3: defaultFirstMoverRule).
 // Expected answers are worked out here from the rules and the damage chart, never read back from the code under test. Every check has
 // a known-bad twin: the position or the checker with the one thing that matters taken away, where it must fail.
 import { afterEach, describe, expect, it } from 'vitest';
@@ -10,8 +11,8 @@ import type { CommanderDef } from '../../content/types';
 import { TERRAIN_TYPES } from '../../data';
 import { DAMAGE } from '../../data/damage';
 import {
-  DEFAULT_FIRST_MOVER_RULE, FIRST_MOVER_RULES, SECOND_BONUS_PER_SEAT, applyAction, canSeeUnit, createGame, forecast, resetCommanderRegistry,
-  setCommanderRegistry,
+  DEFAULT_FIRST_MOVER_RULE, FIRST_MOVER_RULES, SECOND_BONUS_PER_SEAT, applyAction, canSeeUnit, createGame, defaultFirstMoverRule, forecast,
+  gradedFirstIncomeShare, resetCommanderRegistry, resolvedSetup, setCommanderRegistry,
 } from './index';
 import type { CreateGameOptions, FirstMoverRule, PlayerSetup } from './index';
 import { observe, observedState } from './observe';
@@ -298,6 +299,67 @@ describe('createGame firstMoverRule', () => {
     expect(funds(afterP0), 'player 1 then collects their income on top of the bonus').toEqual([START + 1000, START + 1000 + 1000]);
   });
 
+  // Seat 0 owns three fabricators (income 3000), every other seat owns one (1000), so a share of seat 0's income is worked out by hand.
+  const FAB = 1000;
+  const richGame = (n: number, rule?: FirstMoverRule, extra: Partial<CreateGameOptions> = {}): GameState => {
+    const terrain = ['FFF' + 'F'.repeat(n - 1), '.'.repeat(n + 2)];
+    const owners = ['000' + Array.from({ length: n - 1 }, (_, i) => String(i + 1)).join(''), '.'.repeat(n + 2)];
+    return createGame({
+      map: fixtureMap(terrain, [], owners), players: players(n), seed: 1, startFunds: START,
+      ...(rule ? { firstMoverRule: rule } : {}), ...extra,
+    });
+  };
+
+  it('resolvedSetup writes the rule a game is played under into its setup, so a recorded match replays the same after the default changes (D-019)', () => {
+    const base = (n: number): CreateGameOptions => ({
+      map: fixtureMap(['FFF' + 'F'.repeat(n - 1), '.'.repeat(n + 2)], [], ['000' + Array.from({ length: n - 1 }, (_, i) => String(i + 1)).join(''), '.'.repeat(n + 2)]),
+      players: players(n), seed: 1, startFunds: START,
+    });
+    for (const n of [2, 3, 4]) {
+      const s = base(n);
+      const r = resolvedSetup(s);
+      expect(r.firstMoverRule, `${n} players`).toBe(defaultFirstMoverRule(n));
+      expect(s.firstMoverRule, 'the input is left alone').toBeUndefined();
+      expect(funds(createGame(r)), `${n} players: the same game as the setup without the rule`).toEqual(funds(createGame(s)));
+    }
+    expect(resolvedSetup({ ...base(3), firstMoverRule: 'none' }).firstMoverRule, 'a named rule is kept').toBe('none');
+    // known-bad twin: the rule changes the game, so a record that left it out would replay differently once the default moved
+    expect(funds(createGame({ ...base(3), firstMoverRule: 'none' }))).not.toEqual(funds(createGame(resolvedSetup(base(3)))));
+  });
+
+  it("'gradedFirstIncome': player 0 collects (n - 2) / (n - 1) of its first income -- none with two players, half with three, two thirds with four", () => {
+    const income = 3 * FAB;
+    expect(funds(richGame(2, 'gradedFirstIncome')), 'two players: the same as noFirstIncome').toEqual([START, START]);
+    expect(funds(richGame(3, 'gradedFirstIncome')), 'three players: half of 3000').toEqual([START + income / 2, START, START]);
+    expect(funds(richGame(4, 'gradedFirstIncome')), 'four players: two thirds of 3000').toEqual([START + (2 * income) / 3, START, START, START]);
+    // known-bad twins: the whole income ('none') and no income ('noFirstIncome') are different amounts again
+    expect(funds(richGame(3, 'none'))).toEqual([START + income, START, START]);
+    expect(funds(richGame(3, 'noFirstIncome'))).toEqual([START, START, START]);
+  });
+
+  it("'gradedFirstIncome' is paid in whole hundreds, never a fraction of a fund", () => {
+    const one = richGame(4, 'gradedFirstIncome', { map: fixtureMap(['F.', '..'], [], ['0.', '..']) });
+    // one fabricator, four players: 2/3 of 1000 is 666.67, which rounds to 700
+    expect(one.players[0].funds - START).toBe(700);
+    expect(Number.isInteger(one.players[0].funds / 100)).toBe(true);
+  });
+
+  it("'gradedFirstIncome' touches player 0's first start of turn only: the others are paid in full at theirs, and player 0 is paid in full from cycle 2", () => {
+    const s = richGame(3, 'gradedFirstIncome');
+    const afterP0 = endTurn(s);
+    expect(funds(afterP0), 'player 1 collects its 1000 as usual').toEqual([START + 1500, START + FAB, START]);
+    const afterP1 = endTurn(afterP0);
+    expect(funds(afterP1)).toEqual([START + 1500, START + FAB, START + FAB]);
+    const cycle2 = endTurn(afterP1);
+    expect(cycle2.cycle).toBe(2);
+    expect(funds(cycle2), 'player 0: the rest of the income arrives in full, 3000, on top of the half').toEqual([START + 1500 + 3 * FAB, START + FAB, START + FAB]);
+  });
+
+  it('gradedFirstIncomeShare: 0 for two players and rising towards 1 as the table fills; a lone seat is not fined', () => {
+    expect([2, 3, 4, 5].map(gradedFirstIncomeShare)).toEqual([0, 1 / 2, 2 / 3, 3 / 4]);
+    expect(gradedFirstIncomeShare(1)).toBe(1);
+  });
+
   it('every rule leaves the board, units and turn order alone', () => {
     const none = game(2, 'none');
     for (const rule of FIRST_MOVER_RULES) {
@@ -312,21 +374,51 @@ describe('createGame firstMoverRule', () => {
     expect(() => game(2, 'bonusForEveryone' as FirstMoverRule)).toThrow(/firstMoverRule/);
   });
 
-  it('with no rule named, createGame plays the default rule exactly, and the default is one of the named rules', () => {
-    expect(FIRST_MOVER_RULES).toContain(DEFAULT_FIRST_MOVER_RULE);
-    expect(game(2)).toEqual(game(2, DEFAULT_FIRST_MOVER_RULE));
-    expect(game(3)).toEqual(game(3, DEFAULT_FIRST_MOVER_RULE));
+  it('with no rule named, createGame plays the default for its player count exactly, and each default is one of the named rules', () => {
+    for (const n of [2, 3, 4]) {
+      expect(FIRST_MOVER_RULES, `${n} players`).toContain(defaultFirstMoverRule(n));
+      expect(richGame(n), `${n} players`).toEqual(richGame(n, defaultFirstMoverRule(n)));
+    }
+    expect(DEFAULT_FIRST_MOVER_RULE, 'the two-player default is the exported constant').toBe(defaultFirstMoverRule(2));
   });
 
-  it("the default is 'noFirstIncome' (the rule `pnpm balance` found nearest to a fair seat): a game that names no rule pays player 0 nothing on cycle 1", () => {
+  it("two players default to 'noFirstIncome' (the rule `pnpm balance` found nearest to a fair seat): a game that names no rule pays player 0 nothing on cycle 1", () => {
     expect(DEFAULT_FIRST_MOVER_RULE).toBe('noFirstIncome');
+    expect(defaultFirstMoverRule(2)).toBe('noFirstIncome');
     expect(funds(game(2))).toEqual([START, START]);
-    expect(funds(game(3))).toEqual([START, START, START]);
     expect(funds(game(2, 'none')), 'known-bad twin: the old rule, asked for by name, still pays it').toEqual([START + 1000, START]);
   });
 
+  it("three and four players default to 'gradedFirstIncome', not 'noFirstIncome' (M3.3): player 0 keeps part of its first income there", () => {
+    for (const n of [3, 4]) {
+      expect(defaultFirstMoverRule(n), `${n} players`).toBe('gradedFirstIncome');
+      const share = gradedFirstIncomeShare(n);
+      expect(share, `${n} players`).toBeGreaterThan(0);
+      const s = richGame(n);
+      expect(s.players[0].funds, `${n} players: a share of 3000, in whole hundreds`).toBe(START + Math.round((3000 * share) / 100) * 100);
+      expect(s.players[0].funds, 'known-bad twin: not the whole income (that is none)').toBeLessThan(START + 3000);
+      expect(s.players[0].funds, 'known-bad twin: not nothing (that is noFirstIncome)').toBeGreaterThan(START);
+    }
+    expect(richGame(3).players[0].funds).not.toBe(richGame(3, 'noFirstIncome').players[0].funds);
+  });
+
+  it('an explicit rule beats the player-count default, in every size of game', () => {
+    for (const n of [2, 3, 4]) {
+      for (const rule of FIRST_MOVER_RULES) {
+        const named = richGame(n, rule);
+        const expected = rule === 'gradedFirstIncome' ? START + Math.round((3000 * gradedFirstIncomeShare(n)) / 100) * 100
+          : rule === 'none' ? START + 3000 : START;
+        expect(named.players[0].funds, `${n} players, ${rule}`).toBe(expected + (rule === 'secondBonus' ? 3000 : 0));
+      }
+    }
+    // known-bad twin: naming 'none' on a three-player game is not the default
+    expect(richGame(3, 'none').players[0].funds).not.toBe(richGame(3).players[0].funds);
+  });
+
   it('the rules differ from each other where they should (a rule that changed nothing would fail here)', () => {
-    const f = (r: FirstMoverRule) => JSON.stringify(funds(game(2, r)));
+    // three players: with two, gradedFirstIncome pays nothing and so reads the same as noFirstIncome, by design
+    const f = (r: FirstMoverRule) => JSON.stringify(funds(richGame(3, r)));
     expect(new Set(FIRST_MOVER_RULES.map(f)).size).toBe(FIRST_MOVER_RULES.length);
+    expect(JSON.stringify(funds(richGame(2, 'gradedFirstIncome')))).toBe(JSON.stringify(funds(richGame(2, 'noFirstIncome'))));
   });
 });
