@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { MoveType, UnitTypeId } from '../engine/types';
+import type { MoveType, UnitTypeId } from '../game/aw/types';
 import { DAMAGE } from './damage';
 import { ART, FACTION_LIST, TERRAIN_CODES, TERRAIN_LIST, UNIT_LIST, UNIT_TYPES } from './index';
 

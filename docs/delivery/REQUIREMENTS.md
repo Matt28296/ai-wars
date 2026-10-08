@@ -33,7 +33,7 @@ One row per requirement. Sources: Matthew's direction of 2026-10-08 (quoted in `
 | R25 | Co-op = allied agent armies | Direction §3 | M6 | open | — |
 | R26 | PvP = agent vs agent | Direction §3 | M6 | open | — |
 | R27 | All original: no Nintendo names, COs, sprites, maps or music (CI denylist) | Direction §4 | M0 guard | in progress | `scripts/guard.test.mjs` |
-| R28 | The design system, story bible and type contract are the Ascendant Wars identity in the fork | Direction §4 | M0–M2 | in progress | `design-system/`, `docs/STORY.md`, `src/engine/types.ts` |
+| R28 | The design system, story bible and type contract are the Ascendant Wars identity in the fork | Direction §4 | M0–M2 | in progress | `design-system/`, `docs/STORY.md`, `src/game/aw/types.ts` |
 | R29 | Soft Yeti testnet only, no real value; adapter reused only after Blacklink's live link is proven | D-008 | later | open | — |
 | R30 | One worktree per writer; Sonnet builders, at most 5 in parallel; merge only on real CI | D-002 | all | in progress | — |
 | R31 | No player free text in any model prompt (structured orders; planted-marker test once a prompt exists) | D-005 | M3 | open | — |

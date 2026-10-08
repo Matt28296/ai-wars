@@ -11,7 +11,7 @@ Browser game: **Vite + React 18 + TypeScript**, no other runtime dependencies. T
 | Design tokens (colours, type, spacing, shadows) | `design-system/tools/tokens.src.mjs` | `npm run tokens` regenerates `src/styles/tokens.css` and the published design system. Never hand-edit generated files. |
 | Base unit / terrain / faction data + vector art (glyphs, sigils, terrain tiles) | `design-system/tools/game.src.mjs` | Generated into `src/data/base.generated.ts`. |
 | Damage chart | `src/data/damage.ts` | Hand-maintained (balance audit in `docs/research/balance.md`). |
-| Contract types | `src/engine/types.ts`, `src/content/types.ts` | Shared by every module. Change only via the lead. |
+| Contract types | `src/game/aw/types.ts`, `src/content/types.ts` | Shared by every module. Change only via the lead. |
 | Story canon | `docs/STORY.md` | Characters, factions, campaign outline, writing rules. |
 | Research | `docs/research/*.md` | Mechanics reference, quality bar, AI design, balance. |
 

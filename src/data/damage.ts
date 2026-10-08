@@ -1,4 +1,4 @@
-import type { UnitTypeId } from '../engine/types';
+import type { UnitTypeId } from '../game/aw/types';
 
 // Base damage (% of a full-HP defender) before CO, luck, HP and terrain modifiers.
 // primary consumes 1 ammo; secondary (cannon-less machine guns, AA mounts) is unlimited and used when
