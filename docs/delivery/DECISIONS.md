@@ -105,3 +105,18 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
   - the receipt is its last action.
   - The lead commits a builder's work only after the builder's completion notice arrives and the files have stopped changing.
 - **Reversible:** yes.
+
+### D-018: the battlefield is a lit 3D diorama rendered with three.js; the SVG board stays as a fallback (2026-10-08, DECIDED)
+- **Matthew, verbatim:** *"use whatever workflows, skills, tools, prompts, plugins or connectors needed to refactor and optimize the graphics to be might higher end"*.
+- **Decided:**
+  - The battlefield moves to a real-time 3D "tactical diorama": `three` 0.186.1, MIT, $0, pinned exactly, with `@types/three` 0.186.0. Both releases are older than the one-week release-age rule (D-010).
+  - The HUD, event log, controls and cut-in stay React/DOM.
+  - The 3D board is a drop-in for the SVG `Stage`. It consumes the same timeline and transition plan, so replay, fog honesty (D-016) and scrubbing are unchanged.
+  - The SVG board stays as the fallback (no WebGL2, or `?renderer=2d`).
+- **Art:** `docs/research/art-direction.md`, which sets readability first and keeps everything original and procedural. There is no image model in this environment, and no image-generation connector is available.
+- **Parallel build:**
+  - `src/ui/board3d/contract.ts` fixes the module interfaces;
+  - placeholder modules let the renderer core start at once;
+  - terrain, units and effects are separate builders in separate folders.
+- **Checked by:** node tests, plus headless Chromium (SwiftShader WebGL2, confirmed working in this environment) screenshots read by the builder and the lead.
+- **Reversible:** yes; the SVG board remains, and the 3D board sits behind one switch.
