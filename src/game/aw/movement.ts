@@ -3,13 +3,14 @@
 // transport or join a damaged unit of the same type); visible enemies block. Whether the mover sees an enemy is
 // canSeeUnit's answer (fog.ts), the same rule attackTargets uses: canopy hides ground units from non-adjacent
 // observers, air units over canopy stay visible. Unseen enemies (fog) do not block reachable(): applyAction stops
-// the unit before them ("ambushed").
+// the unit before them ("ambushed"). That holds for an unseen enemy on the destination tile too (D-016): the tile is
+// reachable, checkPath ambushes on the tile before it, and a visible enemy there stays a wall.
 import { TERRAIN_TYPES } from '../../data';
 import { illegal } from './errors';
 import { canSeeUnit, fogActive, visionGrid } from './fog';
 import { effectiveMove, ignoredMoveCosts } from './modifiers';
 import { areEnemies, displayHp, inBounds, keyOf, unitById, unitType } from './state';
-import type { Coord, GameState, MoveType, TerrainId, Unit, UnitType } from './types';
+import type { Coord, GameState, MoveType, PlayerIndex, TerrainId, Unit, UnitType } from './types';
 
 export interface ReachEntry { x: number; y: number; cost: number; path: Coord[] }
 
@@ -19,6 +20,25 @@ export interface ReachEntry { x: number; y: number; cost: number; path: Coord[] 
  */
 function seesEnemy(state: GameState, owner: number, enemy: Unit, fog: boolean, grid: Uint8Array | null): boolean {
   return !fog || canSeeUnit(state, owner, enemy, grid);
+}
+
+/**
+ * Is `other` an enemy of `owner` that `owner`'s team cannot see right now? The one meaning of "hidden enemy" (D-016): a move
+ * or an unload that runs into one is accepted and resolves as an ambush or a blocked drop, so the player never learns of it
+ * from an option that is missing. With fog off nothing is unseen. `grid` may be a visionGrid(owner) computed earlier.
+ */
+export function isUnseenEnemy(state: GameState, owner: PlayerIndex, other: Unit, grid?: Uint8Array | null): boolean {
+  if (!areEnemies(state, owner, other.owner) || !fogActive(state)) return false;
+  return !canSeeUnit(state, owner, other, grid);
+}
+
+/** The ids of every enemy of `owner` that its team cannot see in `state` (empty with fog off). Computes the vision grid once. */
+export function unseenEnemyIds(state: GameState, owner: PlayerIndex): Set<number> {
+  const out = new Set<number>();
+  if (!fogActive(state)) return out;
+  const grid = visionGrid(state, owner);
+  for (const u of state.units) if (isUnseenEnemy(state, owner, u, grid)) out.add(u.id);
+  return out;
 }
 
 /** Cost for a move type to enter a terrain (null = impassable); `ignore` terrains cost 1. */

@@ -339,9 +339,9 @@ describe('exact action lists on hand-built positions', () => {
     // (0,0) wait. (1,0) wait, and attack (a unit beside the hidden trooper sees it). (3,0): reached only by walking through
     // the hidden trooper, so it ends in an ambush; the engine still takes the order, and from (3,0) the hidden trooper is
     // beside the destination, so the engine's own thenOptions offers wait and attack there too. The hidden tile itself
-    // has no then-options, so it is not a stopping place. endTurn.
+    // (2,0) is a stopping place that looks like any free tile (D-016, M3.0): wait, and the move ends in an ambush. endTurn.
     expect(keys(list)).toEqual([
-      move(1, 0, 0, 'wait'), move(1, 1, 0, 'wait'), move(1, 1, 0, 'attack@2,0'), move(1, 3, 0, 'wait'), move(1, 3, 0, 'attack@2,0'), 'endTurn',
+      move(1, 0, 0, 'wait'), move(1, 1, 0, 'wait'), move(1, 1, 0, 'attack@2,0'), move(1, 2, 0, 'wait'), move(1, 3, 0, 'wait'), move(1, 3, 0, 'attack@2,0'), 'endTurn',
     ].sort());
     const through = list.find((a) => a.kind === 'move' && a.then.kind === 'wait' && a.path.length === 4)!;
     const r = applyAction(s, through);
