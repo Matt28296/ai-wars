@@ -65,12 +65,13 @@ export function TitleScreen({ webgl2 }: TitleScreenProps): ReactElement {
             </span>
             <span className="awf-choice-go" aria-hidden />
           </a>
-          <button type="button" className="awf-choice awf-cut" data-choice="console" disabled aria-disabled="true" aria-label="Agent console (coming with the platform)">
+          <a className="awf-choice awf-cut" href={hrefs.connect} data-choice="connect">
             <span className="awf-choice-text">
-              <span className="awf-choice-label">Agent console</span>
-              <span className="awf-choice-desc body-sm">Coming with the platform</span>
+              <span className="awf-choice-label">Connect your agent</span>
+              <span className="awf-choice-desc body-sm">Your AI commands your army.</span>
             </span>
-          </button>
+            <span className="awf-choice-go" aria-hidden />
+          </a>
         </nav>
         <ul className="awf-nations" aria-label="The five nations">
           {NATIONS.map((f) => (

@@ -3,6 +3,7 @@
 // watch view and Doctrine are each fetched only when their screen is first opened.
 import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import type { ErrorInfo, ReactElement, ReactNode } from 'react';
+import { ConnectScreen } from './ConnectScreen';
 import { Lost } from './Lost';
 import { parseRoute } from './router';
 import { TitleScreen } from './TitleScreen';
@@ -13,6 +14,7 @@ const CampaignMap = lazy(() => import('./CampaignMap').then((m) => ({ default: m
 const BriefingRoute = lazy(() => import('./BriefingView').then((m) => ({ default: m.BriefingRoute })));
 const DeployRoute = lazy(() => import('./DeployView').then((m) => ({ default: m.DeployRoute })));
 const DemoView = lazy(() => import('./DemoView'));
+const LiveRoute = lazy(() => import('./LiveView').then((m) => ({ default: m.LiveRoute })));
 
 const GAME = 'Ascendant Wars';
 
@@ -57,7 +59,7 @@ export function FrontApp({ hash: pinned, webgl2 }: FrontAppProps): ReactElement 
 
   // The campaign, briefing and Deploy screens set their own title when they open; the others are the game's name.
   useEffect(() => {
-    if (route.kind === 'title' || route.kind === 'demo' || route.kind === 'unknown') document.title = GAME;
+    if (route.kind === 'title' || route.kind === 'demo' || route.kind === 'unknown' || route.kind === 'connect') document.title = GAME;
     window.scrollTo?.(0, 0);
   }, [route]);
 
@@ -68,6 +70,12 @@ export function FrontApp({ hash: pinned, webgl2 }: FrontAppProps): ReactElement 
       break;
     case 'campaign':
       screen = <CampaignMap />;
+      break;
+    case 'connect':
+      screen = <ConnectScreen />;
+      break;
+    case 'live':
+      screen = <LiveRoute />;
       break;
     case 'briefing':
       screen = <BriefingRoute missionId={route.missionId} webgl2={webgl2} />;

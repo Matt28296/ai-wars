@@ -26,7 +26,7 @@ import type { SeatPresentation } from './seats';
 import { dwellMs } from './timing';
 import type { Speed } from './timing';
 import { extendRecord, extendTimeline, recordMatch, viewTimeline } from './timeline';
-import type { MatchRecord, Timeline, Viewer } from './timeline';
+import type { MatchRecord, Timeline, TimelineStep, Viewer } from './timeline';
 import { planTransition } from './transition';
 import type { TransitionPlan } from './transition';
 import './watch.css';
@@ -34,9 +34,7 @@ import './watch.css';
 // The 3D stage (three.js) loads on demand, so a page that shows the flat board never pays for it.
 const Stage3D = lazy(() => import('../board3d/Stage3D').then((m) => ({ default: m.Stage3D })));
 
-export interface WatchViewProps {
-  setup: CreateGameOptions;
-  actions: Action[];
+export interface WatchViewBaseProps {
   /** A player index, or 'all' for the omniscient post-match view. */
   viewer: Viewer;
   /** When given, the viewer toggle is shown and calls this with the viewer picked. */
@@ -80,6 +78,23 @@ export interface WatchViewProps {
   ordersSlot?: ReactNode;
 }
 
+/**
+ * The match the view draws. Either the whole record's inputs (`setup` and `actions`: every viewer is built from them, as ever), or, for G17's
+ * live agent feed, a timeline that arrives ALREADY VIEWED.
+ *
+ * `viewed` (G17): the steps of ONE seat's timeline, which the agent feed sends as they happen (a `TimelineStep` per step, other seats' actions
+ * null; `LiveStep` is the same type). It GROWS between renders: pass a new array each time, the steps already in it the same objects, and give
+ * `live={{ open: true }}` while more may come. The viewer shown is `viewed[0].frame.viewer`; while `viewer` is that seat, the view draws these
+ * steps and builds no record at all (a mid-match viewer has no setup and no actions to build one from: D-016). It opens playing, even on step 0
+ * alone, and waits at the edge with "Thinking..." until the next step arrives.
+ * `setup` and `actions` are then optional, and used only for any OTHER viewer (the post-match "All" view), once the whole record is known.
+ * It needs step 0 at least. Absent, nothing about the view changes.
+ */
+export type WatchViewProps = WatchViewBaseProps & (
+  | { setup: CreateGameOptions; actions: Action[]; viewed?: undefined }
+  | { viewed: readonly TimelineStep[]; setup?: CreateGameOptions; actions?: Action[] }
+);
+
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(() => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false));
   useEffect(() => {
@@ -92,22 +107,28 @@ function useReducedMotion(): boolean {
   return reduced;
 }
 
-export function WatchView({ setup, actions, viewer, onViewerChange, initialStep, initialSpeed, autoPlay, onPositionChange, overlay, onStep, hold = false, people, live, logNotes, ordersSlot }: WatchViewProps): ReactElement {
+export function WatchView({ setup, actions, viewed, viewer, onViewerChange, initialStep, initialSpeed, autoPlay, onPositionChange, overlay, onStep, hold = false, people, live, logNotes, ordersSlot }: WatchViewProps): ReactElement {
   // A whole match is recorded once. A growing one (G14) keeps what it has recorded and applies only the actions that arrived since.
+  // A match that arrives already viewed (G17) is not recorded at all while the viewer is the seat it was viewed for.
+  if (viewed !== undefined && viewed.length === 0) throw new RangeError('WatchView: `viewed` needs step 0 at least');
+  const fed = viewed !== undefined && viewed[0].frame.viewer === viewer;
   const growing = live !== undefined;
   const open = live?.open === true;
   const recordMemo = useRef<MatchRecord | null>(null);
   const timelineMemo = useRef<Timeline | null>(null);
   const record = useMemo(() => {
+    if (fed) return null;
+    if (!setup || !actions) throw new RangeError('WatchView: this viewer needs `setup` and `actions` (the record is known only when the match is over)');
     if (!growing) return recordMatch(setup, actions);
     recordMemo.current = extendRecord(recordMemo.current, setup, actions);
     return recordMemo.current;
-  }, [setup, actions, growing]);
-  const timeline = useMemo(() => {
-    if (!growing) return viewTimeline(record, viewer);
-    timelineMemo.current = extendTimeline(timelineMemo.current, record, viewer);
+  }, [setup, actions, growing, fed]);
+  const timeline = useMemo<Timeline>(() => {
+    if (fed) return { viewer, steps: viewed.slice(), last: viewed.length - 1 };
+    if (!growing) return viewTimeline(record!, viewer);
+    timelineMemo.current = extendTimeline(timelineMemo.current, record!, viewer);
     return timelineMemo.current;
-  }, [record, viewer, growing]);
+  }, [record, viewer, growing, fed, viewed]);
   const log = useMemo(() => mergeNotes(buildLog(timeline.steps, people), logNotes), [timeline, people, logNotes]);
   const reducedMotion = useReducedMotion();
 
@@ -123,7 +144,11 @@ export function WatchView({ setup, actions, viewer, onViewerChange, initialStep,
   const [pb, dispatch] = useReducer(
     (s: PlaybackState, a: PlaybackAction) => (openRef.current ? livePlaybackReducer(s, a) : playbackReducer(s, a)),
     undefined,
-    () => initialPlayback(timeline.last, { step: initialStep, speed: initialSpeed, playing: autoPlay }),
+    () => {
+      const first = initialPlayback(timeline.last, { step: initialStep, speed: initialSpeed, playing: autoPlay });
+      // A fed match (G17) opens on step 0 alone and is played as it arrives: it starts playing and waits at the edge, which `initialPlayback` would not.
+      return viewed !== undefined && autoPlay === true && !first.playing && first.step >= timeline.last ? { ...first, playing: true } : first;
+    },
   );
 
   // Another viewer means another timeline over the same match: keep the position, snap rather than animate. A match that merely grew

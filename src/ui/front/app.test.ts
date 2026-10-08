@@ -10,6 +10,7 @@ import { MAPS } from '../../content/maps';
 import { FACTIONS } from '../../data';
 import { WatchView, buildDemoMatch, parseHash } from '../watch';
 import { FrontApp } from './FrontApp';
+import { parseRoute } from './router';
 import { TitleScreen } from './TitleScreen';
 import { titleScene } from './scene';
 import { detectWebGL2 } from '../board3d/stage/support';
@@ -53,8 +54,13 @@ describe('the title without WebGL2', () => {
     expect(h).toContain('<h1');
     expect(h).toMatch(/<a [^>]*href="#\/campaign"[^>]*>[\s\S]*?Campaign/);
     expect(h).toMatch(/<a [^>]*href="#play=1"[^>]*>[\s\S]*?Watch a battle/);
-    expect(h).toMatch(/<button [^>]*disabled=""[^>]*>[\s\S]*?Agent console/);
-    expect(h).toContain('aria-label="Agent console (coming with the platform)"');
+    // G17: the third choice is "Connect your agent", enabled, and it goes to the connect screen (it was a greyed-out "Agent console")
+    expect(h).toMatch(/<a [^>]*href="#\/connect"[^>]*data-choice="connect"[^>]*>[\s\S]*?Connect your agent[\s\S]*?Your AI commands your army\./);
+    expect(h).not.toContain('Agent console');
+    expect(h).not.toContain('Coming with the platform');
+    expect(h).not.toMatch(/<button[^>]*disabled/);
+    expect(h).not.toContain('aria-disabled');
+    expect(parseRoute(/href="(#\/connect)"/.exec(h)![1])).toEqual({ kind: 'connect' });
     for (const f of Object.values(FACTIONS)) expect(h, f.id).toContain(f.short);
     expect(h.match(/class="aw-sigil"/g)?.length).toBeGreaterThanOrEqual(5);
   });
@@ -63,7 +69,7 @@ describe('the title without WebGL2', () => {
     const h = html(false);
     expect(h.indexOf('data-choice="campaign"')).toBeGreaterThan(-1);
     expect(h.indexOf('data-choice="campaign"')).toBeLessThan(h.indexOf('data-choice="watch"'));
-    expect(h.indexOf('data-choice="watch"')).toBeLessThan(h.indexOf('data-choice="console"'));
+    expect(h.indexOf('data-choice="watch"')).toBeLessThan(h.indexOf('data-choice="connect"'));
   });
 });
 

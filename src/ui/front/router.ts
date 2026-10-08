@@ -4,6 +4,8 @@
 //   #/campaign                 the campaign map
 //   #/mission/<id>             the briefing
 //   #/mission/<id>/watch       Doctrine plays the mission on every side, and the watch view opens on that match
+//   #/connect                  the three steps that connect the player's own AI agent (G17)
+//   #/live                     the battle the connected agent is fighting, from the agent's feed on this page's own origin (G17)
 //   #step=40&viewer=all        the demo watch view, exactly as before the front door: a hash WITHOUT a leading slash that names
 //   #play=1                    one of the watch view's own keys (step, viewer, speed, play). Those links were shared and bookmarked.
 //
@@ -12,6 +14,8 @@
 export type Route =
   | { kind: 'title' }
   | { kind: 'campaign' }
+  | { kind: 'connect' }
+  | { kind: 'live' }
   | { kind: 'briefing'; missionId: string }
   | { kind: 'deploy'; missionId: string }
   | { kind: 'demo' }
@@ -43,6 +47,8 @@ export function parseRoute(hash: string): Route {
   const parts = body.slice(1).replace(/\/$/, '').split('/');
   if (parts.length === 1 && parts[0] === '') return { kind: 'title' };
   if (parts.length === 1 && parts[0] === 'campaign') return { kind: 'campaign' };
+  if (parts.length === 1 && parts[0] === 'connect') return { kind: 'connect' };
+  if (parts.length === 1 && parts[0] === 'live') return { kind: 'live' };
   if (parts[0] === 'mission' && parts.length >= 2 && parts.length <= 3 && MISSION_ID.test(parts[1])) {
     if (parts.length === 2) return { kind: 'briefing', missionId: parts[1] };
     if (parts[2] === 'watch') return { kind: 'deploy', missionId: parts[1] };
@@ -54,6 +60,8 @@ export function formatRoute(route: Route): string {
   switch (route.kind) {
     case 'title': return '#/';
     case 'campaign': return '#/campaign';
+    case 'connect': return '#/connect';
+    case 'live': return '#/live';
     case 'briefing': return `#/mission/${route.missionId}`;
     case 'deploy': return `#/mission/${route.missionId}/watch`;
     case 'demo': return DEMO_HASH;
@@ -64,6 +72,8 @@ export function formatRoute(route: Route): string {
 export const hrefs = {
   title: '#/',
   campaign: '#/campaign',
+  connect: '#/connect',
+  live: '#/live',
   demo: DEMO_HASH,
   briefing: (id: string): string => `#/mission/${id}`,
   deploy: (id: string): string => `#/mission/${id}/watch`,

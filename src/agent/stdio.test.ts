@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MISSIONS } from '../content/missions';
 
@@ -46,7 +46,7 @@ describe('the checker for a clean stdout', () => {
 describe('scripts/agent.mjs over stdio', () => {
   it('starts in under 5 s, writes only JSON-RPC to stdout and its log to stderr, and serves the tools', async () => {
     const t0 = Date.now();
-    const child = spawn(process.execPath, [SCRIPT], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [SCRIPT], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, AW_AGENT_NO_BUILD: '1' } });
     children.push(child);
     let out = '';
     let err = '';
@@ -85,6 +85,8 @@ describe('scripts/agent.mjs over stdio', () => {
     const started = JSON.parse(byId.get(3).result.content[0].text);
     expect(started).toMatchObject({ ok: true, mission: 'first-light', seat: 0, cycleCap: 30 });
     expect(started.live.events).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/live$/);
+    // G17: the one link a person opens is the game's page on the same port as the feed
+    expect(started.live.watch).toBe(`http://127.0.0.1:${new URL(started.live.events).port}/#/live`);
     expect(JSON.parse(byId.get(4).result.content[0].text)).toMatchObject({ ok: true, cycle: 1, yourTurn: true });
     expect(JSON.parse(byId.get(5).result.content[0].text).status).toMatchObject({ cycle: 2, yourTurn: true });
 
@@ -97,7 +99,7 @@ describe('scripts/agent.mjs over stdio', () => {
   }, 60_000);
 
   it('answers the SDK\'s own stdio client: list the tools, start a mission, observe, end the turn; the live address answers', async () => {
-    const transport = new StdioClientTransport({ command: process.execPath, args: [SCRIPT], cwd: ROOT, stderr: 'pipe' });
+    const transport = new StdioClientTransport({ command: process.execPath, args: [SCRIPT], cwd: ROOT, stderr: 'pipe', env: { ...getDefaultEnvironment(), AW_AGENT_NO_BUILD: '1' } });
     let err = '';
     transport.stderr?.on('data', (d: Buffer) => { err += d.toString(); });
     const protocolErrors: unknown[] = [];
