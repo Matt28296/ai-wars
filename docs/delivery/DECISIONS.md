@@ -92,3 +92,16 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
   3. A move whose destination holds a hidden enemy is accepted and resolves as an ambush on the tile before it, as a move through one already does. That is an engine change in M3.0, with its own tests.
   4. A test plants a hidden enemy and checks that the fogged player's observation and action list are identical with and without it.
 - **Reversible:** yes, until the MCP tools ship.
+
+### D-017: builders keep private scratch space, and the receipt is the last write (2026-10-08, DECIDED)
+- **What happened:**
+  - Two builders running in parallel each wrote a scratch script named `mutate.py` to the shared scratchpad root. One of them later ran the other's copy, which mutated and then restored the Act II mission files in a third worktree.
+  - The lead committed during that window. The commit captured one planted mutation ("Nine are unclaimed"). The test suite caught it, the lead folded the restored content into the unpushed commit, and only the true content was merged.
+  - Checked afterwards: `main`'s `missions.ts` and `mission-maps.ts` equal the builder's pre-mutation backups exactly.
+- **Decided** (in `.claude/agents/builder.md`):
+  - each builder keeps scratch files only in a private folder named after its order;
+  - a builder never runs a script it did not write for that order;
+  - a builder checks `git status`/`git diff --stat` against TOUCHES before its receipt;
+  - the receipt is its last action.
+  - The lead commits a builder's work only after the builder's completion notice arrives and the files have stopped changing.
+- **Reversible:** yes.

@@ -2,17 +2,19 @@
 
 Read this file first when you resume. It is rewritten, not appended, whenever the state changes.
 
-## Where things stand (2026-10-08 06:2xZ)
+## Where things stand (2026-10-08 07:5xZ)
 
 - Direction: fork Blacklink, swap its Fire Emblem layer for an Advance Wars-family layer, keep the agent-as-commander core (`DECISIONS.md` D-001).
-- **M1 (the rules engine) is complete once PR #14 merges.** `main` holds:
-  - movement, combat, turn economy, powers, fog/victory/score;
-  - rules integration (D-013, D-015);
-  - the eleven commanders as data;
-  - six original skirmish maps with a map checker.
-- PR #14 adds the legal-action list, exact replay and seeded self-play. That is 599 tests.
-- Every merge waited for green CI, with the gate output quoted on the PR. See `VERIFICATION-LOG.md`.
-- The `wip/*` branches on GitHub are backup snapshots of builder work that has since merged. The git proxy refuses branch deletes (HTTP 403), so Matthew can delete them on the Branches page.
+- `main` holds:
+  - **M1, the rules engine:** movement, combat, economy, powers, fog, victory, legal actions, replay, self-play, commanders, six skirmish maps;
+  - **M3.0 and M3.0b, the fog-honest agent view and the per-viewer event filter;**
+  - **Acts I and II of the campaign,** missions 1–7.
+  
+  796 tests, every merge on green CI.
+- **In flight:**
+  - builders on M3.1 (Doctrine brain + `pnpm balance`) and M4.2 (Act III).
+- Process: D-017 (private scratch space; the receipt is the last write).
+- The `wip/*` branches on GitHub are stale backups. The git proxy refuses branch deletes (HTTP 403), so Matthew can delete them on the Branches page.
 
 ## Blockers (each with the smallest outside action)
 
@@ -23,10 +25,7 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
 
 ## Next actions (none need the platform)
 
-1. **M3.0, the fog-honest agent view (D-016):**
-   - an observation and action list for a fogged player;
-   - a move ending on a hidden enemy resolves as an ambush.
-2. **M3.1, the Doctrine brain (D-004, D-005):**
-   - structured standing orders drive deterministic choices over that list;
-   - seeded bot-vs-bot balance runs on the six maps, with a source hash recorded.
-3. When D-003 clears: M2 platform fork, then the MCP tools over M3.
+1. Verify and merge M3.1 (Doctrine). Record its balance table and source hash in this log.
+2. Verify and merge M4.2 (Act III), then dispatch M4.3 (Act IV).
+3. M3.2, the agent API module: one entry point re-exporting the engine, observe, viewEvents, legal, replay and Doctrine, ready for the MCP tools.
+4. When D-003 clears: M2 platform fork, then the MCP server over M3.2.
