@@ -1,14 +1,19 @@
-// Turn structure. Start of a player's turn, in order:
+// Turn structure. Start of a player's turn, in order (docs/research/mechanics.md §2.1, with D-012):
 //   timed effects owned by the player count down (terrain conversion, weather, reveal)
-//   → income → repair (+2 display HP, 10% of unit cost per HP) and resupply on own properties that build the
-//   unit's domain (spire/arcology/fabricator: ground, skyport: air, dock: sea) → resupply next to own Mules
-//   → charge drain (air −5, sea −1; skipped on cycle 1; units resupplied this turn are exempt) and crash/sink
-//   at 0 → the player's power from last turn ends.
+//   1. the player's power from their last turn ends
+//   2. their units un-act
+//   3. income (CO incomePercent applies)
+//   4. repair (+2 display HP, 10% of unit cost per HP; 1 HP if short of funds) and resupply on own properties that
+//      service the unit's domain (spire/arcology/fabricator: ground, skyport: air, dock: sea), row-major
+//   5. resupply next to own Mules
+//   6. charge drain by the unit's own `drain` (from cycle 2; units resupplied in 4-5 are exempt)
+//   7. crash/sink: air and sea units at 0 charge are destroyed
+//   9. 'turnStarted' is emitted last. (Step 8, the victory check, runs in applyAction's afterAction.)
 // End of turn: the player's enemyMove debuffs count down, then play passes to the next undefeated player.
 import { TERRAIN_TYPES } from '../../data';
 import { destroyUnit } from './combat';
 import { activeModifiers, sumField, unitCost, unitModifiers } from './modifiers';
-import { displayHp, emit, forEachUnit, propertyIndex, unitType, writableTile } from './state';
+import { MAX_HP, displayHp, emit, forEachUnit, propertyIndex, unitType, writableTile } from './state';
 import type { Ctx } from './state';
 import { checkCycleEnd } from './victory';
 import type { Domain, GameState, PlayerIndex, TerrainId, Unit } from './types';
@@ -76,38 +81,48 @@ function countDownTimedEffects(ctx: Ctx, p: PlayerIndex): void {
   }
 }
 
+/** Row-major (y, then x), so a short purse always repairs the same units first. */
+const rowMajor = (a: Unit, b: Unit) => a.y - b.y || a.x - b.x;
+
+/** +2 display HP (plus repairBonus) at 10% of the unit's price per HP; with a short purse, as many HP as it covers. */
+function repairUnit(ctx: Ctx, u: Unit): void {
+  const s = ctx.s;
+  if (u.hp >= MAX_HP) return;
+  const pl = s.players[u.owner];
+  const price = unitCost(s, u.owner, unitType(u.type), u);
+  const shown = displayHp(u.hp);
+  const steps = REPAIR_HP + sumField(unitModifiers(s, u), 'repairBonus');
+  for (let a = steps; a > 0; a--) {
+    const hp = Math.min(MAX_HP, (shown + a) * 10);
+    const cost = Math.round(((displayHp(hp) - shown) * price) / 10);
+    if (cost > pl.funds) continue;
+    pl.funds -= cost;
+    emit(ctx, { kind: 'repaired', unitId: u.id, amount: hp - u.hp, cost });
+    u.hp = hp;
+    return;
+  }
+}
+
 export function startTurn(ctx: Ctx, p: PlayerIndex): void {
   const s = ctx.s;
   const pl = s.players[p];
   countDownTimedEffects(ctx, p);
+  pl.powerState = 'none'; // §2.1 step 1: last turn's power is over before income, repair or cost modifiers are read
   forEachUnit(s, (u) => {
     if (u.owner === p) u.acted = false;
   });
 
   const income = incomeOf(s, p);
   pl.funds += income;
-  emit(ctx, { kind: 'turnStarted', player: p, cycle: s.cycle, income });
 
   const supplied = new Set<number>();
-  const own = s.units.filter((u) => u.owner === p).sort((a, b) => a.id - b.id);
+  const own = s.units.filter((u) => u.owner === p).sort(rowMajor);
   for (const u of own) {
     const tile = s.tiles[u.y][u.x];
-    const t = unitType(u.type);
-    if (tile.owner !== p || !repairsDomain(tile.terrain, t.domain)) continue;
+    if (tile.owner !== p || !repairsDomain(tile.terrain, unitType(u.type).domain)) continue;
     supplied.add(u.id);
     refill(u);
-    if (u.hp >= 100) continue;
-    const price = unitCost(s, p, t);
-    const steps = REPAIR_HP + sumField(unitModifiers(s, u), 'repairBonus');
-    for (let a = steps; a > 0; a--) {
-      const hp = Math.min(100, u.hp + a * 10);
-      const cost = Math.round(((displayHp(hp) - displayHp(u.hp)) * price) / 10);
-      if (cost > pl.funds) continue;
-      pl.funds -= cost;
-      emit(ctx, { kind: 'repaired', unitId: u.id, amount: hp - u.hp, cost });
-      u.hp = hp;
-      break;
-    }
+    repairUnit(ctx, u);
   }
   for (const m of own) {
     if (!unitType(m.type).supplies) continue;
@@ -121,13 +136,14 @@ export function startTurn(ctx: Ctx, p: PlayerIndex): void {
   }
   if (s.cycle > 1) {
     for (const u of own) {
-      const d = unitType(u.type).domain;
-      if (d === 'ground' || supplied.has(u.id)) continue;
-      u.charge = Math.max(0, u.charge - (d === 'air' ? 5 : 1));
-      if (u.charge <= 0) destroyUnit(ctx, u, null, 'crashed');
+      const drain = unitType(u.type).drain ?? 0;
+      if (drain > 0 && !supplied.has(u.id)) u.charge = Math.max(0, u.charge - drain);
     }
   }
-  pl.powerState = 'none';
+  for (const u of own) {
+    if (unitType(u.type).domain !== 'ground' && u.charge <= 0) destroyUnit(ctx, u, null, 'crashed');
+  }
+  emit(ctx, { kind: 'turnStarted', player: p, cycle: s.cycle, income });
 }
 
 /** Passes play to the next undefeated player (closing the cycle when it wraps) and starts their turn. */

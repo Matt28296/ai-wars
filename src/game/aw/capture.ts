@@ -1,6 +1,7 @@
 // Capture: units with `captures` subtract their display HP from the tile's 20 points; at ≤ 0 the property
 // changes hands and resets to 20. Capturing a player's spire defeats them (the spire becomes an arcology).
 import { TERRAIN_TYPES } from '../../data';
+import { illegal } from './errors';
 import { CAPTURE_POINTS, areEnemies, displayHp, emit, unitType, writableTile } from './state';
 import type { Ctx } from './state';
 import { checkCaptureObjective, defeatPlayer } from './victory';
@@ -14,6 +15,7 @@ export function canCaptureHere(state: GameState, unit: Unit, x = unit.x, y = uni
 }
 
 export function applyCapture(ctx: Ctx, unit: Unit): void {
+  if (!canCaptureHere(ctx.s, unit)) illegal('this unit cannot capture here');
   const tile = writableTile(ctx, unit.x, unit.y);
   const terrain = tile.terrain;
   tile.capture -= displayHp(unit.hp);
