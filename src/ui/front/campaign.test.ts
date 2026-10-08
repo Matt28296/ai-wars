@@ -93,6 +93,12 @@ describe('every mission builds a valid game', () => {
 });
 
 describe('who is shown', () => {
+  it('shows no late reveal anywhere in the map\'s text: act titles, taglines, mission titles, places and summaries', () => {
+    // The map shows every act at once (no progress yet), so its text must be safe for a player who has not started.
+    const LATE = /vesper|\bcantor\b|\bmira\b|lattice core/i;
+    const text = campaignModel().flatMap((a) => [a.title, a.tagline, ...a.cards.flatMap((c) => [c.title, c.location, c.summary])]);
+    for (const t of text) expect(t, t).not.toMatch(LATE);
+  });
   it('withholds the Choir\'s voices (Cantor, VESPER) on the campaign map, and names them in the mission\'s own briefing', () => {
     const cards = campaignModel().flatMap((a) => a.cards);
     const shown = JSON.stringify(cards.flatMap((c) => c.groups.flatMap((g) => g.sides.map((s) => s.person))));
