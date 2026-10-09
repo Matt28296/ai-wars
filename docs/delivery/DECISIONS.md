@@ -238,3 +238,34 @@ Every decision that shapes Ascendant Wars, newest last. Each says what was decid
      - The start screen shows the connect steps in at most three short lines, with a copy button and a link to play with the built-in commander.
   3. **The one-line connect command** (`npx ascendant-wars`) needs the game published to npm, which is a public release, so it waits on Matthew's or Edgy's yes. Until then the steps use a local copy of the repository.
 - **Reversible:** yes.
+
+### D-024: movement speed and smoothness are measured on every change to the battle screen (2026-10-08, RULED)
+- **Matthew, in this session (~21:3xZ):** *"Make sure to monitor for in game movement speed, smoothness etc"*.
+- **Decided:**
+  1. **What is measured:**
+     - frame pacing: fps, frame-interval p50/p95/p99/max, dropped frames, long tasks;
+     - unit glide speed against `TIMINGS` (`src/ui/watch/timing.ts`: 140 ms a tile at 1x, 70 at 2x, no glide at 4x or with reduced motion);
+     - no teleports, and glides ending on their tile;
+     - camera continuity;
+     - playback cadence at each speed.
+  2. **When:** every order that touches `src/ui/board3d`, `src/ui/watch` or a battle screen reports `pnpm motion --compare <main baseline>`. The lead re-measures before merging, and a broken budget (`docs/delivery/MOTION.md`, from P1) blocks the merge.
+  3. **The honest caveat:** this build machine has no GPU, so WebGL runs in software (SwiftShader). Its absolute fps is a floor, not a player's experience; only same-machine comparisons count.
+  4. **First finding (lead, production builds, first-light):**
+     - G18's bigger board dropped the software-rendered frame rate from 5.5 to 4.0 fps on desktop and from 16 to 10.3 on phone, at the 'low' tier, which has no step below it.
+     - G18 is held until P1 adds render-scale steps below 'low' and shows the bigger board is at least as smooth as main's.
+- **Reversible:** the budgets are; the measuring is not optional.
+
+### D-025: battle command buttons, and typed notes to your own agent only (amends D-005) (2026-10-09, RULED)
+- **Matthew, in this session:** *"In battle instead of needing to type there should be buttons that puts out commands to your army with the option to type more complex directions in to their agents"*. Asked whether typed text may reach a model prompt (D-005), he chose **"Only to my own agent"**.
+- **Decided:**
+  1. **Command buttons in battle:** Charge, Hold, Fall back, Take bases, Power now, and More (the full orders panel).
+     - Each button only sets standing orders from D-005's fixed options.
+     - Each takes effect from the player's next turn (D-022), and is logged like any order change.
+  2. **Typed notes:** the one exception to D-005's "no free text". They are bound by these rules:
+     - they go **only to the player's own connected agent**, as a note labelled "from your commander" on `get_orders`;
+     - they never reach the built-in commander (it is not a model and reads no text), another player or agent, the game rules, the match record, or any prompt the game itself runs (it runs none);
+     - at most 280 characters, plain text with control characters removed; the newest note replaces the last;
+     - the box is hidden when no agent is connected;
+     - it rides A2's local write route, under the same Host and own-origin checks.
+  3. **Everything else in D-005 stands:** orders that drive the engine stay fixed options and whole numbers.
+- **Reversible:** yes; removing the box removes the exception.
