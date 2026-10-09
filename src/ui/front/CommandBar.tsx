@@ -6,7 +6,7 @@
 // orders that commands.ts made through `validateOrders`. D-022: a change counts from the player's next turn, and the row says so while it waits.
 // The row holds no orders of its own: it draws the orders it is given and hands back the next ones.
 import { useId, useState } from 'react';
-import type { FormEvent, ReactElement } from 'react';
+import type { FocusEvent, FormEvent, PointerEvent, ReactElement } from 'react';
 import { NOTE_MAX, cleanNote, noteLength } from '../../agent/live';
 import type { StandingOrders } from '../../game/doctrine';
 import { COMMAND_TEXT, MORE_HINT, NOTE_HINT, POSTURE_COMMANDS, POWER_TEXT, activePosture, press, takeBasesInForce } from './commands';
@@ -41,7 +41,13 @@ export function CommandBar({ orders, pending, pendingText = 'From your next turn
   const posture = activePosture(orders);
   const bases = takeBasesInForce(orders);
   const power = POWER_TEXT[orders.powerPolicy];
-  const on = (h: string) => ({ onMouseEnter: () => setHint(h), onMouseLeave: () => setHint(null), onFocus: () => setHint(h), onBlur: () => setHint(null) });
+  // A hint shows for a mouse over a control and for keyboard focus; a touch leaves no hover behind to go stale, so it shows none.
+  const on = (h: string) => ({
+    onPointerEnter: (e: PointerEvent) => { if (e.pointerType === 'mouse') setHint(h); },
+    onPointerLeave: () => setHint(null),
+    onFocus: (e: FocusEvent) => { if ((e.target as HTMLElement).matches(':focus-visible')) setHint(h); },
+    onBlur: () => setHint(null),
+  });
 
   // A press that would leave the orders as they are sends nothing: a command in force stays in force. After a press the line is no longer about the
   // button under the pointer (its hint was for the state before): it says the change waits.
@@ -88,7 +94,7 @@ export function CommandBar({ orders, pending, pendingText = 'From your next turn
         >
           {words(power)}
         </button>
-        <span className="awf-cmd-more" onMouseEnter={() => setHint(MORE_HINT)} onMouseLeave={() => setHint(null)}>
+        <span className="awf-cmd-more" {...on(MORE_HINT)}>
           <OrdersControl orders={orders} pending={pending} pendingText={pendingText} label="More" onChange={onChange} initialOpen={initialOpen} />
         </span>
       </div>
