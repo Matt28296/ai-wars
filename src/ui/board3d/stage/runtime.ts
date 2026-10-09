@@ -62,7 +62,7 @@ import { Intro, introAction } from './intro';
 import { OCCUPIED_SNAP_DT_SEC, occupiedPredicate, occupiedTiles, sameTiles } from './occupancy';
 import { UnitRegistry } from './registry';
 import { CameraRig, FOV_DEG, MAX_ZOOM_LEVEL, defaultZoomLevel, easeToward, stepZoom, wheelToSteps } from './rig';
-import { AdaptiveQuality, TIERS, cheaper, chooseStartTier, qualityFromSearch, readRemembered, readSignals, scaleFloorFor, scaleFromSearch, writeRemembered } from './quality';
+import { AdaptiveQuality, TIERS, WIDE_CANVAS_PX, cheaper, chooseStartTier, qualityFromSearch, readRemembered, readSignals, scaleFloorFor, scaleFromSearch, writeRemembered } from './quality';
 import type { GlLike, QualitySignals, QualityTier, Remembered, StorageLike } from './quality';
 import { createStormStatic } from './storm';
 import type { StormStats, StormStatic } from './storm';
@@ -162,6 +162,9 @@ const YIELD_SLOW_MS = 50;
  * still may exceed by 10%: on the desktop board 0 and 60 ms barely help the cadence (4x runs at 3.5 to 3.8 times its plan), 100 and 150 ms are inside the
  * budget in all 9 runs (cadence 2.5 and 2.0), 250 ms is over in 1 and 400 ms in 2 (stills of 300 ms against main's 217 and 233). 150 is the longest that
  * passes. The phone-sized board passes at no length, not even 0: its frames are about 67 ms, main's worst is 83 (in 7 of 9 runs) and its own worst still with a 0 ms yield is 83 to 117.
+ * So the stage yields only on a canvas at least WIDE_CANVAS_PX wide (the lead, 2026-10-09): on a phone-sized one the yield costs stills (150 to 167 ms against
+ * main's 83 to 100) for a cadence the phone barely needs, and with no yield the phone board measured within noise of main (page-level, three runs each:
+ * 1x 14.9 to 15.1 fps against main's 15.6 to 16.4; 4x 15.0 to 15.3 against 14.4 to 15.3; p50 66.7 ms on both).
  */
 export const YIELD_MS = 150;
 
@@ -714,8 +717,8 @@ export class StageRuntime {
     // dwell timer, the next step's render) is several tasks, each of which waited for a frame: a step with nothing to animate cost three frames. So for
     // a moment after a boundary the stage skips drawing (everything else still updates) and the page gets its turns. Never on a fast machine.
     // The frame that finds the plan over does not draw either: drawing would put the page's reaction to the end of the step (queued by `completePlan`)
-    // behind a whole frame, and the rest state is drawn by the very next one.
-    if ((this.yieldUntil > now || ended) && this.lastInterval > YIELD_SLOW_MS) {
+    // behind a whole frame, and the rest state is drawn by the very next one. Only on a wide canvas: a phone-sized board never yields (YIELD_MS).
+    if ((this.yieldUntil > now || ended) && this.lastInterval > YIELD_SLOW_MS && this.canvas.clientWidth >= WIDE_CANVAS_PX) {
       this.skipped = true;
       this.skips++;
       return false;

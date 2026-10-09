@@ -2157,6 +2157,25 @@ describe('a plan ends on the clock, and a slow machine gives the thread back at 
     expect(YIELD_MS).toBeLessThanOrEqual(150); // measured (docs/delivery/MOTION.md, "The yield"): 250 and 400 ms break the longest-still budget on the desktop board
   });
 
+  it('a phone-sized canvas never yields, even on a slow machine: every frame after the end of a step is drawn (known-bad twin: the same at 1000 px skips)', () => {
+    const run = (width: number): number => {
+      const r = clocked();
+      (r.rt as unknown as { canvas: { clientWidth: number } }).canvas.clientWidth = width;
+      const plan = planOf(frame0, next, walk);
+      r.view({ timeline, step: 1, reducedMotion: false });
+      r.page.frames(10, 120); // 8 fps: slow
+      r.view({ timeline, step: 1, plan, reducedMotion: false });
+      r.page.frames(5, 120);
+      r.idle(130); // the timer ends the plan
+      const before = r.draws();
+      r.page.frames(1 + Math.floor((YIELD_MS - 1) / 30), 30); // the frame that opens the window, then frames inside it
+      return r.draws() - before;
+    };
+    const frames = 1 + Math.floor((YIELD_MS - 1) / 30);
+    expect(run(390)).toBe(frames); // a phone: all drawn
+    expect(run(1000)).toBe(1); // a wide canvas: only the frame that opens the window
+  });
+
   it('a machine that draws at 60 fps never skips a frame, at a boundary or anywhere', () => {
     const r = clocked();
     const plan = planOf(frame0, next, walk);

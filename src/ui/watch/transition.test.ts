@@ -75,15 +75,18 @@ describe('unit glides', () => {
     expect(p.moves[1].startMs).toBe(p.moves[0].startMs + p.moves[0].durMs);
   });
 
-  it('are sampled along the path: start, half way (eased half = half), and gone once finished', () => {
+  it('are sampled along the path: start, half way (a steady march: 0.475 of the time), and gone once finished', () => {
     const p = plan([move]);
     const d = p.moves[0].durMs;
     const at0 = sampleTransition(p, 0).placements.get(1)!;
     expect(at0.x).toBeCloseTo(0, 9);
-    const mid = sampleTransition(p, d / 2).placements.get(1)!;
+    // the march moves at 1 / 0.95 of the mean speed until the last tenth of its time, so half the path (1.5 of three tiles) is at 0.475 of the time
+    const mid = sampleTransition(p, 0.475 * d).placements.get(1)!;
     expect(mid.x).toBeCloseTo(1.5, 9); // half way along three tiles
     expect(mid.y).toBeCloseTo(1, 9);
     expect(mid.heading).toBe('right');
+    // known-bad: half the time is NOT half the path (smoothstep's symmetry is gone): it is 0.5 / 0.95 = 52.6% of the way
+    expect(sampleTransition(p, d / 2).placements.get(1)!.x).toBeCloseTo(3 * (0.5 / 0.95), 9);
     expect(sampleTransition(p, d).placements.has(1)).toBe(false); // finished: the frame's own position takes over
     expect(sampleTransition(p, d + 500).placements.has(1)).toBe(false);
   });
@@ -182,7 +185,7 @@ describe('units that leave the picture without being destroyed', () => {
     const end = moveTileMs(1);
     expect(p.ghosts).toHaveLength(1);
     expect(p.ghosts[0].untilMs).toBe(end);
-    const mid = sampleTransition(p, end / 2);
+    const mid = sampleTransition(p, 0.475 * end); // half way along the one tile: the steady march is there at 0.475 of the time
     expect(mid.ghosts).toHaveLength(1);
     expect(mid.ghosts[0].x).toBeCloseTo(3.5, 9);
     expect(sampleTransition(p, end).ghosts).toEqual([]);

@@ -84,6 +84,17 @@ Steps a second at 1x and 2x are not comparable between main and this branch (the
 - **Desktop:** the still budget holds at 0, 60, 100 and 150 ms (0 of 9; at 150 the worst run's still is 0.80x to 0.83x of main's worst frame in that run, and every run is at least 16% inside it) and breaks at 250 (1 of 9: 250 against 217) and 400 (2 of 9: 300 against 217 and 233). The cadence is what the yield buys: at 4x the run takes 3.5 to 3.8 times its plan with no yield and 2.0 with 150. 150 is the longest that passes, and the best cadence of those that do.
 - **Phone: no length passes, not even 0.** Its frames are about 67 ms and main's worst is 67 to 100 (83 in 7 of the 9 runs, so 93 ms is the limit), while this branch's own worst still with a 0 ms yield is 83 to 117, and its fps is already 5% under main's at 0 ms: at 0.7 the phone's frame is no faster than at 1 (67 ms at p50 in both), and the next step down, 0.5, is for wide canvases only. What the yield does on the phone: at 150 ms the 4x run plays 6.3 to 6.5 steps a second against main's 3.6 (cadence 1.6 to 1.8 against main's 2.7 to 3.5), for a longest still of 150 to 167 ms against main's 83 and an fps 10% under main's.
 
+### The lead's call (2026-10-09): yield on wide canvases only
+- The stage now yields only on a canvas at least `WIDE_CANVAS_PX` (960 CSS px) wide, the same line the 0.5 render scale uses. A phone-sized board never yields.
+- Why: on the phone, the yield buys a cadence the phone barely needs (its 4x already plays at main's rate), and costs stills of 150 to 167 ms against main's 83 to 100.
+- **The phone board is still 3% to 6% slower than main, and that is real, not noise.** The lead's page-level measurement of this branch's final build (the yield gated off on the phone; no recorder; Deploy first-light; three runs each):
+  - 1x: 15.0 / 15.1 / 14.8 fps, against main's 16.0 / 15.9 / 15.8;
+  - 4x: 14.1 / 14.6 / 15.0, against 15.4 / 15.2 / 14.8;
+  - p50 66.7 ms on both, and p95 133 to 150 ms against main's 117 to 133.
+- The gap is the cost of G18's 2.6x bigger phone board. A lower render scale does not buy it back on this box (0.7 is no faster than 1 there), so the cost is not pixels.
+- So the phone **breaks the fps budget**, and the merge with it is Matthew's call, not a pass.
+- **Budget note:** a single run's worst frame is not a stable baseline on this box. Main against main varied by up to 150 ms in it, so `maxStill` on the phone needs several runs. The fps gap above is steady across runs (main 15.8 to 16.0 against 14.8 to 15.1).
+
 ## Measured 2026-10-09 (this box, software rendering)
 
 Main is `891b259` (no recorder: page-level numbers); the branch is G18 plus P1 at 150 ms. Ranges over deploy, demo and live (and 1x, 2x, 4x for the frame numbers). The branch settles at low, scale 0.5 on desktop and 0.7 on the phone; main stays at low, scale 1.
