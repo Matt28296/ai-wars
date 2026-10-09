@@ -5,7 +5,7 @@
 //   pnpm motion --port 5312                      serve this checkout's production build (`pnpm build` first) with `vite preview`, measure it, stop it
 //   pnpm motion --url http://127.0.0.1:5311/     measure a build that is already being served (main's, say)
 //   pnpm motion --port 5312 --out report.json --compare baseline.json     print the deltas; exit 1 when a budget is broken
-//   other flags: --sizes desktop,phone  --speeds 1,2,4  --scenarios deploy,demo,live  --steps 10  --max-seconds 60  --settle-seconds 45
+//   other flags: --sizes desktop,phone  --speeds 1,2,4  --scenarios deploy,demo,live  --steps 10  --max-seconds 60  --settle-seconds 90
 //                --pin low@0.7   (adds ?quality=low&scale=0.7, to compare builds on equal footing)    --shots <dir>   (screenshots at scale 1, 0.7, 0.5)
 //                --second-load   (after each scenario, load the page again in the same browser profile and time how long the tier and scale take to settle:
 //                                 the device remembers where it settled, so the second load should be quick)    --label <text>  --tolerance 0.1

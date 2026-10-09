@@ -28,7 +28,7 @@ import { SHAKE_AMPLITUDE } from './shake';
 import { SWEEP } from './sweep';
 import { OCCUPIED_SNAP_DT_SEC } from './occupancy';
 import { fitDistance, PITCH_DEG } from './rig';
-import { StageRuntime } from './runtime';
+import { StageRuntime, YIELD_MS } from './runtime';
 import type { StageHooks, StageModules, StageView } from './runtime';
 import { REMEMBER_KEY, REMEMBER_MS, TIER_ORDER, passNames } from './quality';
 import { analyseMotion } from '../../watch/motion/analysis';
@@ -2136,7 +2136,7 @@ describe('a plan ends on the clock, and a slow machine gives the thread back at 
     expect(probe.calls.done).toBe(1);
   });
 
-  it('on a slow machine the stage stops drawing after the end of a step, for at most 400 ms, then draws again; the state still updates', () => {
+  it('on a slow machine the stage stops drawing after the end of a step, for at most YIELD_MS, then draws again; the state still updates', () => {
     const r = clocked();
     const plan = planOf(frame0, next, walk);
     r.view({ timeline, step: 1, reducedMotion: false });
@@ -2148,11 +2148,13 @@ describe('a plan ends on the clock, and a slow machine gives the thread back at 
     expect(r.hooks.done).toBe(1);
     r.page.frames(1, 16); // the next frame draws the rest state once and opens the window
     expect(r.draws()).toBe(before + 1);
-    r.page.frames(10, 30); // 300 ms of frames inside the window: none is drawn
-    expect(r.draws()).toBe(before + 1);
-    r.page.frames(6, 30); // the window (400 ms) is over: drawing is back
+    const inside = Math.floor((YIELD_MS - 1) / 30); // frames 30 ms apart that all fall inside the window
+    r.page.frames(inside, 30);
+    expect(r.draws()).toBe(before + 1); // none is drawn
+    r.page.frames(Math.ceil(YIELD_MS / 30), 30); // the window is over: drawing is back
     expect(r.draws()).toBeGreaterThan(before + 1);
     expect(r.hooks.failed).toEqual([]);
+    expect(YIELD_MS).toBeLessThanOrEqual(150); // measured (docs/delivery/MOTION.md, "The yield"): 250 and 400 ms break the longest-still budget on the desktop board
   });
 
   it('a machine that draws at 60 fps never skips a frame, at a boundary or anywhere', () => {
@@ -2175,8 +2177,10 @@ describe('a plan ends on the clock, and a slow machine gives the thread back at 
     const before = r.draws();
     r.page.frames(1, 120);
     expect(r.draws()).toBe(before + 1);
-    r.page.frames(2, 120);
+    r.page.frames(Math.ceil(YIELD_MS / 120) - 1, 120); // the frames that fall inside the window
     expect(r.draws()).toBe(before + 1); // skipped
+    r.page.frames(1, 120); // and the first one past it draws
+    expect(r.draws()).toBe(before + 2);
   });
 
   it('anything that must be seen wakes it: a new view, a zoom step, a resize', () => {
@@ -2239,10 +2243,12 @@ describe('a plan ends on the clock, and a slow machine gives the thread back at 
     r.page.frames(10, 120);
     for (let i = 0; i < 6; i++) {
       r.view({ timeline: idle, step: (i + 1) % 2, plan: planOf(frame0, frame0, []), reducedMotion: false }); // a new plan each time: a new boundary
-      r.page.frames(8, 120); // one drawn, three skipped (the window is 400 ms), the rest drawn again
+      r.page.frames(8, 120); // one drawn, the ones inside the window skipped, the rest drawn again
     }
-    // per boundary: the frame that opens the window, three skipped, then a drawn one that follows the gap (its interval spans the skips: not fed) and three more
-    expect(r.draws()).toBe(10 + 6 * 5);
+    // per boundary: the frame that opens the window, those inside it skipped (120 ms apart), then a drawn one that follows the gap (its interval spans the skips: not fed)
+    const skipped = Math.ceil(YIELD_MS / 120) - 1;
+    expect(skipped).toBeGreaterThan(0);
+    expect(r.draws()).toBe(10 + 6 * (8 - skipped));
     expect(fed.length).toBe(r.draws() - 6); // one frame per boundary was left out of the adaptive step
     expect(new Set(fed.map((v) => Math.round(v)))).toEqual(new Set([120]));
   });

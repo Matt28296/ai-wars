@@ -205,6 +205,20 @@ describe('a smooth glide at the spec speed passes everything', () => {
     expect(analyseMotion(synthesize({ path }).rec).failed).toEqual([]);
   });
 
+  it('at the frame rate of a slow machine (6 fps, main\'s on this box) a steady march still reads 1 and the old smoothstep still fails: the limit is not tuned to 60 fps', () => {
+    const path: [number, number][] = [[0, 2], [1, 2], [2, 2], [3, 2]]; // 3 tiles: 720 ms, about 4 frames at 6 fps
+    const good = analyseMotion(synthesize({ path, fps: 6 }).rec);
+    expect(good.glide.steadiness.beats).toBeGreaterThan(0);
+    expect(good.glide.steadiness.max).toBeLessThan(1.001);
+    expect(good.failed).not.toContain('glide-steady');
+    const bad = analyseMotion(synthesize({ path, fps: 6, ease: 'smoothstep' }).rec);
+    expect(bad.glide.steadiness.beats).toBeGreaterThan(0);
+    // sampled this coarsely the old ease reads only 1.19 (1.34 at 60 fps): over the limit of 1.1, which is why the limit is not 1.2
+    expect(bad.glide.steadiness.max).toBeGreaterThan(1.1);
+    expect(bad.glide.steadiness.max).toBeLessThan(1.2);
+    expect(bad.failed).toContain('glide-steady');
+  });
+
   it('the steadiness of a glide with no tile before its last, or with fewer than three frames in the steady stretch, is not judged (not passed)', () => {
     const oneTile = analyseMotion(synthesize({ path: [[0, 0], [1, 0]] }).rec);
     expect(oneTile.glide.beats.every((b) => b.steadiness === null)).toBe(true);

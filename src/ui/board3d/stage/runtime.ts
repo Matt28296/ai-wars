@@ -35,7 +35,6 @@ import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 import type { PlayerIndex, Weather } from '../../../game/aw';
 import { sampleTransition } from '../../watch/transition';
-import { TIMINGS } from '../../watch/timing';
 import type { BannerSample, CutInSample, TransitionPlan, TransitionSample } from '../../watch/transition';
 import { homeFacings } from '../../watch/unitview';
 import type { Facing } from '../../watch/unitview';
@@ -158,10 +157,13 @@ const VIGNETTE = { offset: 0.85, darkness: 0.7 } as const;
  */
 const YIELD_SLOW_MS = 50;
 /**
- * How long, at most, the stage stops drawing at a boundary: the pause playback waits between steps (200 ms at 1x) and the same again for the page's
- * own tasks around it. If nothing moves on by then (the viewer paused), drawing starts again.
+ * How long, at most, the stage stops drawing at a boundary. If nothing moves on by then (the viewer paused) drawing starts again, and a new view (the next
+ * step) ends it at once. Chosen by measurement (docs/delivery/MOTION.md, "The yield"), against main's worst frame interval in the same run, which the longest
+ * still may exceed by 10%: on the desktop board 0 and 60 ms barely help the cadence (4x runs at 3.5 to 3.8 times its plan), 100 and 150 ms are inside the
+ * budget in all 9 runs (cadence 2.5 and 2.0), 250 ms is over in 1 and 400 ms in 2 (stills of 300 ms against main's 217 and 233). 150 is the longest that
+ * passes. The phone-sized board passes at no length, not even 0: its frames are about 67 ms, main's worst is 83 (in 7 of 9 runs) and its own worst still with a 0 ms yield is 83 to 117.
  */
-const YIELD_MS = 2 * TIMINGS.stepPauseMs;
+export const YIELD_MS = 150;
 
 /** The page's localStorage; null where there is none, and where merely asking for it throws (a blocked profile). */
 function pageStorage(): StorageLike | null {

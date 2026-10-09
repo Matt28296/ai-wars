@@ -26,7 +26,10 @@ import type { FrameSample, LongTask, PlaybackEvent, Recording, StepStart } from 
 export const LIMITS = {
   /** A glide's measured ms per tile may differ from the spec by this fraction, or by one frame, whichever is larger. */
   glideTolerance: 0.15,
-  /** The ease peaks at 1.5x the mean speed (smoothstep), so a frame may move that much more than dt / msPerTile. */
+  /**
+   * A frame may move a unit this many times dt / msPerTile. A steady march peaks at about 1.05 (glideEase's cruise) and the old smoothstep at 1.5; this is the
+   * loose "no teleport" line, and the tight one is `steadyMax` below.
+   */
   teleportFactor: 1.5,
   /** Plus this many tiles of slack (a position is a float). */
   teleportEpsilonTiles: 0.05,
@@ -38,8 +41,11 @@ export const LIMITS = {
   backwardsFraction: 0.002,
   /** A frame interval over this many times the median is "dropped". */
   droppedFactor: 1.5,
-  /** A glide is steady when its peak per-frame speed is at most this many times its mean speed (the final tile left out). A steady march reads 1; smoothstep 1.5. */
-  steadyMax: 1.2,
+  /**
+   * A glide is steady when its peak per-frame speed is at most this many times its mean speed (the final tile left out). A steady march reads 1.00 at any frame
+   * rate (its position is a straight line against the clock); the old smoothstep reads 1.5 at 60 fps and, measured on this box's 10 to 15 fps frames, 1.17 to 1.44.
+   */
+  steadyMax: 1.1,
   /** A frame interval over this is "slow", in ms. */
   slowFrameMs: 50,
   /** A hitch: an interval over both this many times the median and `hitchMs`. */
@@ -258,7 +264,7 @@ export function projectOnPath(path: readonly Pt[], p: Pt): { s: number; length: 
   return { s: bestS, length, off: Number.isFinite(bestOff) ? bestOff : 0 };
 }
 
-/** The speed a step ran at: what the page said, else read off its first glide (140 ms a tile is 1x, 70 is 2x). */
+/** The speed a step ran at: what the page said, else read off its first glide (TIMINGS.moveTileMs a tile is 1x, half of it is 2x). */
 export function stepSpeed(s: StepStart): number | null {
   if (s.speed !== null) return s.speed;
   for (const m of s.moves) {
