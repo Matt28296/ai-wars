@@ -47,6 +47,10 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
 - Process: D-017 (private scratch space; the receipt is the last write). The lead reads every builder's screenshots, plants a regression in each change, and screenshots the integrated view before merging. Dev servers start with `setsid sh -c 'echo $$ > pidfile; exec pnpm dev ...'`, so the pidfile holds the real process group.
 - The `wip/*` branches on GitHub are stale backups. The git proxy refuses branch deletes (HTTP 403), so Matthew can delete them on the Branches page.
 
+- **Battle commands (D-025, Matthew):** one-tap command buttons in battle, plus typed notes that go only to your own connected agent. They are built with A2 after G18 and P1 merge.
+- **A parallel local copy** of the game (uploaded by Matthew, based on `1f134f5`, never pushed) has a skirmish mode and saved progress, which we don't. Proposed: port both as new orders. It also binds the dev server to `0.0.0.0`, which is not adopted.
+- **P1 was stopped mid-round** (its work saved on `aw/p1-motion` at `ad98a31`, unverified). It is restarted only on Matthew's word.
+
 ## Blockers
 
 Items 1 and 2 under *Decisions waiting*: the repository is public (D-003), and its default branch is not `main`.
