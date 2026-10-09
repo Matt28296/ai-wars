@@ -4,6 +4,7 @@
 import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import type { ErrorInfo, ReactElement, ReactNode } from 'react';
 import { ConnectScreen } from './ConnectScreen';
+import { agentHostHere } from './connect';
 import { Lost } from './Lost';
 import { parseRoute } from './router';
 import { TitleScreen } from './TitleScreen';
@@ -75,7 +76,8 @@ export function FrontApp({ hash: pinned, webgl2 }: FrontAppProps): ReactElement 
       screen = <ConnectScreen />;
       break;
     case 'live':
-      screen = <LiveRoute />;
+      // A hosted copy has no feed to open (H1): it shows the connect screen's "coming soon" and asks nothing of its host.
+      screen = agentHostHere() ? <LiveRoute /> : <ConnectScreen hosted />;
       break;
     case 'briefing':
       screen = <BriefingRoute missionId={route.missionId} webgl2={webgl2} />;

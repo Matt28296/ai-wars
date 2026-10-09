@@ -9,6 +9,7 @@ import { Sigil } from '../watch/kit';
 import { BoardPreview } from './BoardPreview';
 import { TITLE_ORBIT } from './orbit';
 import { hrefs } from './router';
+import { HOSTED_CHOICE, agentHostHere } from './connect';
 import { titleScene } from './scene';
 
 const NATIONS: readonly FactionId[] = ['helion', 'tidewell', 'verdant', 'kestrel', 'choir'];
@@ -68,7 +69,7 @@ export function TitleScreen({ webgl2 }: TitleScreenProps): ReactElement {
           <a className="awf-choice awf-cut" href={hrefs.connect} data-choice="connect">
             <span className="awf-choice-text">
               <span className="awf-choice-label">Connect your agent</span>
-              <span className="awf-choice-desc body-sm">Your AI commands your army.</span>
+              <span className="awf-choice-desc body-sm">{agentHostHere() ? 'Your AI commands your army.' : HOSTED_CHOICE}</span>
             </span>
             <span className="awf-choice-go" aria-hidden />
           </a>

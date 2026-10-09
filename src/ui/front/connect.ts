@@ -40,6 +40,29 @@ export const OTHER_APPS_TEXT: string = (() => {
   ].join('\n');
 })();
 
+/**
+ * Where an agent can give its person this page. The agent's own server (G17) listens on 127.0.0.1 and its link says so; `localhost` is the
+ * dev server on the same machine. Anywhere else is a hosted copy (the preview, H1): no agent can reach it, so its connect screen says "coming
+ * soon" and its `#/live` never opens a feed.
+ */
+const AGENT_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+
+export function isAgentHost(hostname: string): boolean {
+  return AGENT_HOSTS.has(hostname.toLowerCase());
+}
+
+/** This page's answer. With no window (rendered on the server, in tests) it is the agent's own page. */
+export function agentHostHere(): boolean {
+  return typeof window === 'undefined' || isAgentHost(window.location.hostname);
+}
+
+/** What a hosted copy says instead of the steps. */
+export const HOSTED_LINE = 'Coming soon.';
+/** And the one thing it offers instead. */
+export const HOSTED_ACTION = 'Play the campaign';
+/** The title screen's line for the choice there. */
+export const HOSTED_CHOICE = 'Coming soon.';
+
 /** What the clipboard copy needs from the page, so it can be tried with a clipboard that is missing, refuses, or works. */
 export interface CopyEnv {
   clipboard?: { writeText?: (text: string) => Promise<void> } | null;
