@@ -598,6 +598,7 @@ a.awf-choice--primary:focus-visible { --edge: var(--ink); --fill: var(--signal);
 .awf-copy-btn[data-state='selected'] { border-color: var(--warn); color: var(--warn); }
 .awf-ph { color: var(--warn); border-bottom: 1px dashed var(--warn); }
 .awf-then { margin: 0; color: var(--ink-muted); }
+.awf-hosted-go { text-decoration: none; }
 .awf-other { width: 100%; }
 .awf-other-sum { display: inline-flex; align-items: center; gap: var(--space-2); height: 32px; cursor: pointer; color: var(--ink-muted); text-transform: uppercase; list-style: none; border-radius: var(--radius-xs); }
 .awf-other-sum::-webkit-details-marker { display: none; }

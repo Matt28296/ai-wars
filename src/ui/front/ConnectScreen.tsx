@@ -1,9 +1,9 @@
 // The connect screen (G17, D-023): three short steps, each with a Copy button, one line after them, the JSON for other apps on demand, and a
-// quiet way to the built-in commander. No paragraphs. `ConnectSteps` is also what `#/live` shows when the page was not opened from an agent's
+// quiet way to the built-in commander. No paragraphs. On a hosted copy (H1), where no agent can reach the page, it says "coming soon" instead. `ConnectSteps` is also what `#/live` shows when the page was not opened from an agent's
 // own link (the dev server, a hosted copy), so a person who lands there is told what to do instead of looking at nothing.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { AFTER_STEPS, CONNECT_STEPS, GAME_FOLDER, OTHER_APPS_TEXT, copyText } from './connect';
+import { AFTER_STEPS, CONNECT_STEPS, GAME_FOLDER, HOSTED_ACTION, HOSTED_LINE, OTHER_APPS_TEXT, agentHostHere, copyText } from './connect';
 import type { CopyResult } from './connect';
 import { hrefs } from './router';
 
@@ -61,8 +61,21 @@ export function CopyLine({ text, name }: { text: string; name: string }): ReactE
   );
 }
 
-/** The three steps, and the one line after them. */
-export function ConnectSteps(): ReactElement {
+/** What a hosted copy shows instead of the steps (H1): no agent can reach this page, so there is nothing to copy yet. One line, one action. */
+export function HostedSoon(): ReactElement {
+  return (
+    <>
+      <p className="awf-then body-sm" data-hosted role="status">{HOSTED_LINE}</p>
+      <a className="aw-btn aw-btn--primary label awf-hosted-go" href={hrefs.campaign} data-action="campaign">
+        <span className="aw-btn-label">{HOSTED_ACTION}</span>
+      </a>
+    </>
+  );
+}
+
+/** The three steps, and the one line after them. On a hosted copy, the "coming soon" line instead. */
+export function ConnectSteps({ hosted = !agentHostHere() }: { hosted?: boolean }): ReactElement {
+  if (hosted) return <HostedSoon />;
   return (
     <>
       <ol className="awf-steps" aria-label="Connect your agent">
@@ -93,15 +106,15 @@ export function OtherApps(): ReactElement {
   );
 }
 
-export function ConnectScreen(): ReactElement {
+export function ConnectScreen({ hosted = !agentHostHere() }: { hosted?: boolean }): ReactElement {
   return (
-    <main className="awf-root awf-connect" data-screen="connect">
+    <main className="awf-root awf-connect" data-screen="connect" data-hosted={hosted ? 'yes' : undefined}>
       <div className="awf-connect-body">
         <a className="awf-back label" href={hrefs.title}>Title</a>
         <h1 className="awf-h1">Connect your agent</h1>
-        <ConnectSteps />
-        <OtherApps />
-        <a className="awf-quiet label" href={hrefs.campaign} data-action="campaign">Or watch the built-in commander</a>
+        <ConnectSteps hosted={hosted} />
+        {!hosted && <OtherApps />}
+        {!hosted && <a className="awf-quiet label" href={hrefs.campaign} data-action="campaign">Or watch the built-in commander</a>}
       </div>
     </main>
   );
