@@ -10,7 +10,7 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
 2. **Set the default branch to `main`.** CodeRabbit skips every ai-wars PR until it is. GitHub: Settings → General → Default branch.
 3. **Publish the game to npm when A1 and G17 are ready (D-023).** It makes the connect step one line (`claude mcp add ascendant-wars -- npx ascendant-wars`). It is a public release, so it needs a yes.
 
-## Where things stand (2026-10-08 21:4xZ)
+## Where things stand (2026-10-09 10:0xZ)
 
 - Direction: fork Blacklink, swap its Fire Emblem layer for an Advance Wars-family layer, keep the agent-as-commander core (`DECISIONS.md` D-001).
 - `main` holds:
@@ -23,7 +23,7 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
     - G8a/G8b properties, table, intro, storm, framing; G10 battle feel; G11 the living board;
     - G12 ambient occlusion and high/medium/low quality tiers (`?quality=`).
 
-  2,799 tests, every merge on green CI, each PR re-tested against everything merged before it.
+  2,985 tests, every merge on green CI, each PR re-tested against everything merged before it.
 - **G14 (merged, #55): the player commands their agent.**
   - The objective screen has an orders card above Deploy: six unit groups (Advance / Hold / Fall back) and Powers, with missions, retreat, targets and single unit types under "More". It is saved per mission.
   - Deploy plays live. The player's turn is computed only when playback reaches it, under the orders set at that moment (D-022).
@@ -37,19 +37,22 @@ Read this file first when you resume. It is rewritten, not appended, whenever th
   - Fog-honest: the agent sees only its side, in the tools and in the live feed on 127.0.0.1. The full record is served only after the match ends.
   - Each match gets a fresh, unannounced luck seed, so the agent cannot replay the battle offline.
   - **G17 (merged, #57):** the title's "Connect your agent" opens three short connect steps with Copy buttons. The agent's local server also serves the game page, so `start_mission` hands the agent one link (`live.watch`) for its person; the agent is told to pass it on. That page plays the battle live from the agent's side only, and adds the result, the debrief and "All" when the match ends. The server answers only its own Host, GET/HEAD only, inside `dist/` only.
-- **In flight:** G18, the clean battle screen (D-023): the board first, one slim bar (cycle, turn, funds, Orders, Details, View), and players, intel and the log in one drawer. Verified, green CI as #59, **held for P1** (D-024). P1, the motion monitor and a render-scale floor, is with a builder on `aw/p1-motion` (built on G18).
+- **G18 + P1 (merged together, #63, on Matthew's "Merge"):**
+  - The battle screen is the board first: one slim bar (cycle, turn, funds, Orders, Details, View), with players, intel and the log in one drawer.
+  - Units march at a steady 240 ms a tile at 1x (Advance Wars-style).
+  - The motion monitor: `pnpm motion`, budgets in docs/delivery/MOTION.md.
+  - A render-scale floor below 'low', remembered per device for 7 days.
+  - Software-rendering measurements: desktop fps +54-84%. Phone 3-6% under main, the cost of the 2.6x bigger phone board, accepted by Matthew and to be revisited in the beauty pass.
+- **In flight:** G19+A2, battle commands (D-025): Charge / Hold / Fall back / Take bases / Power toggle / More, and orders and a typed note that reach your own connected agent. On `aw/g19-commands` from `a9bf011`.
 - **Then:** a frozen-clock beauty pass of the whole game; the follow-ups below.
 - **Known follow-ups:**
   - glass-waste's middle seat never wins; arcology-coast is mostly undecided at 40 cycles;
-  - orders from the page to a connected agent (the agent's `get_orders` still returns the defaults; it needs a local write route);
   - mission story lines describe Doctrine's default play, which an outside agent may not follow.
-- **Motion (D-024, Matthew):** movement speed and smoothness are measured on every battle-screen change (`pnpm motion`, from P1); a broken budget blocks the merge. G18 (#59, green CI) is held until P1 shows its bigger board is at least as smooth as main's (software rendering: 5.5 -> 4.0 fps desktop, 16 -> 10.3 phone, both at the lowest tier).
+- **Motion (D-024, Matthew):** movement speed and smoothness are measured on every battle-screen change with `pnpm motion` (docs/delivery/MOTION.md); a broken budget blocks the merge unless Matthew accepts it, as he did for the phone cost of #63.
 - Process: D-017 (private scratch space; the receipt is the last write). The lead reads every builder's screenshots, plants a regression in each change, and screenshots the integrated view before merging. Dev servers start with `setsid sh -c 'echo $$ > pidfile; exec pnpm dev ...'`, so the pidfile holds the real process group.
 - The `wip/*` branches on GitHub are stale backups. The git proxy refuses branch deletes (HTTP 403), so Matthew can delete them on the Branches page.
 
-- **Battle commands (D-025, Matthew):** one-tap command buttons in battle, plus typed notes that go only to your own connected agent. They are built with A2 after G18 and P1 merge.
 - **A parallel local copy** of the game (uploaded by Matthew, based on `1f134f5`, never pushed) has a skirmish mode and saved progress, which we don't. Proposed: port both as new orders. It also binds the dev server to `0.0.0.0`, which is not adopted.
-- **P1 was stopped mid-round** (its work saved on `aw/p1-motion` at `ad98a31`, unverified). It is restarted only on Matthew's word.
 
 ## Blockers
 
@@ -57,7 +60,7 @@ Items 1 and 2 under *Decisions waiting*: the repository is public (D-003), and i
 
 ## Next actions (none need the platform)
 
-1. Verify P1, then merge G18 and P1 together (D-023, D-024).
-2. Orders from the page to a connected agent.
-3. A frozen-clock "beauty pass" of the integrated game at 1280 and 390; fix what reads cheap.
+1. Verify and merge G19+A2 (battle commands; orders and notes to your own agent).
+2. The ChatGPT preview: a tested static build and a paste prompt for Matthew. The live site's connect screen says connecting your own agent is coming soon.
+3. The beauty pass: the phone camera crop and the phone frame cost, Deploy's leftover hidden strip, and a frozen-clock look at 1280 and 390.
 4. When D-003 clears: M2 platform fork, then a hosted MCP server for ranked play (A1's server runs locally).
