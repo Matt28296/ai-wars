@@ -9,8 +9,8 @@ import { useId, useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
 import { NOTE_MAX, cleanNote, noteLength } from '../../agent/live';
 import type { StandingOrders } from '../../game/doctrine';
-import { COMMAND_TEXT, MORE_HINT, POSTURE_COMMANDS, POWER_TEXT, activePosture, press, takeBasesInForce } from './commands';
-import type { CommandId, PostureCommand } from './commands';
+import { COMMAND_TEXT, MORE_HINT, NOTE_HINT, POSTURE_COMMANDS, POWER_TEXT, activePosture, press, takeBasesInForce } from './commands';
+import type { CommandId, CommandWords, PostureCommand } from './commands';
 import { OrdersControl } from './OrdersControl';
 
 export interface NoteBox {
@@ -43,17 +43,22 @@ export function CommandBar({ orders, pending, pendingText = 'From your next turn
   const power = POWER_TEXT[orders.powerPolicy];
   const on = (h: string) => ({ onMouseEnter: () => setHint(h), onMouseLeave: () => setHint(null), onFocus: () => setHint(h), onBlur: () => setHint(null) });
 
-  // A press that would leave the orders as they are sends nothing: a command in force stays in force.
+  // A press that would leave the orders as they are sends nothing: a command in force stays in force. After a press the line is no longer about the
+  // button under the pointer (its hint was for the state before): it says the change waits.
   const set = (id: CommandId): void => {
+    setHint(null);
     const next = press(orders, id);
     if (next) onChange(next);
   };
+  /** A button's words: the label, and on a phone-width row the short word in its place. */
+  const words = (w: CommandWords): ReactElement => (w.short ? <><span className="awf-cmd-full">{w.label}</span><span className="awf-cmd-short" aria-hidden>{w.short}</span></> : <>{w.label}</>);
   const cleaned = cleanNote(text);
   const send = (e: FormEvent): void => {
     e.preventDefault();
     if (!note || cleaned === '' || noteLength(cleaned) > NOTE_MAX) return;
     note.onSend(cleaned);
     setText('');
+    setHint(null);
   };
   // The one line under the row: what the button under the pointer does, else what went wrong, else that a change waits.
   const line = hint ?? notice ?? (pending ? pendingText : '');
@@ -67,7 +72,7 @@ export function CommandBar({ orders, pending, pendingText = 'From your next turn
               key={c} type="button" className="awf-cmd-opt label" data-command={c} aria-pressed={posture === c} aria-describedby={hintId}
               onClick={() => set(c)} {...on(COMMAND_TEXT[c].hint)}
             >
-              {COMMAND_TEXT[c].label}
+              {words(COMMAND_TEXT[c])}
             </button>
           ))}
         </div>
@@ -75,13 +80,13 @@ export function CommandBar({ orders, pending, pendingText = 'From your next turn
           type="button" className="aw-btn aw-btn--secondary aw-btn--sm label awf-cmd-btn" data-command="takeBases" aria-pressed={bases} aria-describedby={hintId}
           onClick={() => set('takeBases')} {...on(COMMAND_TEXT.takeBases.hint)}
         >
-          {COMMAND_TEXT.takeBases.label}
+          {words(COMMAND_TEXT.takeBases)}
         </button>
         <button
           type="button" className="aw-btn aw-btn--secondary aw-btn--sm label awf-cmd-btn" data-command="power" data-policy={orders.powerPolicy} aria-describedby={hintId}
           onClick={() => set('power')} {...on(power.hint)}
         >
-          {power.label}
+          {words(power)}
         </button>
         <span className="awf-cmd-more" onMouseEnter={() => setHint(MORE_HINT)} onMouseLeave={() => setHint(null)}>
           <OrdersControl orders={orders} pending={pending} pendingText={pendingText} label="More" onChange={onChange} initialOpen={initialOpen} />
@@ -92,7 +97,7 @@ export function CommandBar({ orders, pending, pendingText = 'From your next turn
           <input
             type="text" className="awf-cmd-input" name="note" value={text} maxLength={NOTE_MAX} placeholder="Tell your agent…" autoComplete="off" spellCheck
             aria-label="Tell your agent" aria-describedby={hintId} onChange={(e) => setText(e.target.value)}
-            {...on('A line for your agent only. It reads it with your orders.')}
+            {...on(NOTE_HINT)}
           />
           <button type="submit" className="aw-btn aw-btn--secondary aw-btn--sm label awf-cmd-send" disabled={cleaned === ''} aria-label="Send to your agent" {...on('Send it to your agent.')}>Send</button>
         </form>

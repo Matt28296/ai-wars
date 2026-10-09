@@ -332,19 +332,24 @@ export async function startFeed(opts: FeedOptions = {}): Promise<Feed> {
     if (!originOk(req)) return refuse(res, 403, 'forbidden-origin');
     const type = req.headers['content-type'];
     if (typeof type !== 'string' || !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(type.trim())) return refuse(res, 415, 'content-type-not-json');
+    // A declared length over the limit is refused before a byte is read (the unread body is thrown away and the connection stays usable).
     const declared = req.headers['content-length'];
-    if (declared !== undefined && !(/^\d+$/.test(declared) && Number(declared) <= ORDERS_BODY_MAX)) return refuse(res, 413, 'body-too-large', { Connection: 'close' });
+    if (declared !== undefined && !(/^\d+$/.test(declared) && Number(declared) <= ORDERS_BODY_MAX)) return refuse(res, 413, 'body-too-large');
     const chunks: Buffer[] = [];
     let size = 0;
     let tooBig = false;
     req.on('data', (c: Buffer) => {
-      if (tooBig) return;
       size += c.length;
+      if (tooBig) {
+        // already refused: what the client still sends is thrown away, up to a point, then the connection is dropped
+        if (size > 64 * ORDERS_BODY_MAX) req.destroy();
+        return;
+      }
       if (size > ORDERS_BODY_MAX) {
+        // no length was declared (chunked) and the body has grown past the limit
         tooBig = true;
         chunks.length = 0;
-        refuse(res, 413, 'body-too-large', { Connection: 'close' });
-        res.once('finish', () => req.destroy());
+        refuse(res, 413, 'body-too-large');
         return;
       }
       chunks.push(c);

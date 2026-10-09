@@ -287,7 +287,8 @@ export interface PutOptions { origin?: string | null; host?: string; type?: stri
 
 /** One `PUT /orders` over a real socket, as the person's page sends it unless `over` says otherwise (own origin, application/json). */
 export function putOrders(port: number, body: unknown, over: PutOptions = {}): Promise<HttpReply> {
-  const headers: Record<string, string> = {};
+  // a fresh connection each time: a refusal sent before the body is read must not hand a reused socket to the next request
+  const headers: Record<string, string> = { Connection: 'close' };
   const origin = over.origin === undefined ? `http://127.0.0.1:${port}` : over.origin;
   if (origin !== null) headers.Origin = origin;
   const type = over.type === undefined ? 'application/json' : over.type;

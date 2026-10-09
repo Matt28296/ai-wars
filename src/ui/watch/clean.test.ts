@@ -281,9 +281,9 @@ describe('the battle screen: the board, one bar, one row of playback, a drawer t
     expect(bar).toContain('data-action="details"');
     expect(bar).toContain('data-action="view"');
     expect(bar.indexOf('lead-probe')).toBeLessThan(bar.indexOf('aww-turn'));
-    expect(bar.indexOf('aww-funds')).toBeLessThan(bar.indexOf('orders-probe'));
-    expect(bar.indexOf('orders-probe')).toBeLessThan(bar.indexOf('data-action="details"'));
+    expect(bar.indexOf('aww-funds')).toBeLessThan(bar.indexOf('data-action="details"'));
     expect(bar.indexOf('data-action="details"')).toBeLessThan(bar.indexOf('data-action="view"'));
+    expect(bar.indexOf('data-action="view"')).toBeLessThan(bar.indexOf('orders-probe'));
     // and what it says is the engine's: the cycle, the turn's side and the viewer's funds at the step on screen
     const truth = rec.states[STEP];
     const cycle = /<span class="aww-turn-cycle[^"]*"[^>]*>([\s\S]*?)<\/span><span class="aww-turn-who/.exec(bar)![1];

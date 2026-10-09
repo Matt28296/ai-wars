@@ -124,7 +124,7 @@ export const NOTE_MAX = 280;
  */
 export function cleanNote(text: string): string {
   return text
-    .replace(/[\t\n\r\u2028\u2029]+/g, ' ')
+    .replace(/ *[\t\n\r\u2028\u2029][\t\n\r\u2028\u2029 ]*/g, ' ')
     .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
     .trim();
 }

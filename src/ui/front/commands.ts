@@ -23,22 +23,27 @@ export const POSTURE_OF: Readonly<Record<PostureCommand, Posture>> = { charge: '
 /** The missions Take bases gives: infantry take properties, armour escorts the capturers. */
 export const TAKE_BASES = { infantry: 'capture', armour: 'escort' } as const;
 
-/** What the row says on each button, and the one line shown on hover or focus. None runs past one line. */
-export const COMMAND_TEXT: Readonly<Record<PostureCommand | 'takeBases', { label: string; hint: string }>> = {
-  charge: { label: 'Charge', hint: 'Every group presses the enemy and takes ground.' },
-  hold: { label: 'Hold', hint: 'Every group keeps its line and trades only when it pays.' },
-  fallBack: { label: 'Fall back', hint: 'Every group gives ground and stays near your base.' },
-  takeBases: { label: 'Take bases', hint: 'Infantry capture properties; armour escorts them.' },
+/**
+ * What the row says on each button, and the one line shown on hover or focus (none runs past one line, about forty characters). `short` is the word a
+ * phone-width row uses instead, so the six buttons stay one row there; the label is still what a screen reader says.
+ */
+export interface CommandWords { label: string; hint: string; short?: string }
+export const COMMAND_TEXT: Readonly<Record<PostureCommand | 'takeBases', CommandWords>> = {
+  charge: { label: 'Charge', hint: 'Every group advances on the enemy.' },
+  hold: { label: 'Hold', hint: 'Every group keeps its line.' },
+  fallBack: { label: 'Fall back', hint: 'Every group gives ground.' },
+  takeBases: { label: 'Take bases', short: 'Bases', hint: 'Infantry capture; armour escorts them.' },
 };
 
 /** The power button names the policy in force (it is one toggle), and its hint says what pressing it does. */
-export const POWER_TEXT: Readonly<Record<PowerPolicy, { label: string; hint: string }>> = {
-  whenReady: { label: 'Power now', hint: 'Powers are used the turn they are ready. Press to save them.' },
-  saveForOverclock: { label: 'Save power', hint: 'The meter is saved for Overclock. Press to use powers when ready.' },
-  defensive: { label: 'Power held', hint: 'Powers wait until the army is under pressure. Press to use them when ready.' },
+export const POWER_TEXT: Readonly<Record<PowerPolicy, CommandWords>> = {
+  whenReady: { label: 'Power now', short: 'Power', hint: 'Powers are used when ready. Press to save.' },
+  saveForOverclock: { label: 'Save power', short: 'Save', hint: 'The meter waits for Overclock. Press to use.' },
+  defensive: { label: 'Power held', short: 'Held', hint: 'Powers wait for pressure. Press to use.' },
 };
 
-export const MORE_HINT = 'Missions, retreat, targets and single unit types.';
+export const MORE_HINT = 'Missions, retreat, targets, unit types.';
+export const NOTE_HINT = 'Your agent reads this with your orders.';
 
 /** Every group's posture set to `posture`, and the postures of single unit types dropped (they would otherwise still stand). Other fields untouched. */
 export function applyPosture(orders: StandingOrders, posture: Posture): StandingOrders {

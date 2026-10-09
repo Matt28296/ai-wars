@@ -27,6 +27,7 @@ const json = <T,>(v: unknown): T => JSON.parse(JSON.stringify(v)) as T;
 const DEFAULTS = (): StandingOrders => validateOrders(DEFAULT_ORDERS);
 const ARMOUR_ADVANCE = (): StandingOrders => validateOrders({ groups: { armour: { posture: 'advance' } } });
 const SAVE_POWER = (): StandingOrders => validateOrders({ ...ARMOUR_ADVANCE(), powerPolicy: 'saveForOverclock' });
+const valid = (): { orders: StandingOrders } => ({ orders: ARMOUR_ADVANCE() });
 
 const feeds: Feed[] = [];
 const open: Connected[] = [];
@@ -75,7 +76,6 @@ describe('PUT /orders: the one write route', () => {
 
   /** One refused request: how to send it, what must come back, and a marker that must not. */
   interface Refusal { name: string; send: (r: Rig) => ReturnType<typeof putOrders>; status: number; error?: string }
-  const valid = (): { orders: StandingOrders } => ({ orders: ARMOUR_ADVANCE() });
   const big = (n: number): string => JSON.stringify({ orders: DEFAULTS(), pad: 'x'.repeat(n) });
   const refusals: Refusal[] = [
     { name: 'a foreign Host', send: (r) => r.put(valid(), { host: 'evil.example' }), status: 403 },
@@ -197,7 +197,7 @@ describe('PUT /orders: the one write route', () => {
   });
 
   it('checkOrdersBody: the pure check says each refusal by its own word, and a known-good body passes with the note cleaned', () => {
-    expect(checkOrdersBody({ orders: ARMOUR_ADVANCE(), note: '  go  \n north \u0007' })).toStrictEqual({ ok: true, put: { orders: ARMOUR_ADVANCE(), note: 'go   north' } });
+    expect(checkOrdersBody({ orders: ARMOUR_ADVANCE(), note: '  go  \n north \u0007' })).toStrictEqual({ ok: true, put: { orders: ARMOUR_ADVANCE(), note: 'go north' } });
     expect(checkOrdersBody({ orders: {} })).toMatchObject({ ok: true });
     expect(checkOrdersBody({ orders: ARMOUR_ADVANCE(), note: '' })).toStrictEqual({ ok: true, put: { orders: ARMOUR_ADVANCE(), note: '' } });
     expect(checkOrdersBody({ orders: {}, note: 5 })).toStrictEqual({ ok: false, reason: 'bad-note' });
@@ -323,7 +323,7 @@ describe('a change counts from the agent\'s NEXT turn start (D-022)', () => {
     const rec = r.host().record();
     const truth = recordMatch(rec.setup, rec.actions);
     // the first action of each of the agent's turns, from the engine's own states
-    const starts = truth.states.map((s, i) => i).filter((i) => truth.states[i].current === 0 && (i === 0 || truth.states[i - 1].current !== 0));
+    const starts = truth.states.map((_, i) => i).filter((i) => truth.states[i].current === 0 && (i === 0 || truth.states[i - 1].current !== 0));
     const served = JSON.parse((await httpRequest(r.feed.recordUrl)).body) as LiveRecord;
     expect(served.orderChanges).toStrictEqual([
       { from: 0, cycle: 1, orders: json(DEFAULTS()) },
@@ -458,7 +458,7 @@ describe('a typed note reaches the player\'s own agent and nowhere else (D-025)'
       },
       wrapFeed: (f) => ({
         ...f,
-        orders: (o) => f.orders(plant.stream ? ({ ...o, note: orders(r.session).note?.text }) as never : o),
+        orders: (o) => f.orders(plant.stream ? ({ ...o, orders: { ...o.orders, note: orders(r.session).note?.text } }) as never : o),
         finish: (res, rec) => f.finish(res, plant.record ? ({ ...rec, orderChanges: rec.orderChanges?.map((c) => ({ ...c, note: orders(r.session).note?.text })) }) as never : rec),
       }),
     });

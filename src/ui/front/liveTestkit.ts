@@ -1,5 +1,6 @@
 // Shared helpers for G17's tests (not shipped: nothing in the game imports this file).
-//   scriptedMatch()   a short real match played through the real tools and the real feed, and every message the feed sent, in order
+//   scriptedMatch()   a short real match played through the real tools and the real feed, and every message the feed sent, in order (G19: with the
+//                     person's order changes PUT to the feed's /orders while it is played, when a plan is given)
 //   sseText/parseSse  the feed's wire format, written here from the Server-Sent Events rules and not from feed.ts
 //   FakeEventSource   a scripted stand-in for the browser's EventSource
 import { MISSIONS } from '../../content/missions';
@@ -7,11 +8,11 @@ import { startFeed } from '../../agent/feed';
 import type { LiveMessage, LiveRecord } from '../../agent/live';
 import { AgentMatch } from '../../agent/match';
 import { AgentSession } from '../../agent/tools';
-import { openSse } from '../../agent/testkit';
+import { playWithChanges, streamOfFinishedMatch } from '../../agent/testkit';
 import type { EventSourceLike } from './liveFeed';
 
 export interface Scripted {
-  /** setup, step 0..n, result, record: what a viewer connected from the start receives. */
+  /** setup, orders, step 0..n, result, record (and an `orders` message at each change): what a viewer connected from the start receives. */
   messages: LiveMessage[];
   record: LiveRecord;
 }
@@ -24,25 +25,23 @@ function walk(s: AgentSession): void {
   else s.endTurn();
 }
 
-/** Plays `missionId` through the MCP tools' session for `maxCycles` cycles, and reads back what its feed sent over a real socket. */
-export async function scriptedMatch(missionId: string, maxCycles = 2): Promise<Scripted> {
+/**
+ * Plays `missionId` through the MCP tools' session for `maxCycles` cycles, and reads back what its feed sent over a real socket. With a `plan`, the
+ * person's orders are PUT to the feed before the agent's turn `t` (`plan[t]`, when not null), as the page would, and they count from turn `t + 1`.
+ */
+export async function scriptedMatch(missionId: string, maxCycles = 2, plan?: readonly (unknown | null)[]): Promise<Scripted> {
   if (!MISSIONS.some((m) => m.id === missionId)) throw new Error(`no mission ${missionId}`);
   const feed = await startFeed({ site: null });
   try {
     let host!: AgentMatch;
     const s = new AgentSession({ feed, makeHost: (m) => (host = new AgentMatch(m, { maxCycles })) });
     s.startMission(missionId);
-    while (!host.result()) walk(s);
-    const total = host.record().actions.length + 1 + 3;
-    const live = await openSse(feed.liveUrl);
-    try {
-      await live.waitFor(total);
-      const record = feed.record();
-      if (!record) throw new Error('the match is over and the feed holds no record');
-      return { messages: live.frames.map((f) => f.message), record };
-    } finally {
-      live.close();
-    }
+    if (plan) await playWithChanges(feed.port, s, plan);
+    else while (!host.result()) walk(s);
+    const frames = await streamOfFinishedMatch(feed.liveUrl);
+    const record = feed.record();
+    if (!record) throw new Error('the match is over and the feed holds no record');
+    return { messages: frames.map((f) => f.message), record };
   } finally {
     await feed.close();
   }
