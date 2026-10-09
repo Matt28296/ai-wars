@@ -288,14 +288,19 @@ describe('start_mission and observe', () => {
 });
 
 describe('get_orders', () => {
-  it('is DEFAULT_ORDERS with a one-line note that the human sets them and the agent follows them', async () => {
+  it('is DEFAULT_ORDERS, nothing pending and no note, with a one-line reminder that the human sets them and the agent follows them', async () => {
     const { client } = await session();
     await call(client, 'start_mission', { mission: 'first-light' });
     const r = await call(client, 'get_orders');
     expect(r.data.orders).toStrictEqual(JSON.parse(JSON.stringify(DEFAULT_ORDERS)));
-    expect(r.data.note).toMatch(/human/i);
-    expect(r.data.note).toMatch(/follow/i);
-    expect(r.data.note).not.toMatch(/\n/);
+    expect(r.data.pending).toBeNull();
+    expect(r.data.note).toBeNull();
+    expect(r.data.reminder).toMatch(/human/i);
+    expect(r.data.reminder).toMatch(/follow/i);
+    expect(r.data.reminder).not.toMatch(/\n/);
+    // G19: nothing waits, so nothing changes at the end of a turn
+    const e = await call(client, 'end_turn');
+    expect(e.data.ordersChanged).toBe(false);
   });
 });
 
@@ -518,6 +523,9 @@ class LeakyHost implements MatchHost {
   }
   result() { return this.real.result(); }
   orders() { return this.real.orders(); }
+  pendingOrders() { return this.real.pendingOrders(); }
+  setOrders(next: unknown) { return this.real.setOrders(next); }
+  orderChanges() { return this.real.orderChanges(); }
   record(): AgentRecord { return this.real.record(); }
   subscribe(l: (e: MatchEvent) => void) {
     let lastAction: Action | null = null;
@@ -656,12 +664,13 @@ async function feedRun(opts: { mission: string; seed: number; maxSteps: number; 
 
   const live = await openSse(feed.liveUrl);
   try {
-    await live.waitFor(1 + (truth.length + 1) + (finished ? 2 : 0));
+    await live.waitFor(2 + (truth.length + 1) + (finished ? 2 : 0));
     const run: FeedRun = { leaks: [], steps: truth.length, hiddenSteps: 0, sightings: 0, othersActed: 0, finished };
     const note = (where: string, found: string[]) => { for (const f of found) run.leaks.push(`${where}: ${f}`); };
     const frames = live.frames;
     if (JSON.stringify(Object.keys(frames[0].message).sort()) !== JSON.stringify(['cycleCap', 'match', 'mission', 'seat', 'type'])) run.leaks.push('setup carries more than the public facts');
-    const expectedKinds = ['setup', ...new Array<string>(truth.length + 1).fill('step'), ...(finished ? ['result', 'record'] : [])];
+    // G19: the agent's orders follow the setup (a random policy never changes them, so there is one `orders` message)
+    const expectedKinds = ['setup', 'orders', ...new Array<string>(truth.length + 1).fill('step'), ...(finished ? ['result', 'record'] : [])];
     if (JSON.stringify(frames.map((f) => f.event)) !== JSON.stringify(expectedKinds)) run.leaks.push(`unexpected frames: ${frames.map((f) => f.event).slice(-4).join(',')}`);
     const sent = frames.filter((f) => f.event === 'step').map((f) => (f.message as LiveStepMessage).step);
     sent.forEach((st, i) => {
@@ -746,13 +755,16 @@ describe('the live feed through the session', () => {
     const done = await httpRequest(feed.recordUrl);
     expect(done.status).toBe(200);
     const rec = host.record();
-    expect(JSON.parse(done.body)).toStrictEqual({ match: 1, mission: 'first-light', seat: 0, cycleCap: 2, setup: JSON.parse(JSON.stringify(rec.setup)), actions: JSON.parse(JSON.stringify(rec.actions)), result: rec.result });
+    expect(JSON.parse(done.body)).toStrictEqual({
+      match: 1, mission: 'first-light', seat: 0, cycleCap: 2, setup: JSON.parse(JSON.stringify(rec.setup)), actions: JSON.parse(JSON.stringify(rec.actions)),
+      orderChanges: [{ from: 0, cycle: 1, orders: JSON.parse(JSON.stringify(DEFAULT_ORDERS)) }], result: rec.result,
+    });
   });
 
   it('keeps the match going when the feed fails', async () => {
     const feed = await startFeed();
     feeds.push(feed);
-    const broken: Feed = { ...feed, step: () => { throw new Error('feed down'); }, finish: () => { throw new Error('feed down'); } };
+    const broken: Feed = { ...feed, step: () => { throw new Error('feed down'); }, finish: () => { throw new Error('feed down'); }, orders: () => { throw new Error('feed down'); } };
     const lines: string[] = [];
     const { client } = await session({ feed: broken, log: (l) => lines.push(l) });
     await call(client, 'start_mission', { mission: 'first-light' });

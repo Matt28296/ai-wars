@@ -195,10 +195,14 @@ export function describeChange(prev: StandingOrders, next: StandingOrders): stri
   const b = validateOrders(next);
   const out: string[] = [];
   if (a.posture !== b.posture) out.push(`Army: ${POSTURE_NAMES[b.posture]}`);
+  // G19: a command button (Charge, Hold, Fall back) changes every group to one posture; that is said once, not six times.
+  const toPosture = new Set(UNIT_GROUPS.map((g) => resolve(b, { group: g }).posture));
+  const allGroups = toPosture.size === 1 && UNIT_GROUPS.every((g) => differs('posture', resolve(a, { group: g }), resolve(b, { group: g })));
+  if (allGroups) out.push(`All groups: ${POSTURE_NAMES[[...toPosture][0]]}`);
   for (const g of UNIT_GROUPS) {
     const from = resolve(a, { group: g });
     const to = resolve(b, { group: g });
-    for (const f of FIELDS) if (differs(f, from, to)) out.push(fieldText(GROUP_NAMES[g], f, to));
+    for (const f of FIELDS) if (differs(f, from, to) && !(allGroups && f === 'posture')) out.push(fieldText(GROUP_NAMES[g], f, to));
   }
   for (const g of UNIT_GROUPS) {
     for (const t of GROUP_MEMBERS[g]) {

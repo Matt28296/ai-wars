@@ -225,8 +225,8 @@ export function storyIn(text: string): string[] {
 
 export interface HttpReply { status: number; headers: IncomingHttpHeaders; body: string }
 
-/** One HTTP request to the feed, with full control of the method and headers (Origin, Host). */
-export function httpRequest(url: string, opts: { method?: string; headers?: Record<string, string> } = {}): Promise<HttpReply> {
+/** One HTTP request to the feed, with full control of the method, headers (Origin, Host) and, for a write, the body. */
+export function httpRequest(url: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<HttpReply> {
   return new Promise((resolve, reject) => {
     const req = request(url, { method: opts.method ?? 'GET', headers: opts.headers }, (res) => {
       let body = '';
@@ -235,7 +235,7 @@ export function httpRequest(url: string, opts: { method?: string; headers?: Reco
       res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }));
     });
     req.on('error', reject);
-    req.end();
+    req.end(opts.body);
   });
 }
 
@@ -279,4 +279,55 @@ export function openSse(url: string, headers: Record<string, string> = {}): Prom
     req.on('error', (e) => { if ((e as NodeJS.ErrnoException).code !== 'ECONNRESET') reject(e); });
     req.end();
   });
+}
+
+// ---------------------------------------------------------------- G19: playing a match while the person changes the orders (PUT /orders)
+
+export interface PutOptions { origin?: string | null; host?: string; type?: string | null; raw?: string; method?: string }
+
+/** One `PUT /orders` over a real socket, as the person's page sends it unless `over` says otherwise (own origin, application/json). */
+export function putOrders(port: number, body: unknown, over: PutOptions = {}): Promise<HttpReply> {
+  const headers: Record<string, string> = {};
+  const origin = over.origin === undefined ? `http://127.0.0.1:${port}` : over.origin;
+  if (origin !== null) headers.Origin = origin;
+  const type = over.type === undefined ? 'application/json' : over.type;
+  if (type !== null) headers['Content-Type'] = type;
+  if (over.host) headers.Host = over.host;
+  return httpRequest(`http://127.0.0.1:${port}/orders`, { method: over.method ?? 'PUT', headers, body: over.raw ?? JSON.stringify(body) });
+}
+
+/** The first legal action's id, or null when the agent has none left this turn (the same walk as the tool tests). */
+export function firstLegalId(s: AgentSession): string | null {
+  const l = s.legalActions().data as { units: { actions: { id: string }[] }[]; builds: { id: string }[] };
+  return [...l.units.flatMap((u) => u.actions.map((a) => a.id)), ...l.builds.map((b) => b.id)][0] ?? null;
+}
+
+/**
+ * Plays the running match to its end, two actions and then end_turn each turn. Before the agent's turn number `t` it PUTs `plan[t]` (when it is not
+ * null) to the feed, as the page would, so that change waits for turn `t + 1`. Returns the PUT replies.
+ */
+export async function playWithChanges(port: number, s: AgentSession, plan: readonly (unknown | null)[]): Promise<HttpReply[]> {
+  const replies: HttpReply[] = [];
+  for (let turn = 0; !s.current()!.result(); turn++) {
+    const change = plan[turn];
+    if (change) replies.push(await putOrders(port, { orders: change }));
+    for (let i = 0; i < 2; i++) {
+      const id = firstLegalId(s);
+      if (id) s.act(id);
+    }
+    s.endTurn();
+  }
+  return replies;
+}
+
+/** Every frame of the stream once the record has arrived (the match is over), read over a real socket. */
+export async function streamOfFinishedMatch(liveUrl: string): Promise<SseFrame[]> {
+  const live = await openSse(liveUrl);
+  try {
+    for (let i = 0; i < 300 && !live.frames.some((f) => f.event === 'record'); i++) await new Promise((r) => setTimeout(r, 10));
+    if (!live.frames.some((f) => f.event === 'record')) throw new Error('the stream never reached the record');
+    return [...live.frames];
+  } finally {
+    live.close();
+  }
 }

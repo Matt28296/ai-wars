@@ -271,12 +271,12 @@ describe('the battle screen: the board, one bar, one row of playback, a drawer t
     for (const gone of ['aww-banner-row', 'aww-chips', 'aww-toolbar"', 'aww-side', 'aw-banner']) expect(h, gone).not.toContain(gone);
   });
 
-  it('holds in the bar only: the screen\'s back link, the cycle, whose turn, the viewer\'s funds, Orders, Details and View', () => {
+  it('holds in the bar only: the screen\'s back link, the cycle, whose turn, the viewer\'s funds, Details and View, and (G19) the command row as its second row', () => {
     const h = render({ lead, ordersSlot: orders, onViewerChange: () => {} });
     const bar = visibleBar(h);
-    // the interactive items, in order: the lead's link, then Orders, Details and View
+    // the interactive items, in order: the lead's link, then Details and View, then the command row of the second line
     expect([...bar.matchAll(/<(a|button)\b[^>]*?(?: id="([\w-]+)")?[^>]*>/g)].map((m) => m[0].replace(/\s+(class|href|type|title|aria-[\w-]+|data-[\w-]+)="[^"]*"/g, '').trim())).toEqual([
-      '<a id="lead-probe">', '<button id="orders-probe">', '<button>', '<button>',
+      '<a id="lead-probe">', '<button>', '<button>', '<button id="orders-probe">',
     ]);
     expect(bar).toContain('data-action="details"');
     expect(bar).toContain('data-action="view"');
@@ -361,7 +361,7 @@ describe('the battle screen: the board, one bar, one row of playback, a drawer t
     expect(h).not.toContain('aww-cutin');
   });
 
-  it('keeps the orders slot in the bar (G14): once, after the funds and before Details, and nowhere else', () => {
+  it('keeps the orders slot in the bar (G14, G19): once, as its second row after the funds and the toolbar, and nowhere else', () => {
     const h = render({ ordersSlot: orders, initialDrawer: 'players' });
     expect(h.split('orders-probe').length - 1).toBe(1);
     expect(barOf(h)).toContain('orders-probe');

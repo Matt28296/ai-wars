@@ -336,7 +336,8 @@ describe('the record carries the order changes, so the debrief can list them and
   it('AgentMatch keeps the same record when played directly: playOwnTurn writes a change only when the orders differ from the turn before', () => {
     const m = mission('first-light');
     const host = new AgentMatch(m, { continueAfterDefeat: true });
-    expect(host.orderChanges()).toStrictEqual([]);
+    // G19: a match begins with the orders it was made with (from action 0); the first turn played under other orders REPLACES that entry rather than adding a second from 0
+    expect(host.orderChanges()).toStrictEqual([{ from: 0, cycle: 1, orders: freshOrders() }]);
     host.playOwnTurn(freshOrders());
     host.playOwnTurn(freshOrders());
     expect(host.orderChanges()).toHaveLength(1);
@@ -351,11 +352,14 @@ describe('the record carries the order changes, so the debrief can list them and
     expect(() => host.playOwnTurn({ posture: 'charge' } as never)).toThrow(TypeError);
   }, 60_000);
 
-  it('playOwnTurn is refused out of turn and after the end, like endTurn, and an agent that plays itself writes no order changes', () => {
+  it('playOwnTurn is refused out of turn and after the end, like endTurn, and an agent that plays itself with no new orders writes no order change after its first', () => {
     const m = mission('first-light');
     const own = new AgentMatch(m);
     own.endTurn();
-    expect(own.orderChanges()).toStrictEqual([]);
+    expect(own.orderChanges()).toStrictEqual([{ from: 0, cycle: 1, orders: freshOrders() }]);
+    const first = new AgentMatch(m, { continueAfterDefeat: true });
+    first.playOwnTurn(BOLD());
+    expect(first.orderChanges(), 'the first turn\'s orders replace the match\'s own, from action 0').toStrictEqual([{ from: 0, cycle: 1, orders: BOLD() }]);
     const host = new AgentMatch(m, { continueAfterDefeat: true });
     while (!host.result()) expect(host.playOwnTurn().ok).toBe(true);
     expect(host.playOwnTurn()).toMatchObject({ ok: false, reason: 'game-over' });

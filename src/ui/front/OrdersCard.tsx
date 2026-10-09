@@ -159,13 +159,15 @@ export interface OrdersCardProps {
   variant?: 'card' | 'panel';
   /** The orders shown are not in force yet: they start with the player's next turn (the panel says so). */
   pending?: boolean;
+  /** What the panel says while they wait (G19: with a connected agent it is "From your agent's next turn"). */
+  pendingText?: string;
   /** Given by the battle's panel: a Close in its header (on a phone the panel covers the Orders button that opened it). */
   onClose?: () => void;
   /** Groups whose More starts open, and groups whose Unit types start open (tests and screenshots). */
   initialOpen?: { more?: readonly UnitGroup[]; types?: readonly UnitGroup[]; type?: readonly UnitTypeId[] };
 }
 
-export function OrdersCard({ orders, onChange, variant = 'card', pending = false, onClose, initialOpen }: OrdersCardProps): ReactElement {
+export function OrdersCard({ orders, onChange, variant = 'card', pending = false, pendingText = 'From your next turn', onClose, initialOpen }: OrdersCardProps): ReactElement {
   const uid = useId();
   const hintId = `${uid}-hint`;
   const [hint, setHint] = useState<string | null>(null);
@@ -185,7 +187,7 @@ export function OrdersCard({ orders, onChange, variant = 'card', pending = false
       <header className="awf-orders-head">
         <h3 className="awf-orders-title label">Orders</h3>
         {variant === 'card' && <p className="awf-orders-hint caption" id={hintId} aria-live="polite" data-hint={hint ? 'yes' : 'no'}>{hint ?? ''}</p>}
-        {pending && <span className="awf-orders-pending caption" role="status" data-pending="yes">From your next turn</span>}
+        {pending && <span className="awf-orders-pending caption" role="status" data-pending="yes">{pendingText}</span>}
         <button
           type="button" className="awf-quiet label" data-action="reset" disabled={pristine} aria-describedby={hintId}
           onClick={() => onChange(freshOrders())} {...hintOf(HINTS.reset)}

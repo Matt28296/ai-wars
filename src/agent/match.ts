@@ -14,6 +14,12 @@
 // at the start of each of seat 0's turns are kept with the index of the action they start at (`orderChanges()`), so the record says which
 // orders each action was chosen under and a replay stays exact (D-022). `continueAfterDefeat` plays on when only the agent's seat is out,
 // as Deploy always has. None of this is reachable through the MCP tools: they never call playOwnTurn and never set the option.
+//
+// G19 (D-022): the person can change the connected agent's orders at any time (`setOrders`). The change WAITS (`pendingOrders`) and comes into
+// force when the agent's next turn starts, which is the moment `endTurn` hands the turn back (`ordersChanged`). `orders()` is always the set in
+// force for the turn now being played, so a change made during the agent's own turn, or during Doctrine's, is never seen sooner. The match
+// keeps the same `orderChanges()` log the browser's Deploy does, so a record says which orders each of the agent's turns was played under.
+// The typed note (D-025) is not here: a match holds orders and nothing a person wrote.
 import type { Mission } from '../content/types';
 import { IllegalActionError, applyAction, buildOptions, createGame, powerCost, resolvedSetup, unitAt } from '../game/aw';
 import type { Action, Coord, CreateGameOptions, GameEvent, GameState, PlayerIndex, UnitTypeId } from '../game/aw';
@@ -86,7 +92,7 @@ export type RefusalReason = 'game-over' | 'not-your-turn' | 'unknown-action' | '
 export interface Refusal { ok: false; reason: RefusalReason; message: string }
 export type ActOutcome = { ok: true; id: string; events: GameEvent[] } | Refusal;
 /** `played` is how many actions Doctrine took for the other seats. */
-export type EndTurnOutcome = { ok: true; events: GameEvent[]; played: number } | Refusal;
+export type EndTurnOutcome = { ok: true; events: GameEvent[]; played: number; ordersChanged?: boolean } | Refusal;
 
 export interface AgentRecord {
   setup: CreateGameOptions;
@@ -125,7 +131,17 @@ export interface MatchHost {
   act(id: string): ActOutcome;
   endTurn(): EndTurnOutcome;
   result(): MatchResult | null;
+  /** The orders in force for the turn being played now. */
   orders(): StandingOrders;
+  /** G19: the orders waiting for the agent's next turn, or null. */
+  pendingOrders(): StandingOrders | null;
+  /**
+   * G19 (D-022): the person's new orders. They are validated (TypeError otherwise) and wait for the agent's next turn; setting orders equal to the
+   * ones in force takes the waiting set back. Returns whether a set now waits.
+   */
+  setOrders(next: unknown): { pending: boolean };
+  /** G19: the orders each of the agent's turns was played under, each with the action index it applies from (a copy). */
+  orderChanges(): OrderChange[];
   record(): AgentRecord;
   subscribe(listener: (e: MatchEvent) => void): () => void;
 }
@@ -165,7 +181,9 @@ export class AgentMatch implements MatchHost {
   private readonly actions: Action[] = [];
   private finished: MatchResult | null = null;
   private lastStep: LiveStep;
-  private readonly agentOrders: StandingOrders;
+  private inForce: StandingOrders;
+  /** G19: the person's latest orders when they differ from the ones in force; read at the start of the agent's next turn. */
+  private waiting: StandingOrders | null = null;
   private readonly driver: (state: GameState, seat: PlayerIndex) => Action;
   private readonly continueAfterDefeat: boolean;
   private readonly orderLog: OrderChange[] = [];
@@ -180,12 +198,13 @@ export class AgentMatch implements MatchHost {
     this.cap = cap;
     if (opts.seed !== undefined && !Number.isSafeInteger(opts.seed)) throw new RangeError(`seed must be a whole number, got ${String(opts.seed)}`);
     this.setup = resolvedSetup({ ...deploySetup(mission), ...(opts.seed !== undefined ? { seed: opts.seed } : {}) });
-    this.agentOrders = validateOrders(opts.orders ?? DEFAULT_ORDERS);
+    this.inForce = validateOrders(opts.orders ?? DEFAULT_ORDERS);
     this.driver = opts.driver ?? ((state, seat) => decide(state, seat, DEFAULT_ORDERS));
     this.onSubscriberError = opts.onSubscriberError ?? (() => {});
     this.continueAfterDefeat = opts.continueAfterDefeat === true;
     this.state = createGame(this.setup);
     this.lastStep = firstLiveStep(this.state, this.seat);
+    this.logOrders(this.inForce);
     this.settle();
   }
 
@@ -219,7 +238,17 @@ export class AgentMatch implements MatchHost {
   }
 
   orders(): StandingOrders {
-    return structuredClone(this.agentOrders);
+    return structuredClone(this.inForce);
+  }
+
+  pendingOrders(): StandingOrders | null {
+    return this.waiting ? structuredClone(this.waiting) : null;
+  }
+
+  setOrders(next: unknown): { pending: boolean } {
+    const o = validateOrders(next);
+    this.waiting = canonicalJson(o) === canonicalJson(this.inForce) ? null : o;
+    return { pending: this.waiting !== null };
   }
 
   /** The record so far: the setup and every applied action in order (a copy), and the result once there is one. */
@@ -227,7 +256,11 @@ export class AgentMatch implements MatchHost {
     return { setup: this.setup, actions: structuredClone(this.actions), result: this.result() };
   }
 
-  /** The orders seat 0 was played under by `playOwnTurn`, turn by turn (a copy). Empty for a match the agent played itself. */
+  /**
+   * The orders seat 0's turns were played under, turn by turn (a copy): the first entry is the orders the match began with (from 0), and a later
+   * one is written only when the orders of a turn differ from the turn before (the agent's, when it takes the turn that changed them; or
+   * `playOwnTurn`'s).
+   */
   orderChanges(): OrderChange[] {
     return structuredClone(this.orderLog);
   }
@@ -265,7 +298,8 @@ export class AgentMatch implements MatchHost {
     if (this.finished) return refuse('game-over', 'The match is over. Call start_mission to play again.');
     if (this.state.current !== this.seat) return refuse('not-your-turn', 'It is not your seat\'s turn.');
     const events = this.step({ kind: 'endTurn' }, 'agent');
-    return { ok: true, events, played: this.playOthers(events) };
+    const played = this.playOthers(events);
+    return { ok: true, events, played, ordersChanged: this.beginTurn() };
   }
 
   /**
@@ -276,9 +310,8 @@ export class AgentMatch implements MatchHost {
   playOwnTurn(orders?: StandingOrders): EndTurnOutcome {
     if (this.finished) return refuse('game-over', 'The match is over. Call start_mission to play again.');
     if (this.state.current !== this.seat) return refuse('not-your-turn', 'It is not your seat\'s turn.');
-    const o = validateOrders(orders ?? this.agentOrders);
-    const last = this.orderLog[this.orderLog.length - 1];
-    if (!last || canonicalJson(last.orders) !== canonicalJson(o)) this.orderLog.push({ from: this.actions.length, cycle: this.state.cycle, orders: structuredClone(o) });
+    const o = validateOrders(orders ?? this.inForce);
+    this.logOrders(o);
     const events: GameEvent[] = [];
     let own = 0;
     while (!this.finished && this.state.current === this.seat) {
@@ -287,6 +320,33 @@ export class AgentMatch implements MatchHost {
       own++;
     }
     return { ok: true, events, played: own + this.playOthers(events) };
+  }
+
+  /**
+   * The agent's turn has just started (or the match ended): the orders the person left waiting come into force now, and never sooner (D-022).
+   * Returns true when that changed the orders in force.
+   */
+  private beginTurn(): boolean {
+    const next = this.waiting;
+    if (!next || this.finished || this.state.current !== this.seat) return false;
+    this.waiting = null;
+    this.inForce = next;
+    this.logOrders(next);
+    return true;
+  }
+
+  /**
+   * Writes down the orders the turn starting now is played under: nothing when they are the ones the turn before had, a replacement when the log
+   * already holds an entry from this very action (the match's first orders, then `playOwnTurn`'s for the first turn), else a new entry.
+   */
+  private logOrders(o: StandingOrders): void {
+    const last = this.orderLog[this.orderLog.length - 1];
+    const at = this.actions.length;
+    const entry: OrderChange = { from: at, cycle: this.state.cycle, orders: structuredClone(o) };
+    if (!last) this.orderLog.push(entry);
+    else if (canonicalJson(last.orders) === canonicalJson(o)) return;
+    else if (last.from === at) this.orderLog[this.orderLog.length - 1] = entry;
+    else this.orderLog.push(entry);
   }
 
   /** Plays the other seats with Doctrine until it is the agent's turn again or the match is over; returns how many actions it took. */

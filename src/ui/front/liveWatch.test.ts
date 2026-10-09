@@ -89,17 +89,20 @@ describe('the battle screen with a live battle', () => {
     expect(h).toContain('aww-viewer');
   });
 
-  it('a live battle has the Orders button in the toolbar, closed, with its key, and the panel opens on the six rows and Powers', () => {
+  it('a live battle has the command row as the bar\'s second row (G19), closed: Charge, Hold, Fall back, Take bases, the power toggle, then More with its key; More opens the six rows and Powers', () => {
     const h = render(light, { live: live(true) });
-    expect(h).toContain('data-action="orders"');
-    expect(h).toContain('aria-expanded="false"');
-    expect(h).not.toContain('awf-orders-pop');
-    expect(h.indexOf('aww-toolbar-row')).toBeLessThan(h.indexOf('data-action="orders"'));
-    // G18: the Orders button is in the slim bar, before Details and View
     const bar = /<header class="aww-bar"[\s\S]*?<\/header>/.exec(h)![0];
-    expect(bar).toContain('data-action="orders"');
-    expect(bar.indexOf('data-action="orders"')).toBeLessThan(bar.indexOf('data-action="details"'));
-    expect(bar.indexOf('data-action="details"')).toBeLessThan(bar.indexOf('data-action="view"'));
+    expect(bar).toContain('data-commands="yes"');
+    expect([...bar.matchAll(/data-command="(\w+)"/g)].map((m) => m[1])).toStrictEqual(['charge', 'hold', 'fallBack', 'takeBases', 'power']);
+    expect(bar.indexOf('data-command="power"')).toBeLessThan(bar.indexOf('data-action="orders"'));
+    // G19: the row is the bar's second row, after the toolbar (Details and View), and More is the old Orders button under its new word
+    expect(bar.indexOf('data-action="view"')).toBeLessThan(bar.indexOf('class="awf-cmd"'));
+    expect(bar).toMatch(/data-action="orders"[^>]*>\s*<span class="aw-btn-label">More<\/span>/);
+    expect(bar).toContain('aria-expanded="false"');
+    expect(h).not.toContain('awf-orders-pop');
+    // Deploy\'s built-in commander reads no text: there is no note box on this screen
+    expect(h).not.toContain('awf-cmd-note');
+    expect(h).not.toContain('Tell your agent');
     const open = render(light, { live: live(true, { pending: true }), ordersOpen: true });
     expect(open).toContain('awf-orders-pop');
     expect(open).toContain('From your next turn');

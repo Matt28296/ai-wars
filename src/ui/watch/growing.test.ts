@@ -180,20 +180,24 @@ describe('the new props change nothing they were not asked to', () => {
     expect(render({ live: { open: false } })).toBe(base);
   });
 
-  it('the orders slot sits in the slim bar\'s right group (G18), before Details and the View menu that now holds the toggles, and nowhere else', () => {
+  it('the orders slot is the slim bar\'s second row (G19): after the toolbar that holds Details and the View menu, once, and nowhere else', () => {
     const probe = createElement('button', { id: 'orders-probe' }, 'Orders probe');
     const h = render({ ordersSlot: probe, onViewerChange: () => {} });
     expect(h).toContain('<button id="orders-probe">Orders probe</button>');
     const bar = h.slice(h.indexOf('<header class="aww-bar"'), h.indexOf('</header>'));
+    expect(bar).toContain('data-commands="yes"');
     const row = bar.slice(bar.indexOf('class="aww-toolbar-row"'));
-    expect(row.indexOf('orders-probe')).toBeGreaterThan(-1);
-    expect(row.indexOf('orders-probe')).toBeLessThan(row.indexOf('data-action="details"'));
     expect(row.indexOf('data-action="details"')).toBeLessThan(row.indexOf('data-action="view"'));
-    expect(row.indexOf('orders-probe')).toBeLessThan(row.indexOf('aww-viewer'));
+    // the probe is not in the toolbar row with Details and View: it follows them, in the bar's own second row
+    expect(bar.indexOf('data-action="view"')).toBeLessThan(bar.indexOf('class="aww-bar-cmd"'));
+    expect(bar.indexOf('class="aww-bar-cmd"')).toBeLessThan(bar.indexOf('orders-probe'));
     expect(h.split('orders-probe').length - 1).toBe(1);
-    // the slot is simply added to the bar: the page with it is the page without it, plus the probe
+    // the slot adds the second row and its marker: the page with it is the page without it, plus those
     expect(render({ ordersSlot: probe })).not.toBe(base);
-    expect(render({ ordersSlot: probe }).replace('<button id="orders-probe">Orders probe</button>', '')).toBe(base);
+    expect(render({ ordersSlot: probe }).replace('<div class="aww-bar-cmd"><button id="orders-probe">Orders probe</button></div>', '').replace(' data-commands="yes"', '')).toBe(base);
+    // and a bar without it is the one row it was
+    expect(base).not.toContain('aww-bar-cmd');
+    expect(base).not.toContain('data-commands');
   });
 
   it('the controls say Thinking only when asked to, in one quiet word', () => {

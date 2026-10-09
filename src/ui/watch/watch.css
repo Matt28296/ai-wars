@@ -40,6 +40,9 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aww-toolbar-row { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
 .aww-toolbar-row > * { flex: none; }
 .aww-details { gap: var(--space-2); }
+/* G19: the battle's command row is the bar's second row, across all of it; a bar without one is the one 48px row it was */
+.aww-bar[data-commands='yes'] { height: auto; padding-top: var(--space-2); padding-bottom: var(--space-2); row-gap: var(--space-2); }
+.aww-bar-cmd { grid-column: 1 / -1; min-width: 0; }
 .aww-count {
   display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: var(--signal); color: var(--on-signal); font-weight: 700; line-height: 1; text-transform: none;
@@ -77,6 +80,8 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
   .aww-bar-lead { grid-area: lead; }
   .aww-toolbar-row { grid-area: tools; }
   .aww-bar-mid { grid-area: mid; justify-content: flex-start; }
+  .aww-bar[data-commands='yes'] { grid-template-areas: "lead tools" "mid mid" "cmd cmd"; }
+  .aww-bar-cmd { grid-area: cmd; }
 }
 @media (max-width: 520px) {
   .aw-key { display: none; }

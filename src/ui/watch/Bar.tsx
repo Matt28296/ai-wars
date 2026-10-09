@@ -3,6 +3,9 @@
 // intel and the log are in the drawer, the board's switches are in the View menu, and playback is the bar below the board.
 //
 // The turn chip is what the old full-width banner said, said small. Its numbers come from ONE frame (bar.ts), the viewer's.
+//
+// G19: when the screen gives commands (the orders slot: the battle's command buttons), they are the bar's second row, under the three groups above and
+// across their whole width. Without them the bar is the one 48px row it was.
 import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
 import { Sigil, fillOf, onOf, pad2 } from './kit';
 import { credits } from './format';
@@ -15,8 +18,10 @@ export interface BarProps {
   model: BarModel;
   /** The screen's own back link, title and status pill (the front door gives them). Absent, nothing is drawn there. */
   lead?: ReactNode;
-  /** The right of the bar: the Orders slot, the Details button and the View menu, in that order. */
+  /** The right of the bar: the Details button and the View menu, in that order. */
   children?: ReactNode;
+  /** G19: the battle's command row (the orders slot). It is the bar's second row. Absent, the bar has no second row and nothing else changes. */
+  commands?: ReactNode;
 }
 
 function Turn({ model }: { model: BarModel }): ReactElement {
@@ -51,15 +56,16 @@ function Funds({ model }: { model: BarModel }): ReactElement | null {
   );
 }
 
-export function Bar({ model, lead, children }: BarProps): ReactElement {
+export function Bar({ model, lead, children, commands }: BarProps): ReactElement {
   return (
-    <header className="aww-bar" aria-label="Battle">
+    <header className="aww-bar" aria-label="Battle" data-commands={commands ? 'yes' : undefined}>
       <div className="aww-bar-lead">{lead}</div>
       <div className="aww-bar-mid">
         <Turn model={model} />
         <Funds model={model} />
       </div>
       <div className="aww-toolbar-row">{children}</div>
+      {commands && <div className="aww-bar-cmd">{commands}</div>}
     </header>
   );
 }

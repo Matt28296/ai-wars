@@ -1,5 +1,5 @@
-// The shapes the live feed sends (A1b), for the browser's battle screen (G17) to read. Types and two pure builders; nothing here touches
-// node, the network or a clock, so the browser can import it.
+// The shapes the live feed sends (A1b), for the browser's battle screen (G17) to read. Types, two pure builders and the note's one cleaner
+// (G19); nothing here touches node, the network or a clock, so the browser can import it.
 //
 // D-016: WHILE A MATCH RUNS the feed is the player's own view and nothing else. Claude Code agents have a shell, so anything a local port serves
 // is something the agent can read; the feed therefore sends, for each step, exactly what `viewTimeline(recordMatch(...), seat)` would give for
@@ -8,8 +8,9 @@
 // the match is over.
 import type { Action, CreateGameOptions, GameEvent, GameState, PlayerIndex } from '../game/aw';
 import { observe } from '../game/aw/observe';
+import type { StandingOrders } from '../game/doctrine';
 import type { TimelineStep } from '../ui/watch/timeline';
-import type { MatchResult } from './match';
+import type { MatchResult, OrderChange } from './match';
 
 /**
  * One step of a running match, as the agent's side sees it: the same shape as a `TimelineStep` of `viewTimeline(record, seat)`.
@@ -82,7 +83,21 @@ export interface LiveRecordMessage {
   match: number;
   record: LiveRecord;
 }
-export type LiveMessage = LiveSetupMessage | LiveStepMessage | LiveResultMessage | LiveRecordMessage;
+/**
+ * G19 (D-022): the orders of the agent's own seat, which the person sets on the page. Sent after `setup` and again after each change: when a
+ * change is made (`pending` is then the set that waits) and when it comes into force at the start of the agent's next turn (`pending` is then
+ * null). Only the agent's seat's orders are here, as D-005 fixed options and whole numbers. NEVER the typed note (D-025): that goes to the
+ * agent's `get_orders` and nowhere else.
+ */
+export interface LiveOrdersMessage {
+  type: 'orders';
+  match: number;
+  /** The orders in force for the agent's current turn. */
+  orders: StandingOrders;
+  /** The orders waiting for the agent's next turn, or null. */
+  pending: StandingOrders | null;
+}
+export type LiveMessage = LiveSetupMessage | LiveOrdersMessage | LiveStepMessage | LiveResultMessage | LiveRecordMessage;
 
 /** The whole match: exactly what `recordMatch` takes, plus the result. Served by GET /record and by the `record` message only once the match is over. */
 export interface LiveRecord {
@@ -92,5 +107,27 @@ export interface LiveRecord {
   cycleCap: number;
   setup: CreateGameOptions;
   actions: Action[];
+  /** G19: the orders each of the agent's turns was played under, each with the action index it applies from (G14's shape). The first is from 0. */
+  orderChanges: OrderChange[];
   result: MatchResult;
 }
+
+// ---------------------------------------------------------------- the typed note (D-025)
+
+/** The most characters a note to the player's own agent may hold. */
+export const NOTE_MAX = 280;
+
+/**
+ * A note as plain text: line breaks and tabs become one space, every other control character (and the marks that reorder text on screen) is
+ * removed, and the ends are trimmed. The page and the server both use it, so the box and the route agree. It does not cut to NOTE_MAX: a
+ * note that is too long is refused by the route, never silently shortened.
+ */
+export function cleanNote(text: string): string {
+  return text
+    .replace(/[\t\n\r\u2028\u2029]+/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+    .trim();
+}
+
+/** How many characters a note has, as a person counts them (a code point is one). */
+export const noteLength = (text: string): number => Array.from(text).length;

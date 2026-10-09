@@ -26,6 +26,8 @@ const bare = (html: string): string => html.replace(/<!--[\s\S]*?-->/g, '');
 const json = <T,>(v: unknown): T => JSON.parse(JSON.stringify(v)) as T;
 const fold = (messages: readonly LiveMessage[], reduce = reduceLive, from: LiveViewState = WAITING): LiveViewState => messages.reduce(reduce, from);
 const mission = (id: string) => MISSIONS.find((m) => m.id === id)!;
+/** The same run as an agent from before G19 would have sent it, with no `orders` message: the page must still play it, and these tests index into it. */
+const legacy = (run: Scripted): Scripted => ({ ...run, messages: run.messages.filter((m) => m.type !== 'orders') });
 
 /**
  * Does this page offer a way to look through any eyes but the agent's own: the "Watching as" switch, and its "All"?
@@ -51,13 +53,14 @@ beforeAll(async () => {
 afterAll(() => vi.restoreAllMocks());
 
 describe('the setup of these tests', () => {
-  it('a scripted match is setup, steps 0..n, result, record, in order', () => {
+  it('a scripted match is setup, orders, steps 0..n, result, record, in order (G19: the agent plays it, so the orders never change)', () => {
     for (const run of [lightRun, canopyRun, lightFull, canopyFull]) {
       const kinds = run.messages.map((m) => m.type);
-      expect(kinds[0]).toBe('setup');
+      expect(kinds.slice(0, 2)).toStrictEqual(['setup', 'orders']);
       expect(kinds.slice(-2)).toStrictEqual(['result', 'record']);
-      expect(kinds.slice(1, -2).every((k) => k === 'step')).toBe(true);
-      expect(kinds.length).toBe(run.record.actions.length + 1 + 3);
+      expect(kinds.slice(2, -2).every((k) => k === 'step')).toBe(true);
+      expect(kinds.length).toBe(run.record.actions.length + 1 + 4);
+      expect(legacy(run).messages.length).toBe(run.record.actions.length + 1 + 3);
     }
   });
 });
@@ -75,7 +78,7 @@ describe('the feed\'s messages, as the page reads them', () => {
   });
 
   it('ignores what is not a message (known-bad input)', () => {
-    const step = lightRun.messages[1] as Extract<LiveMessage, { type: 'step' }>;
+    const step = lightRun.messages[2] as Extract<LiveMessage, { type: 'step' }>;
     const bad = [
       '', 'not json', 'null', '42', '[]', '"setup"', '{}', '{"type":"nope","match":1}', '{"type":"setup"}', '{"type":"setup","match":"1","mission":"x","seat":0,"cycleCap":30}',
       '{"type":"setup","match":1,"mission":7,"seat":0,"cycleCap":30}', '{"type":"step","match":1}', '{"type":"step","match":1,"step":{"index":0}}',
@@ -130,8 +133,8 @@ describe('the state of the page as the stream arrives', () => {
   });
 
   it('a second setup starts the view over: new match, new steps, a new epoch', () => {
-    const second = canopyRun.messages.slice(0, 3).map((m) => (m.type === 'setup' || m.type === 'step' || m.type === 'result' || m.type === 'record' ? { ...m, match: 2 } : m)) as LiveMessage[];
-    const mid = fold(lightRun.messages.slice(0, 6));
+    const second = legacy(canopyRun).messages.slice(0, 3).map((m) => ({ ...m, match: 2 })) as LiveMessage[];
+    const mid = fold(legacy(lightRun).messages.slice(0, 6));
     expect(mid.steps.length).toBe(5);
     expect(mid.epoch).toBe(1);
     const state = fold(second, reduceLive, mid);
@@ -140,7 +143,7 @@ describe('the state of the page as the stream arrives', () => {
     expect(state.mission).toBe('under-canopy');
     expect(state.steps).toHaveLength(2);
     expect(state.steps[0].index).toBe(0);
-    expect(state.steps[0].frame).toStrictEqual(json((canopyRun.messages[1] as Extract<LiveMessage, { type: 'step' }>).step.frame));
+    expect(state.steps[0].frame).toStrictEqual(json((legacy(canopyRun).messages[1] as Extract<LiveMessage, { type: 'step' }>).step.frame));
     // a replay of the same match (the browser reconnected) also starts over, as the feed sends everything again from its setup
     const replay = fold(lightRun.messages, reduceLive, mid);
     expect(replay.epoch).toBe(2);
@@ -148,20 +151,22 @@ describe('the state of the page as the stream arrives', () => {
   });
 
   it('a step of the match before is stale and changes nothing; a repeat, a gap and anything after the record are ignored too', () => {
-    const [setup, s0, s1, s2] = lightRun.messages;
+    const [setup, s0, s1, s2] = legacy(lightRun).messages;
     const start = fold([setup, s0, s1]);
     expect(reduceLive(start, s1), 'repeat').toBe(start);
-    expect(reduceLive(start, lightRun.messages[5]), 'gap').toBe(start);
+    expect(reduceLive(start, legacy(lightRun).messages[5]), 'gap').toBe(start);
     expect(reduceLive(start, { ...(s2 as Extract<LiveMessage, { type: 'step' }>), match: 9 }), 'another match').toBe(start);
     expect(reduceLive(WAITING, s0), 'before any setup').toBe(WAITING);
     expect(reduceLive(start, s2).steps).toHaveLength(3);
     const over = fold(lightRun.messages);
-    expect(reduceLive(over, lightRun.messages[1]), 'after the record').toBe(over);
+    expect(reduceLive(over, legacy(lightRun).messages[1]), 'after the record').toBe(over);
+    // and orders after the record change nothing either
+    expect(reduceLive(over, lightRun.messages[1]), 'orders after the record').toBe(over);
   });
 
   it('the planted reducer that keeps the old steps across a setup is caught by the same expectation', () => {
     const appends: typeof reduceLive = (s, m) => (m.type === 'setup' ? { ...reduceLive(s, m), steps: s.steps } : reduceLive(s, m));
-    const both = [...lightRun.messages.slice(0, 5), ...canopyRun.messages.slice(0, 3)];
+    const both = [...legacy(lightRun).messages.slice(0, 5), ...legacy(canopyRun).messages.slice(0, 3)];
     expect(fold(both, reduceLive).steps).toHaveLength(2);
     expect(fold(both, appends).steps.length).not.toBe(2);
   });
@@ -204,7 +209,7 @@ describe('the script the seat can see', () => {
 });
 
 describe('the screen at each moment (D-016: only the agent\'s own view until the record is here)', () => {
-  const at = (run: Scripted, n: number): LiveViewState => fold(run.messages.slice(0, n));
+  const at = (run: Scripted, n: number): LiveViewState => fold(legacy(run).messages.slice(0, n));
   const screen = (state: LiveViewState, link: LinkStatus = 'open', shown?: Shown): string => bare(renderToString(createElement(LiveScreen, { state, link, shown })));
 
   it('before any mission: one quiet line, and nothing else of a battle', () => {
@@ -323,7 +328,7 @@ describe('the screen at each moment (D-016: only the agent\'s own view until the
   });
 
   it('an unknown mission id still plays (no story, no names), rather than failing', () => {
-    const state = fold(lightRun.messages.slice(0, 4).map((m) => (m.type === 'setup' ? { ...m, mission: 'no-such-mission' } : m)));
+    const state = fold(legacy(lightRun).messages.slice(0, 4).map((m) => (m.type === 'setup' ? { ...m, mission: 'no-such-mission' } : m)));
     const h = screen(state);
     expect(h).toContain('aww-root');
     expect(h).toContain('Your agent');
@@ -332,7 +337,7 @@ describe('the screen at each moment (D-016: only the agent\'s own view until the
 
   it('a new setup is a new page: the key changes, so the playback, story and viewer start over', () => {
     const one = at(lightRun, 4);
-    const two = fold(canopyRun.messages.slice(0, 3).map((m) => ({ ...m, match: 2 }) as LiveMessage), reduceLive, one);
+    const two = fold(legacy(canopyRun).messages.slice(0, 3).map((m) => ({ ...m, match: 2 }) as LiveMessage), reduceLive, one);
     expect(two.epoch).toBe(one.epoch + 1);
     expect(screen(two)).toContain(`Mission ${String(mission('under-canopy').order).padStart(2, '0')} · ${mission('under-canopy').title}`);
   });

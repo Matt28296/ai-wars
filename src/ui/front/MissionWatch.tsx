@@ -4,7 +4,8 @@
 // and `overlay` draws the beat or the debrief. The viewer's own controls, log and board are the watch view's, untouched.
 //
 // G14: the battle can be LIVE. Then `result.actions` grows while it plays and `live` says whether more may still come: the watch view waits
-// at the edge of what is computed, the Orders button sits in its toolbar, the log gets a line where the player's orders changed, and the
+// at the edge of what is computed, the command row (G19: Charge, Hold, Fall back, Take bases, power and More, which opens the Orders panel) is the
+// bar's second row, the log gets a line where the player's orders changed, and the
 // debrief says which orders were used. Nothing of that is there without `live`, and a battle without it is drawn as it always was.
 //
 // G18 (D-023): the battle screen's one slim bar is the watch view's own, and this is where its left end comes from: the way back to the briefing and
@@ -19,11 +20,11 @@ import type { DrawerTab } from '../watch/drawer';
 import { extendRecord } from '../watch/timeline';
 import type { MatchRecord, Viewer } from '../watch/timeline';
 import { pad2 } from './campaign';
+import { CommandBar } from './CommandBar';
 import { nextMissionOf, resultCardOf } from './debrief';
 import type { DeployResult } from './deploy';
 import { scriptFor } from './missionScript';
 import { notesOf, summariseOrders } from './ordersModel';
-import { OrdersControl } from './OrdersControl';
 import { hrefs } from './router';
 import { seatsOfMission } from './seats';
 import { StoryOverlay } from './StoryOverlay';
@@ -110,7 +111,7 @@ function Viewing({ mission, result, initialStep, initialViewer, live, ordersOpen
       hold={holdsPlayback(state)}
       live={live ? { open } : undefined}
       logNotes={notes}
-      ordersSlot={open && live ? <OrdersControl orders={live.orders} pending={live.pending} onChange={live.onOrders} initialOpen={ordersOpen} /> : undefined}
+      ordersSlot={open && live ? <CommandBar orders={live.orders} pending={live.pending} onChange={live.onOrders} initialOpen={ordersOpen} /> : undefined}
       lead={
         <>
           <a className="awf-back label" href={hrefs.briefing(mission.id)}>Back<span className="awf-back-more"> to briefing</span></a>

@@ -78,8 +78,8 @@ export interface WatchViewBaseProps {
   /** G14: extra lines for the event log, each shown from its step on (the order changes of the player's agent). Absent: the log is the events'. */
   logNotes?: readonly LogNote[];
   /**
-   * G14: drawn in the slim bar's right group, before Details and View (the Orders button and its panel). Absent, nothing at all is added.
-   * Decided when the view mounts: give it from the first render or never.
+   * G14, G19: the battle's command row (the command buttons and the Orders panel behind "More"). It is drawn as the slim bar's second row, under
+   * the lead, the turn and the toolbar. Absent, nothing at all is added: the bar is the one row it was.
    */
   ordersSlot?: ReactNode;
   /**
@@ -320,8 +320,7 @@ export function WatchView({ setup, actions, viewed, viewer, onViewerChange, init
   return (
     <SeatsContext.Provider value={seatBook}>
       <div className="aww-root" data-viewer={String(viewer)} data-step={step.index} data-drawer={drawer.open ? drawer.tab : 'closed'}>
-        <Bar model={barModel(step.frame, people)} lead={lead}>
-          {ordersSlot}
+        <Bar model={barModel(step.frame, people)} lead={lead} commands={ordersSlot}>
           <DetailsButton open={drawer.open} unread={unreadLines(drawer, lines)} controls={drawerId} onClick={toggleDrawer} buttonRef={detailsButton} />
           <ViewMenu
             timeline={timeline}

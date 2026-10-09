@@ -15,7 +15,15 @@
 // traversal, no symlink escape), nosniff and the right content type. Vite's dev middleware is NOT mounted (vite 5.4.11's dev server has a
 // permissive CORS default, CVE-2025-24010). Until dist/ is built, the page answers a tiny "Getting the battle ready" page that refreshes itself.
 //
-// Nothing else is served and nothing can be written: other methods are refused, other paths are 404.
+// G19 (D-022, D-025): the ONE write is `PUT /orders`, which the person's page uses to change the connected agent's standing orders and to leave it
+// a typed note. It has more checks than the reads, because it changes something:
+//   - Host, as every route; AND the Origin header must be this socket's own origin (http://127.0.0.1:<port> or http://localhost:<port>). A page on
+//     another site can send a request that carries the right Host (DNS rebinding) and cannot forge its Origin; a request with no Origin is refused.
+//   - no CORS headers on it, and OPTIONS is refused, so a browser's preflight for a cross-origin page fails before the request is sent.
+//   - Content-Type application/json only, at most 8 KB. The body is exactly { orders, note? }: `orders` goes through validateOrders (D-005: enums
+//     and whole numbers, never text) and `note` (D-025) is the one text, at most 280 characters, cleaned by cleanNote. Any other key is refused.
+//   - every refusal is a 4xx with a fixed reason, and a reply never echoes the body. A 200 is { pending }. With no match running it is 409.
+// Nothing else can be written: other methods are refused, other paths are 404.
 // Bound to 127.0.0.1 only, on a free port the OS picks. Two checks against a web page that is not ours:
 //   - CORS: Access-Control-Allow-Origin is sent only to http://127.0.0.1:* and http://localhost:* origins (echoed, with Vary: Origin). Any other
 //     Origin gets the response with no CORS header, so a browser will not let that page read it.
@@ -30,13 +38,51 @@ import type { AddressInfo } from 'node:net';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Action, CreateGameOptions, PlayerIndex } from '../game/aw';
+import { validateOrders } from '../game/doctrine';
+import type { StandingOrders } from '../game/doctrine';
+import { NOTE_MAX, cleanNote, noteLength } from './live';
 import type { LiveMessage, LiveRecord, LiveStep } from './live';
-import type { MatchResult } from './match';
+import type { MatchResult, OrderChange } from './match';
 
 export const FEED_HOST = '127.0.0.1';
 /** The origins a browser page may read the feed from: the local game (vite dev or preview, or the built game served locally). */
 export const ALLOWED_ORIGIN = /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d{1,5})?$/;
 const PING_MS = 15_000;
+/** The most bytes `PUT /orders` reads. */
+export const ORDERS_BODY_MAX = 8 * 1024;
+
+/** What `PUT /orders` hands the session once the body has passed every check. */
+export interface OrdersPut {
+  /** Validated by validateOrders. */
+  orders: StandingOrders;
+  /** Absent: leave the note as it is. An empty string: clear it. Otherwise the cleaned text, at most NOTE_MAX characters. */
+  note?: string;
+}
+/** The session's answer: whether a set of orders now waits for the agent's next turn, or null when no match is running (the route answers 409). */
+export type OrdersHandler = (put: OrdersPut) => { pending: boolean } | null;
+
+/** Why a body was refused. Each is a fixed word, sent as `{ "error": <reason> }`; the body is never echoed. */
+export type OrdersRefusal = 'bad-json' | 'bad-body' | 'unknown-field' | 'bad-orders' | 'bad-note' | 'note-too-long';
+export type OrdersBody = { ok: true; put: OrdersPut } | { ok: false; reason: OrdersRefusal };
+
+/** Checks a parsed body of `PUT /orders`: exactly { orders, note? }, orders through validateOrders, the note on its own terms. Pure. */
+export function checkOrdersBody(body: unknown): OrdersBody {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return { ok: false, reason: 'bad-body' };
+  const o = body as Record<string, unknown>;
+  for (const k of Object.keys(o)) if (k !== 'orders' && k !== 'note') return { ok: false, reason: 'unknown-field' };
+  if (!Object.prototype.hasOwnProperty.call(o, 'orders')) return { ok: false, reason: 'bad-body' };
+  let orders: StandingOrders;
+  try {
+    orders = validateOrders(o.orders);
+  } catch {
+    return { ok: false, reason: 'bad-orders' };
+  }
+  if (!Object.prototype.hasOwnProperty.call(o, 'note')) return { ok: true, put: { orders } };
+  if (typeof o.note !== 'string') return { ok: false, reason: 'bad-note' };
+  const note = cleanNote(o.note);
+  if (noteLength(note) > NOTE_MAX) return { ok: false, reason: 'note-too-long' };
+  return { ok: true, put: { orders, note } };
+}
 
 export interface Feed {
   /** 'http://127.0.0.1:<port>/live' */
@@ -48,12 +94,19 @@ export interface Feed {
   readonly port: number;
   /** The socket's own address as the OS reports it: always 127.0.0.1, IPv4. */
   readonly bound: { address: string; family: string; port: number };
-  /** A new match: clears the stream and tells every viewer (they get a fresh `setup`, then `first`). Only what the agent's side sees. */
-  begin(info: { mission: string; seat: PlayerIndex; cycleCap: number }, first: LiveStep): void;
+  /**
+   * A new match: clears the stream and tells every viewer (they get a fresh `setup`, then `orders` when given, then `first`). Only what the agent's
+   * side sees.
+   */
+  begin(info: { mission: string; seat: PlayerIndex; cycleCap: number }, first: LiveStep, orders?: { orders: StandingOrders; pending: StandingOrders | null }): void;
   /** The next step, as the agent's side sees it. */
   step(step: LiveStep): void;
+  /** G19: the agent's orders changed (a new set waits, or the waiting set came into force). Only the agent's seat's orders; never a note. */
+  orders(o: { orders: StandingOrders; pending: StandingOrders | null }): void;
+  /** G19: who answers `PUT /orders` (the session). With none, or when it answers null, the route says 409: no match is running. */
+  onOrders(handler: OrdersHandler | null): void;
   /** The match is over: sends `result`, then the whole record, and from now on /record answers it. The first call that carries the truth. */
-  finish(result: MatchResult, record: { setup: CreateGameOptions; actions: Action[] }): void;
+  finish(result: MatchResult, record: { setup: CreateGameOptions; actions: Action[]; orderChanges?: OrderChange[] }): void;
   /** The whole record once the match is over; null while it runs or before any match. */
   record(): LiveRecord | null;
   close(): Promise<void>;
@@ -245,6 +298,7 @@ export async function startFeed(opts: FeedOptions = {}): Promise<Feed> {
   let steps = 0;
   let frames: string[] = [];
   const clients = new Set<ServerResponse>();
+  let ordersHandler: OrdersHandler | null = null;
   let port = 0;
 
   const hostOk = (req: IncomingMessage): boolean => {
@@ -261,6 +315,63 @@ export async function startFeed(opts: FeedOptions = {}): Promise<Feed> {
     res.end(`${text}\n`);
   };
 
+  /** The page's own origin: this socket, by either of its two names. */
+  const originOk = (req: IncomingMessage): boolean => {
+    const o = req.headers.origin;
+    return o === `http://${FEED_HOST}:${port}` || o === `http://localhost:${port}`;
+  };
+  /** A fixed-reason refusal of `PUT /orders`: JSON, no CORS header, nothing of the request in it. */
+  const refuse = (res: ServerResponse, status: number, reason: string, extra: Record<string, string> = {}): void => {
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra });
+    res.end(JSON.stringify({ error: reason }));
+  };
+
+  /** `PUT /orders` (G19). The Host check has been done; everything else about the request is checked here, cheapest first. */
+  const putOrders = (req: IncomingMessage, res: ServerResponse): void => {
+    if (req.method !== 'PUT') return refuse(res, 405, 'method-not-allowed', { Allow: 'PUT' });
+    if (!originOk(req)) return refuse(res, 403, 'forbidden-origin');
+    const type = req.headers['content-type'];
+    if (typeof type !== 'string' || !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(type.trim())) return refuse(res, 415, 'content-type-not-json');
+    const declared = req.headers['content-length'];
+    if (declared !== undefined && !(/^\d+$/.test(declared) && Number(declared) <= ORDERS_BODY_MAX)) return refuse(res, 413, 'body-too-large', { Connection: 'close' });
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let tooBig = false;
+    req.on('data', (c: Buffer) => {
+      if (tooBig) return;
+      size += c.length;
+      if (size > ORDERS_BODY_MAX) {
+        tooBig = true;
+        chunks.length = 0;
+        refuse(res, 413, 'body-too-large', { Connection: 'close' });
+        res.once('finish', () => req.destroy());
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('error', () => { /* the client went away */ });
+    req.on('end', () => {
+      if (tooBig || res.headersSent) return;
+      let json: unknown;
+      try {
+        json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch {
+        return refuse(res, 400, 'bad-json');
+      }
+      const checked = checkOrdersBody(json);
+      if (!checked.ok) return refuse(res, 400, checked.reason);
+      let answer: { pending: boolean } | null;
+      try {
+        answer = ordersHandler ? ordersHandler(checked.put) : null;
+      } catch {
+        return refuse(res, 500, 'server-error');
+      }
+      if (!answer) return refuse(res, 409, 'no-match');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      res.end(JSON.stringify({ pending: answer.pending }));
+    });
+  };
+
   const server: Server = createServer((req, res) => {
     if (!hostOk(req)) return plain(res, 403, 'forbidden');
     let path: string;
@@ -269,6 +380,7 @@ export async function startFeed(opts: FeedOptions = {}): Promise<Feed> {
     } catch {
       return plain(res, 400, 'bad request');
     }
+    if (path === '/orders') return putOrders(req, res);
     if (path !== '/live' && path !== '/record') {
       if (!site) return plain(res, 404, 'not found');
       void site.serve(req, res);
@@ -324,15 +436,23 @@ export async function startFeed(opts: FeedOptions = {}): Promise<Feed> {
     watchUrl: `http://${FEED_HOST}:${port}/#/live`,
     port,
     bound: { address: bound.address, family: String(bound.family), port: bound.port },
-    begin(info, first) {
+    begin(info, first, orders) {
       frames = [];
       over = null;
       steps = 0;
       match += 1;
       current = { mission: info.mission, seat: info.seat, cycleCap: info.cycleCap };
       publish({ type: 'setup', match, mission: info.mission, seat: info.seat, cycleCap: info.cycleCap });
+      if (orders) publish({ type: 'orders', match, orders: structuredClone(orders.orders), pending: orders.pending ? structuredClone(orders.pending) : null });
       publish({ type: 'step', match, step: first });
       steps = 1;
+    },
+    orders(o) {
+      if (!current || over) return;
+      publish({ type: 'orders', match, orders: structuredClone(o.orders), pending: o.pending ? structuredClone(o.pending) : null });
+    },
+    onOrders(handler) {
+      ordersHandler = handler;
     },
     step(step) {
       if (!current || over) return;
@@ -341,7 +461,10 @@ export async function startFeed(opts: FeedOptions = {}): Promise<Feed> {
     },
     finish(result, record) {
       if (!current || over) return;
-      over = { match, mission: current.mission, seat: current.seat, cycleCap: current.cycleCap, setup: record.setup, actions: structuredClone(record.actions), result: { ...result } };
+      over = {
+        match, mission: current.mission, seat: current.seat, cycleCap: current.cycleCap, setup: record.setup, actions: structuredClone(record.actions),
+        orderChanges: structuredClone(record.orderChanges ?? []), result: { ...result },
+      };
       publish({ type: 'result', match, steps, result: over.result });
       publish({ type: 'record', match, record: over });
     },

@@ -9,6 +9,10 @@ import { OrdersCard } from './OrdersCard';
 export interface OrdersControlProps {
   orders: StandingOrders;
   pending: boolean;
+  /** G19: what the panel says while the change waits (with a connected agent: "From your agent's next turn"). */
+  pendingText?: string;
+  /** G19: the button's word. The command row calls it "More"; on its own it is "Orders". */
+  label?: string;
   onChange: (next: StandingOrders) => void;
   /** Opens the panel when the view mounts (tests and screenshots). */
   initialOpen?: boolean;
@@ -17,7 +21,7 @@ export interface OrdersControlProps {
 /** True when a key press belongs to a text field or menu, which keep their own keys. */
 const typing = (t: EventTarget | null): boolean => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable="true"]');
 
-export function OrdersControl({ orders, pending, onChange, initialOpen = false }: OrdersControlProps): ReactElement {
+export function OrdersControl({ orders, pending, pendingText, label = 'Orders', onChange, initialOpen = false }: OrdersControlProps): ReactElement {
   const [open, setOpen] = useState(initialOpen);
   const panelId = useId();
   const button = useRef<HTMLButtonElement>(null);
@@ -59,13 +63,13 @@ export function OrdersControl({ orders, pending, onChange, initialOpen = false }
         data-pending={pending ? 'yes' : 'no'}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="aw-btn-label">Orders</span>
+        <span className="aw-btn-label">{label}</span>
         {pending && <span className="awf-dot" role="img" aria-label="changes wait for your next turn" />}
         <kbd className="aw-key">O</kbd>
       </button>
       {open && (
         <div className="awf-orders-pop" id={panelId} role="dialog" aria-label="Orders" onKeyDown={keepKeys} onKeyUp={keepKeys}>
-          <OrdersCard orders={orders} onChange={onChange} variant="panel" pending={pending} onClose={close} />
+          <OrdersCard orders={orders} onChange={onChange} variant="panel" pending={pending} pendingText={pendingText} onClose={close} />
         </div>
       )}
     </div>

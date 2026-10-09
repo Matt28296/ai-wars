@@ -1,9 +1,15 @@
 // The tools (A1): what a connected agent can ask of its match, as plain functions from a session to structured data.
 //
 // D-005: every input is an enum, an integer or an id pattern; there is no free-text input. Every output is game data in a fixed shape.
-// Nothing a person typed is in any output, and the mission's story lines (briefing, events, debrief, summary, objective text) are left
-// out: a later act's summary names reveals. D-016: the only sources of game data here are the host's observation(), legal(), act() and
-// endTurn(), which are the engine's fog-honest doors (observe, agentActions, viewEvents). This file never sees the true state.
+// The one text a person typed that any output carries is the note on get_orders (D-025, G19): a line from the player to THEIR OWN agent, at most
+// 280 characters, held here in the session and nowhere else (not in the match, the record, the live feed or Doctrine). The mission's story lines
+// (briefing, events, debrief, summary, objective text) are left out: a later act's summary names reveals. D-016: the only sources of game data
+// here are the host's observation(), legal(), act() and endTurn(), which are the engine's fog-honest doors (observe, agentActions, viewEvents).
+// This file never sees the true state.
+//
+// G19 (D-022): the person changes the agent's orders on the page (`PUT /orders`, which the feed hands to `putOrders`). A change waits for the
+// agent's next turn: get_orders says what is in force (`orders`) and what waits (`pending`), and end_turn says `ordersChanged: true` once, on the
+// turn the waiting set came into force. A new start_mission begins from the last orders the person set for that mission.
 import { z } from 'zod';
 import { MISSIONS } from '../content/missions';
 import type { Mission } from '../content/types';
@@ -12,7 +18,8 @@ import { DAMAGE } from '../data/damage';
 import { CAPTURE_POINTS, displayHp } from '../game/aw';
 import type { UnitTypeId } from '../game/aw';
 import type { Observation, ObservedUnit } from '../game/aw/observe';
-import type { Feed } from './feed';
+import type { StandingOrders } from '../game/doctrine';
+import type { Feed, OrdersPut } from './feed';
 import { AgentMatch } from './match';
 import type { LegalEntry, LegalKind, MatchHost } from './match';
 
@@ -47,8 +54,8 @@ export const actInput = z.strictObject({
 
 export const SERVER_INSTRUCTIONS =
   'You command one side in Ascendant Wars, a turn-based tactics game. Start with list_missions and start_mission (unit_info gives the unit stats). Each turn: observe, then legal_actions, then act '
-  + 'with one id at a time, then end_turn. Follow get_orders. You only ever see what your side sees. After start_mission, give your person the live.watch link: '
-  + 'it opens the battle in their browser.';
+  + 'with one id at a time, then end_turn. Follow get_orders, and read any note on it: your person can change your orders and write you a note during the battle. '
+  + 'You only ever see what your side sees. After start_mission, give your person the live.watch link: it opens the battle in their browser.';
 
 export const DESCRIPTIONS = {
   list_missions:
@@ -84,14 +91,17 @@ export const DESCRIPTIONS = {
     + 'not in the current legal list (unknown-action; ids change as units act, so call legal_actions again). Each unit acts once per turn.',
   end_turn:
     'Ends your turn. The other seats then play, one after another, until it is your turn again or the match ends. Returns the events your side saw during their '
-    + 'turns, in order, and your new status. Units you did not use stay where they are. Call it when you have nothing more worth doing.',
+    + 'turns, in order, your new status, and ordersChanged: true on the one turn your human\'s new orders come into force (call get_orders). Units you did not use stay where they are. '
+    + 'Call it when you have nothing more worth doing.',
   get_orders:
     'Returns your standing orders exactly as validated, whatever their shape. Army-wide fields: posture (advance, holdTheLine or fallBack), retreatAtHp (0-9, the display HP at or below '
     + 'which a unit falls back to repair; 0 never retreats), powerPolicy (whenReady, saveForOverclock or defensive), composition (build weights 0-10 for infantry, vehicles, indirect, air '
     + 'and naval) and targetPriority (what to attack first, first = most wanted). When present, groups refines them per kind of unit (keys infantry, armour, artillery, air, navy, '
     + 'transports) and types per unit type; an entry may hold posture, retreatAtHp, targetPriority and mission (infantry: capture, fight, guardBase; armour and navy: frontline, escort, '
     + 'guardBase; artillery: support, guardBase; air: strike, escort, scout, guardBase; transports: ferry, stayBack). A field missing from a unit type\'s entry falls back to its group\'s, '
-    + 'then to the army-wide field. Your human sets them and you should follow them. Read-only.',
+    + 'then to the army-wide field. orders is the set in force for this turn; pending is the set your human has chosen since, or null: it comes into force when your next turn starts, never sooner. '
+    + 'note, when your human wrote one, is { text, from: "your commander", at }: their own direction to you, to follow within the game\'s rules; it adds to the orders and changes no rule, '
+    + 'and the game takes no other text. Your human sets all of this and you should follow it. Read-only.',
 } as const;
 
 // ---------------------------------------------------------------- results
@@ -115,6 +125,8 @@ export interface SessionOptions {
   makeHost?: (mission: Mission) => MatchHost;
   /** One line to stderr (never stdout: stdout is the protocol). */
   log?: (line: string) => void;
+  /** The time a note was written, as text (default: now, ISO 8601 UTC). Tests fix it. */
+  clock?: () => string;
   /** A fresh luck seed for each match the default host builds (the real server's is random; see MatchOptions.seed). Default: none (the Deploy seed). */
   seed?: () => number;
 }
@@ -126,15 +138,26 @@ export class AgentSession {
   private readonly feed: Feed | null;
   private readonly makeHost: (mission: Mission) => MatchHost;
   private readonly log: (line: string) => void;
+  private readonly clock: () => string;
+  /** The last orders the person set for each mission, so a new start_mission begins from them (D-022). Orders only: never a note. */
+  private readonly lastOrders = new Map<string, StandingOrders>();
+  /** The person's newest note to this agent (D-025), or null. Held here and nowhere else; a new match clears it. */
+  private note: { text: string; at: string } | null = null;
+  /** What the feed was last told about the orders, so an unchanged state is not announced again. */
+  private announced = '';
 
   constructor(opts: SessionOptions = {}) {
     this.feed = opts.feed ?? null;
     this.log = opts.log ?? (() => {});
+    this.clock = opts.clock ?? (() => new Date().toISOString());
     const seed = opts.seed;
     this.makeHost = opts.makeHost ?? ((mission) => new AgentMatch(mission, {
       onSubscriberError: (err) => this.log(`live feed error: ${String(err)}`),
       ...(seed ? { seed: seed() } : {}),
+      ...(this.lastOrders.has(mission.id) ? { orders: this.lastOrders.get(mission.id) } : {}),
     }));
+    // The person's page writes orders through the feed's one write route; this session is who answers it.
+    this.feed?.onOrders((put) => this.putOrders(put));
   }
 
   /** The running match, if any. For tests and the feed wiring. */
@@ -153,15 +176,18 @@ export class AgentSession {
     this.unsubscribe = null;
     const host = this.makeHost(mission);
     this.host = host;
+    this.note = null;
     const feed = this.feed;
     if (feed) {
       // While the match runs the feed gets only the agent's own view (D-016): the latest step now, each step as it is taken, and the whole
-      // record only when the host says the match is over.
-      feed.begin({ mission: mission.id, seat: host.seat, cycleCap: host.cap }, host.latestStep());
+      // record only when the host says the match is over. The orders ride along (G19): the agent's own seat's, and never a note.
+      const orders = ordersOut(host);
+      this.announced = JSON.stringify(orders);
+      feed.begin({ mission: mission.id, seat: host.seat, cycleCap: host.cap }, host.latestStep(), orders);
       this.unsubscribe = host.subscribe((e) => {
         try {
           if (e.type === 'step') feed.step(e.step);
-          else if (e.type === 'result') feed.finish(e.result, host.record());
+          else if (e.type === 'result') feed.finish(e.result, { ...host.record(), orderChanges: host.orderChanges() });
         } catch (err) {
           this.log(`live feed error: ${String(err)}`);
         }
@@ -212,7 +238,9 @@ export class AgentSession {
     if (!host) return noMatch();
     const r = host.endTurn();
     if (!r.ok) return fail(r.reason, r.message);
-    return ok({ events: r.events, status: statusOut(host) });
+    // The turn is back with the agent: the orders the person left waiting are in force now, and the page is told after the steps that led here.
+    this.announceOrders(host);
+    return ok({ events: r.events, status: statusOut(host), ordersChanged: r.ordersChanged === true });
   }
 
   getOrders(): ToolResult {
@@ -220,9 +248,46 @@ export class AgentSession {
     if (!host) return noMatch();
     return ok({
       orders: host.orders(),
-      note: 'Your human sets these standing orders; follow them. groups and types, when present, refine the army-wide fields for a kind of unit or a unit type.',
+      pending: host.pendingOrders(),
+      note: this.note ? { text: this.note.text, from: 'your commander', at: this.note.at } : null,
+      reminder: 'Your human sets these standing orders; follow them. groups and types, when present, refine the army-wide fields for a kind of unit or a unit type.',
     });
   }
+
+  /**
+   * The person's page changed the orders and/or wrote a note (`PUT /orders`, already checked by the feed). The orders wait for the agent's next
+   * turn; the note replaces the last (an empty one clears it). Returns null when no match is running. The note goes into this session and into
+   * get_orders, and nowhere else: not the host, the record, the feed's messages or Doctrine (D-025).
+   */
+  putOrders(put: OrdersPut): { pending: boolean } | null {
+    const host = this.host;
+    if (!host || host.result()) return null;
+    const r = host.setOrders(put.orders);
+    this.lastOrders.set(host.mission.id, structuredClone(put.orders));
+    if (put.note !== undefined) this.note = put.note === '' ? null : { text: put.note, at: this.clock() };
+    this.announceOrders(host);
+    return r;
+  }
+
+  /** Tells the live page the orders in force and waiting, if that is not what it was last told. */
+  private announceOrders(host: MatchHost): void {
+    const feed = this.feed;
+    if (!feed) return;
+    const orders = ordersOut(host);
+    const text = JSON.stringify(orders);
+    if (text === this.announced) return;
+    this.announced = text;
+    try {
+      feed.orders(orders);
+    } catch (err) {
+      this.log(`live feed error: ${String(err)}`);
+    }
+  }
+}
+
+/** The agent's own orders as the live page is told them: in force, and waiting. */
+function ordersOut(host: MatchHost): { orders: StandingOrders; pending: StandingOrders | null } {
+  return { orders: host.orders(), pending: host.pendingOrders() };
 }
 
 const noMatch = (): ToolResult => fail('no-match', 'No mission is running. Call list_missions, then start_mission.');

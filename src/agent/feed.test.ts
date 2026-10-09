@@ -6,6 +6,7 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MISSIONS } from '../content/missions';
 import { stateHash } from '../game/aw/replay';
+import { DEFAULT_ORDERS } from '../game/doctrine';
 import { recordMatch, viewTimeline } from '../ui/watch/timeline';
 import { ALLOWED_ORIGIN, startFeed } from './feed';
 import type { Feed } from './feed';
@@ -77,16 +78,18 @@ describe('where the feed listens', () => {
 });
 
 describe('/live while the match runs shows only the player\'s own view', () => {
-  it('sends the setup with public facts only (no map, no units, no actions), then step 0', async () => {
+  it('sends the setup with public facts only (no map, no units, no actions), the agent\'s orders (G19), then step 0', async () => {
     const f = await fresh();
     const live = await open(f.liveUrl);
     const { s } = play(f);
     s.startMission('under-canopy');
-    await live.waitFor(2);
+    await live.waitFor(3);
     const setup = live.frames[0].message as LiveSetupMessage;
     expect(Object.keys(setup).sort()).toStrictEqual(['cycleCap', 'match', 'mission', 'seat', 'type']);
     expect(setup).toMatchObject({ type: 'setup', match: 1, mission: 'under-canopy', seat: 0, cycleCap: 30 });
-    const first = (live.frames[1].message as LiveStepMessage).step;
+    // the orders message holds the agent's own seat's orders and nothing else: the defaults, none waiting
+    expect(live.frames[1].message).toStrictEqual({ type: 'orders', match: 1, orders: json(DEFAULT_ORDERS), pending: null });
+    const first = (live.frames[2].message as LiveStepMessage).step;
     expect(first).toMatchObject({ index: 0, action: null, events: [] });
     expect(first.powerUses).toStrictEqual(new Array<number>(first.frame.players.length).fill(0));
     expect(first.frame.viewer).toBe(0);
@@ -139,22 +142,26 @@ describe('/live while the match runs shows only the player\'s own view', () => {
     expect(mid.body).not.toContain('"setup"');
     expect(mid.body).not.toContain('"actions"');
     expect(f.record()).toBeNull();
-    await live.waitFor(1 + midSteps);
-    expect(kinds(live)).toStrictEqual(['setup', ...new Array<string>(midSteps).fill('step')]);
+    await live.waitFor(2 + midSteps);
+    expect(kinds(live)).toStrictEqual(['setup', 'orders', ...new Array<string>(midSteps).fill('step')]);
     // to the end
     while (!host().result()) step(s);
     const rec = host().record();
-    const all = 1 + (rec.actions.length + 1) + 2;
+    const all = 2 + (rec.actions.length + 1) + 2;
     await live.waitFor(all);
-    expect(kinds(live)).toStrictEqual(['setup', ...new Array<string>(rec.actions.length + 1).fill('step'), 'result', 'record']);
-    live.frames.slice(1, -2).forEach((fr, i) => expect((fr.message as LiveStepMessage).step.index, 'steps are in order').toBe(i));
+    expect(kinds(live)).toStrictEqual(['setup', 'orders', ...new Array<string>(rec.actions.length + 1).fill('step'), 'result', 'record']);
+    live.frames.slice(2, -2).forEach((fr, i) => expect((fr.message as LiveStepMessage).step.index, 'steps are in order').toBe(i));
     const result = live.frames[all - 2].message as LiveResultMessage;
     expect(result).toMatchObject({ type: 'result', match: 1, steps: rec.actions.length + 1, result: rec.result });
     // the record: 200 now, the same on /record and on the stream, and exactly what recordMatch takes
     const r = await httpRequest(f.recordUrl);
     expect(r.status).toBe(200);
     const body = JSON.parse(r.body) as LiveRecord;
-    expect(body).toStrictEqual({ match: 1, mission: 'first-light', seat: 0, cycleCap: 2, setup: json(rec.setup), actions: json(rec.actions), result: rec.result });
+    // G19: the record carries the orders each of the agent's turns was played under (here, the defaults from the start)
+    expect(body).toStrictEqual({
+      match: 1, mission: 'first-light', seat: 0, cycleCap: 2, setup: json(rec.setup), actions: json(rec.actions),
+      orderChanges: [{ from: 0, cycle: 1, orders: json(DEFAULT_ORDERS) }], result: rec.result,
+    });
     expect((live.frames[all - 1].message as { record: unknown }).record).toStrictEqual(body);
     expect(f.record()).toStrictEqual(body);
     const replayed = recordMatch(body.setup, body.actions);
@@ -170,20 +177,20 @@ describe('/live while the match runs shows only the player\'s own view', () => {
     for (let i = 0; i < 12; i++) step(s);
     const n = host().record().actions.length;
     const late = await open(f.liveUrl);
-    await late.waitFor(1 + n + 1);
-    expect(kinds(late)).toStrictEqual(['setup', ...new Array<string>(n + 1).fill('step')]);
+    await late.waitFor(2 + n + 1);
+    expect(kinds(late)).toStrictEqual(['setup', 'orders', ...new Array<string>(n + 1).fill('step')]);
     // nothing in what it was sent is the truth: no setup/map, no other seat's action, no raw record
     const text = JSON.stringify(late.frames);
     expect(text).not.toContain('"actions"');
     expect(text).not.toContain('"record"');
     expect(text).not.toContain('"rawEvents"');
     const truth = recordMatch(host().setup, host().record().actions);
-    late.frames.slice(1).forEach((fr, i) => {
+    late.frames.slice(2).forEach((fr, i) => {
       const st = (fr.message as LiveStepMessage).step;
       if (i > 0 && truth.states[i - 1].current !== 0) expect(st.action, `step ${i}`).toBeNull();
     });
     step(s);
-    await late.waitFor(1 + n + 2);
+    await late.waitFor(2 + n + 2);
     expect(late.frames[late.frames.length - 1].message).toMatchObject({ type: 'step', step: { index: n + 1 } });
   });
 
@@ -198,8 +205,8 @@ describe('/live while the match runs shows only the player\'s own view', () => {
     expect((await httpRequest(f.recordUrl)).status).toBe(409);
     expect(f.record()).toBeNull();
     const fresher = await open(f.liveUrl);
-    await fresher.waitFor(2);
-    expect(kinds(fresher)).toStrictEqual(['setup', 'step']);
+    await fresher.waitFor(3);
+    expect(kinds(fresher)).toStrictEqual(['setup', 'orders', 'step']);
     expect(fresher.frames[0].message).toMatchObject({ match: 2, mission: 'calder-spire' });
     await live.waitFor(1);
     expect(kinds(live).filter((k) => k === 'setup')).toHaveLength(2);
@@ -211,9 +218,9 @@ describe('/live while the match runs shows only the player\'s own view', () => {
     f.step({ index: 5, action: null, frame: {} as never, events: [], powerUses: [] });
     s.startMission('first-light');
     const live = await open(f.liveUrl);
-    await live.waitFor(2);
+    await live.waitFor(3);
     while (!host().result()) step(s);
-    await live.waitFor(1 + host().record().actions.length + 1 + 2);
+    await live.waitFor(2 + host().record().actions.length + 1 + 2);
     const n = live.frames.length;
     f.step({ index: 99, action: null, frame: {} as never, events: [], powerUses: [] });
     f.finish(host().result()!, host().record());
@@ -272,8 +279,8 @@ describe('CORS: only the local game origins may read it', () => {
   });
 });
 
-describe('nothing else is served, and nothing can be written', () => {
-  it('has two routes: every other path is 404', async () => {
+describe('nothing else is served, and the one thing that can be written is /orders (G19; its checks are in orders.test.ts)', () => {
+  it('has three routes: every other path is 404', async () => {
     const f = await fresh();
     for (const path of ['/', '/index.html', '/record/', '/record/x', '/live/x', '/state', '/observe', '/act', '/../etc/passwd', '/%2e%2e/secret', '/RECORD']) {
       const r = await httpRequest(`http://127.0.0.1:${f.port}${path}`);
