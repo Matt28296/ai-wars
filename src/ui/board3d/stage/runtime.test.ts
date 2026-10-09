@@ -28,10 +28,12 @@ import { SHAKE_AMPLITUDE } from './shake';
 import { SWEEP } from './sweep';
 import { OCCUPIED_SNAP_DT_SEC } from './occupancy';
 import { fitDistance, PITCH_DEG } from './rig';
-import { StageRuntime } from './runtime';
+import { StageRuntime, YIELD_MS } from './runtime';
 import type { StageHooks, StageModules, StageView } from './runtime';
-import { TIER_ORDER, passNames } from './quality';
-import type { QualitySignals, QualityTier } from './quality';
+import { REMEMBER_KEY, REMEMBER_MS, TIER_ORDER, passNames } from './quality';
+import { analyseMotion } from '../../watch/motion/analysis';
+import type { MotionProbe, Recording } from '../../watch/motion/types';
+import type { QualitySignals, QualityTier, StorageLike } from './quality';
 import { stormCount } from './storm';
 import { fieldFrame, idOf } from './testing';
 import { createUnitView as realUnitView } from '../units';
@@ -46,7 +48,7 @@ const CANVAS_H = 600;
 /** A strong desktop GPU: the start tier is 'high' whatever machine runs the tests (the real signals come from the host's navigator). */
 const STRONG: QualitySignals = { renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)', maxTextureSize: 16384, hardwareConcurrency: 16, devicePixelRatio: 1 };
 
-interface Page { advance(ms: number): void; frames(count: number, ms?: number): void; now(): number; pendingFrames(): number }
+interface Page { advance(ms: number): void; frames(count: number, ms?: number): void; now(): number; pendingFrames(): number; idle(ms: number): void }
 
 /** A fake canvas/host/window/clock. `advance` runs the one pending animation frame at the new time. */
 function installPage(): Page {
@@ -76,7 +78,11 @@ function installPage(): Page {
     pending = null;
     cb?.(clock);
   };
-  return { advance, frames: (count, ms = 1000 / 60) => { for (let i = 0; i < count; i++) advance(ms); }, now: () => clock, pendingFrames: () => (pending ? 1 : 0) };
+  return {
+    advance, frames: (count, ms = 1000 / 60) => { for (let i = 0; i < count; i++) advance(ms); }, now: () => clock, pendingFrames: () => (pending ? 1 : 0),
+    // time passes with no animation frame in it (the clock moves; the pending frame stays pending)
+    idle: (ms) => { clock += ms; },
+  };
 }
 
 /** A renderer that does nothing: every call is accepted, the few the passes read answer sensibly. */
@@ -186,20 +192,20 @@ interface Rig {
   page: Page;
   terrain: TerrainLog;
   views: ReturnType<typeof unitViews>;
-  hooks: { done: number; failed: string[]; quality: string[] };
+  hooks: { done: number; failed: string[]; quality: string[]; scales: number[] };
   view(partial: Partial<StageView> & Pick<StageView, 'timeline'>): void;
 }
 
-function build(modules: Partial<StageModules> = {}): Rig {
+function build(modules: Partial<StageModules> = {}, width = CANVAS_W): Rig {
   const page = installPage();
   const t = recordingTerrain();
   const views = unitViews();
-  const hooks = { done: 0, failed: [] as string[], quality: [] as string[] };
+  const hooks = { done: 0, failed: [] as string[], quality: [] as string[], scales: [] as number[] };
   const h: StageHooks = {
     onDone: () => { hooks.done++; }, onOverlay: () => undefined, onFail: (r) => { hooks.failed.push(r); },
-    onQuality: (tier, pinned) => { hooks.quality.push(`${tier}${pinned ? ' (forced)' : ''}`); },
+    onQuality: (tier, pinned, scale) => { hooks.quality.push(`${tier}${pinned ? ' (forced)' : ''}`); hooks.scales.push(scale ?? Number.NaN); },
   };
-  const rt = new StageRuntime({ ...(el()) } as unknown as HTMLElement, h, {
+  const rt = new StageRuntime({ ...(el()), clientWidth: width } as unknown as HTMLElement, h, {
     createRenderer: () => fakeRenderer(), createTerrain: t.create, createUnitView: views.create, createFx: plainFx, search: '', signals: STRONG, ...modules,
   });
   return {
@@ -216,7 +222,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-const make = (modules: Partial<StageModules> = {}): Rig => { rig = build(modules); return rig; };
+const make = (modules: Partial<StageModules> = {}, width = CANVAS_W): Rig => { rig = build(modules, width); return rig; };
 
 // ---------------------------------------------------------------- occupied properties
 
@@ -1668,5 +1674,841 @@ describe('reduced motion holds every unit\'s idle motion still, and lets it carr
     const later = kits.map(stance);
     r.page.frames(37);
     kits.forEach((k, i) => expect(distance(later[i], stance(k)), `${k.type} moves again`).toBeGreaterThan(0));
+  });
+});
+
+
+// ---------------------------------------------------------------- P1: the render scale below the lowest tier
+
+/** A renderer that logs how the stage sizes it: each pixel ratio the drawing buffer was given, and each setSize (width, height, updateStyle). */
+function sizedRenderer(): { create: () => WebGLRenderer; ratios: number[]; sizes: [number, number, boolean | undefined][] } {
+  const ratios: number[] = [];
+  const sizes: [number, number, boolean | undefined][] = [];
+  const create = (): WebGLRenderer => new Proxy(fakeRenderer() as unknown as Record<string, unknown>, {
+    get: (t, k) => {
+      if (k === 'setPixelRatio') return (v: number) => { ratios.push(v); };
+      if (k === 'setSize') return (w: number, h: number, style?: boolean) => { sizes.push([w, h, style]); };
+      return t[k as string];
+    },
+  }) as unknown as WebGLRenderer;
+  return { create, ratios, sizes };
+}
+
+const SOFT: QualitySignals = { renderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)', maxTextureSize: 16384, hardwareConcurrency: 8, devicePixelRatio: 1 };
+
+describe('the render scale in the stage (below the lowest tier)', () => {
+  const timeline = timelineOf([frame0]);
+  /** Feeds frames of `ms` until the scale is no longer `from` (at most `cap` of them), and says how many it took. */
+  const until = (r: Rig, ms: number, from: number, cap = 400): number => {
+    let n = 0;
+    while (r.rt.debug().quality.scale === from && n < cap) {
+      r.page.frames(1, ms);
+      n++;
+    }
+    return n;
+  };
+  type Composerish = { composer: { _pixelRatio: number }; fxaa: { material: { uniforms: { resolution: { value: { x: number; y: number } } } } } };
+  const bufferOf = (rt: StageRuntime): number => (rt as unknown as Composerish).composer._pixelRatio;
+  const fxaaOf = (rt: StageRuntime): { x: number; y: number } => (rt as unknown as Composerish).fxaa.material.uniforms.resolution.value;
+
+  it('starts at 1: the buffer is the canvas at the tier\'s pixel ratio, and the debug numbers say so', () => {
+    const sized = sizedRenderer();
+    const r = make({ signals: SOFT, createRenderer: sized.create });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'low', scale: 1, scalePinned: false, pixelRatio: 1 });
+    expect(sized.ratios[sized.ratios.length - 1]).toBe(1);
+    expect(bufferOf(r.rt)).toBe(1);
+    expect(r.hooks.scales).toEqual([1]);
+  });
+
+  it('at the lowest tier a slow stretch steps the scale 1 -> 0.85 -> 0.7 -> 0.5: the drawing buffer shrinks every time, the canvas size never changes', () => {
+    const sized = sizedRenderer();
+    const r = make({ signals: SOFT, createRenderer: sized.create });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    expect(r.rt.debug().quality.scale).toBe(1);
+    const seen: number[] = [];
+    for (const from of [1, 0.85, 0.7]) {
+      const took = until(r, 40, from); // the warm-up frames (20) and one full 2 s window of 40 ms frames (about 45 more)
+      // the first step had its warm-up already spent by the 30 fast frames before it; each later one needs its own, so it takes the whole 65 or so
+      expect(took, `from ${from}`).toBeGreaterThanOrEqual(from === 1 ? 40 : 60);
+      expect(took, `from ${from}`).toBeLessThanOrEqual(75);
+      seen.push(r.rt.debug().quality.scale);
+    }
+    expect(seen).toEqual([0.85, 0.7, 0.5]);
+    expect(r.rt.qualityTier).toBe('low'); // the tier did not move: it is the floor
+    expect(r.rt.debug().quality.passes).toEqual(passNames('low'));
+    // the buffer: the ratio handed to the renderer and the composer is the scale (the device ratio is 1), and FXAA's texel size follows it
+    expect(sized.ratios.slice(-3)).toEqual([0.85, 0.7, 0.5]);
+    expect(bufferOf(r.rt)).toBe(0.5);
+    expect(fxaaOf(r.rt).x).toBeCloseTo(1 / (CANVAS_W * 0.5), 12);
+    expect(fxaaOf(r.rt).y).toBeCloseTo(1 / (CANVAS_H * 0.5), 12);
+    // the canvas: every setSize is the host's size with updateStyle FALSE, so the CSS size is never set from the buffer
+    expect(sized.sizes.length).toBeGreaterThan(3);
+    for (const sz of sized.sizes) expect(sz).toEqual([CANVAS_W, CANVAS_H, false]);
+    expect(r.hooks.scales).toEqual([1, 0.85, 0.7, 0.5]);
+    r.page.frames(200, 40); // nothing is below 0.5
+    expect(r.rt.debug().quality.scale).toBe(0.5);
+    expect(r.hooks.scales).toEqual([1, 0.85, 0.7, 0.5]);
+    expect(r.hooks.failed).toEqual([]);
+  });
+
+  it('a stage that starts at high drops its TIERS first: the scale is still 1 at medium and at low, and steps only after', () => {
+    const r = make({ signals: STRONG });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    r.page.frames(60, 40);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'medium', scale: 1 });
+    r.page.frames(60, 40);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'low', scale: 1 });
+    until(r, 40, 1);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'low', scale: 0.85 });
+  });
+
+  it('a single spike, fast frames, and a slow stretch that is cut short never step it; and it never climbs back', () => {
+    const r = make({ signals: SOFT });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    r.page.advance(600);
+    r.page.frames(200, 16);
+    expect(r.rt.debug().quality.scale).toBe(1);
+    until(r, 40, 1);
+    expect(r.rt.debug().quality.scale).toBe(0.85);
+    r.page.frames(800, 16); // a long fast stretch, from the moment it stepped
+    expect(r.rt.debug().quality.scale).toBe(0.85);
+    expect(r.hooks.scales).toEqual([1, 0.85]);
+  });
+
+  it('?scale= pins the scale from the first frame: the buffer is that fraction, slow frames never step it, and the tier still adapts on its own', () => {
+    const sized = sizedRenderer();
+    const r = make({ signals: STRONG, search: '?scale=0.7', createRenderer: sized.create });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'high', scale: 0.7, scalePinned: true });
+    expect(bufferOf(r.rt)).toBeCloseTo(0.7, 12);
+    r.page.frames(60, 40);
+    r.page.frames(60, 40);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'low', scale: 0.7, scalePinned: true });
+    r.page.frames(400, 40);
+    expect(r.rt.debug().quality.scale).toBe(0.7);
+    expect(bufferOf(r.rt)).toBeCloseTo(0.7, 12);
+    // known-bad: a value that is not on the ladder pins nothing
+    const bad = make({ signals: SOFT, search: '?scale=0.6' });
+    bad.view({ timeline });
+    bad.page.frames(30, 16);
+    expect(bad.rt.debug().quality).toMatchObject({ scale: 1, scalePinned: false });
+  });
+
+  it('the buffer is the device ratio times the scale: a 2x screen pinned to 0.5 draws a 1x buffer, at a tier that allows 2x', () => {
+    const r = make({ signals: STRONG, search: '?scale=0.5' });
+    (window as unknown as { devicePixelRatio: number }).devicePixelRatio = 2;
+    r.view({ timeline });
+    (r.rt as unknown as { resize(): void }).resize();
+    r.page.frames(3, 16);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'high', pixelRatio: 2, scale: 0.5 });
+    expect(bufferOf(r.rt)).toBe(1);
+  });
+
+  it('a forced tier is never second-guessed, and that includes the scale: slow frames step nothing', () => {
+    const r = make({ signals: SOFT, search: '?quality=low' });
+    r.view({ timeline });
+    r.page.frames(400, 60);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'low', pinned: true, scale: 1 });
+    expect(r.hooks.scales).toEqual([1]);
+  });
+
+  it('a hidden tab is not a slow device: frames while it is hidden do not step the scale', () => {
+    const r = make({ signals: SOFT });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    (document as unknown as { hidden: boolean }).hidden = true;
+    r.page.frames(300, 60);
+    expect(r.rt.debug().quality.scale).toBe(1);
+    (document as unknown as { hidden: boolean }).hidden = false;
+    until(r, 60, 1);
+    expect(r.rt.debug().quality.scale).toBeLessThan(1);
+  });
+});
+
+// ---------------------------------------------------------------- P1: the motion recorder
+
+/** A recorder stand-in that counts every call it gets, so a test can say "never" and mean it. */
+function countingProbe(): { create: () => MotionProbe; made: () => number; calls: { frame: number; start: number; done: number; dispose: number }; frames: unknown[]; events: unknown[] } {
+  const calls = { frame: 0, start: 0, done: 0, dispose: 0 };
+  const frames: unknown[] = [];
+  const events: unknown[] = [];
+  let made = 0;
+  const create = (): MotionProbe => {
+    made++;
+    return {
+      frame: (f) => { calls.frame++; frames.push(f); },
+      stepStart: (e) => { calls.start++; events.push(e); },
+      stepDone: (e) => { calls.done++; events.push(e); },
+      dispose: () => { calls.dispose++; },
+    };
+  };
+  return { create, made: () => made, calls, frames, events };
+}
+const NOTHING = { frame: 0, start: 0, done: 0, dispose: 0 };
+
+describe('the motion recorder: off unless the address asks', () => {
+  const next = moved(frame0, LANCER, 4, 0);
+  const walk: GameEvent[] = [{ kind: 'moved', unitId: LANCER, path: [pt(2, 1), pt(2, 0), pt(3, 0), pt(4, 0)] }];
+
+  /** Runs a stage through a view, a plan that plays to its end, and a rest: every kind of call the recorder could get. */
+  const runAll = (search: string, probe: ReturnType<typeof countingProbe>): Rig => {
+    const { r } = playing({ events: walk, next, modules: { search, createProbe: probe.create } });
+    r.page.advance(1000);
+    r.page.frames(5);
+    return r;
+  };
+
+  it('by default it is never built, never called from the frame loop, and nothing is added to window', () => {
+    for (const search of ['', '?quality=low', '?probe=', '?probe=other', '?probe=motions', '?xprobe=motion', '?scale=0.7']) {
+      const probe = countingProbe();
+      const r = runAll(search, probe);
+      expect(probe.made(), search).toBe(0);
+      expect(probe.calls, search).toEqual(NOTHING);
+      expect('__awMotion' in window, search).toBe(false);
+      expect(r.rt.debug().probe, search).toBe(false);
+      r.rt.dispose();
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('and with the default factory it still adds nothing to window while the address does not ask', () => {
+    const { r } = playing({ events: walk, next, modules: { search: '' } });
+    r.page.frames(10);
+    expect(Object.keys(window as unknown as object).filter((k) => k.startsWith('__'))).toEqual([]);
+  });
+
+  it('KNOWN-BAD: the check itself is not vacuous: a recorder that was called does fail the "never" assertion', () => {
+    const probe = countingProbe();
+    const planted = probe.create();
+    planted.frame({} as never); // a leak: the frame loop calling the recorder when it should not
+    expect(() => expect(probe.calls).toEqual(NOTHING)).toThrow();
+    expect(() => expect(probe.made()).toBe(0)).toThrow();
+  });
+
+  it('?probe=motion builds exactly one, calls it once per drawn frame, tells it each plan and its end, and disposes it with the stage', () => {
+    const probe = countingProbe();
+    const r = runAll('?probe=motion', probe);
+    r.page.frames(60, 16);
+    expect(probe.made()).toBe(1);
+    expect(r.rt.debug().probe).toBe(true);
+    // frames that drew nothing (no view yet) are not samples: the first view came after construction, so every call here is a drawn frame
+    expect(probe.calls.frame).toBeGreaterThan(30);
+    expect(probe.calls.start).toBe(2); // the first view (no plan), then the plan
+    expect(probe.calls.done).toBe(1);
+    r.rt.dispose();
+    expect(probe.calls.dispose).toBe(1);
+  });
+
+  it('frames before the stage has a view to draw are not recorded', () => {
+    const probe = countingProbe();
+    const r = make({ search: '?probe=motion', createProbe: probe.create, signals: STRONG });
+    r.page.frames(10);
+    expect(probe.calls.frame).toBe(0);
+    r.view({ timeline: timelineOf([frame0]) });
+    r.page.frames(3);
+    expect(probe.calls.frame).toBe(3);
+  });
+});
+
+describe('the motion recorder: what it keeps', () => {
+  const next = moved(frame0, LANCER, 4, 0);
+  const path: Coord[] = [pt(2, 1), pt(2, 0), pt(3, 0), pt(4, 0)];
+  const walk: GameEvent[] = [{ kind: 'moved', unitId: LANCER, path }];
+  type Api = { version: number; read(): Recording; reset(): void };
+  const apiOf = (): Api => (window as unknown as { __awMotion: Api }).__awMotion;
+  const FRAME = 1000 / 60;
+
+  it('puts read() and reset() on window.__awMotion and takes them off again when the stage is disposed', () => {
+    const { r } = playing({ events: walk, next, modules: { search: '?probe=motion', signals: STRONG } });
+    expect(typeof apiOf().read).toBe('function');
+    expect(typeof apiOf().reset).toBe('function');
+    r.page.frames(5, FRAME);
+    expect(apiOf().read().frames.length).toBeGreaterThan(4);
+    apiOf().reset();
+    expect(apiOf().read()).toMatchObject({ schema: 1, frames: [], events: [], truncated: false });
+    r.rt.dispose();
+    expect('__awMotion' in window).toBe(false);
+  });
+
+  it('a frame sample carries the timestamp, the JS time, the tier, the scale, the camera and the unit the plan moves', () => {
+    const { r, plan } = playing({ events: walk, next, modules: { search: '?probe=motion', signals: SOFT } });
+    const planStart = apiOf().read().events.filter((e) => e.type === 'start' && e.planned)[0].t;
+    apiOf().reset();
+    r.page.frames(10, FRAME);
+    const rec = apiOf().read();
+    const f = rec.frames[rec.frames.length - 1];
+    expect(rec.frames).toHaveLength(10);
+    expect(f.t).toBe(r.page.now());
+    expect(f.js).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(f.js)).toBe(true);
+    expect(f.tier).toBe('low');
+    expect(f.scale).toBe(1);
+    const cam = camPos(r.rt);
+    expect(f.cam).toEqual([cam.x, cam.y, cam.z]);
+    expect(f.step).toBe(1);
+    expect(f.planT).toBeCloseTo(r.page.now() - planStart, 6);
+    // the lancer is the one unit the plan moves: id, world position (tile centre = tile + 0.5), the beat it is on
+    expect(f.units).toHaveLength(1);
+    const [id, x, , z, beat] = f.units[0];
+    expect(id).toBe(LANCER);
+    expect(beat).toBe(0);
+    expect(x).toBeGreaterThan(2.5 - 1e-9);
+    expect(x).toBeLessThan(4.5);
+    expect(z).toBeGreaterThan(0.5 - 1e-9);
+    expect(z).toBeLessThan(1.5 + 1e-9);
+    expect(plan.moves).toHaveLength(1);
+  });
+
+  it('the tier and the render scale in a sample follow the stage when the adaptive step moves them', () => {
+    const r = make({ search: '?probe=motion', signals: SOFT });
+    r.view({ timeline: timelineOf([frame0]) });
+    r.page.frames(30, 16);
+    r.page.frames(90, 40);
+    r.page.frames(5, 16);
+    const rec = apiOf().read();
+    const last = rec.frames[rec.frames.length - 1];
+    expect(last).toMatchObject({ tier: 'low', scale: 0.85 });
+    expect(rec.frames[0]).toMatchObject({ tier: 'low', scale: 1 });
+  });
+
+  it('a plan is recorded as its own timings: durationMs, the dwell, the speed the page shows, and every move beat with its path', () => {
+    const r = make({ search: '?probe=motion', signals: STRONG });
+    // the page's speed buttons: "2x" is the pressed one
+    (document as unknown as { querySelector: (sel: string) => unknown }).querySelector = (sel) => (sel.includes('aria-pressed') ? { textContent: '2x' } : null);
+    const timeline = timelineOf([frame0, next], [[], walk]);
+    const plan = planOf(frame0, next, walk);
+    r.view({ timeline, step: 1, reducedMotion: false });
+    r.page.frames(4, FRAME);
+    r.view({ timeline, step: 1, plan, reducedMotion: false });
+    r.page.advance(plan.durationMs + 50);
+    r.page.frames(2);
+    const rec = apiOf().read();
+    const start = rec.events.filter((e) => e.type === 'start').pop()!;
+    if (start.type !== 'start') throw new Error('not a start');
+    expect(start).toMatchObject({ step: 1, speed: 2, reduced: false, tween: true, planned: true, durationMs: plan.durationMs, dwellMs: 100 });
+    expect(start.moves).toEqual([{ unitId: LANCER, startMs: 0, durMs: 720, path: [[2, 1], [2, 0], [3, 0], [4, 0]] }]);
+    const done = rec.events.filter((e) => e.type === 'done');
+    expect(done).toHaveLength(1);
+    expect(done[0].t).toBeGreaterThanOrEqual(start.t + plan.durationMs);
+    expect(done[0]).toMatchObject({ seq: start.seq, step: 1 });
+  });
+
+  it('a step reached by a jump is recorded as not planned, and the first frame after a camera snap is flagged a cut, once', () => {
+    const r = make({ search: '?probe=motion', signals: STRONG });
+    const timeline = timelineOf([frame0, next], [[], walk]);
+    r.view({ timeline, step: 0 });
+    r.page.frames(5, FRAME);
+    r.view({ timeline, step: 1 }); // a scrub: no plan, the camera cuts
+    r.page.frames(4, FRAME);
+    const rec = apiOf().read();
+    expect(rec.events.filter((e) => e.type === 'start').map((e) => (e.type === 'start' ? e.planned : null))).toEqual([false, false]);
+    const cuts = rec.frames.map((f) => f.cut);
+    expect(cuts.filter(Boolean)).toHaveLength(2); // the first view cuts to its focus, then the scrub does
+    expect(cuts[cuts.length - 1]).toBe(false);
+  });
+
+  it('a recording the stage made of its own glide goes through the analysis clean: 240 ms a tile, on its tile at the end, no teleport', () => {
+    const { r, plan } = playing({ events: walk, next, modules: { search: '?probe=motion', signals: STRONG } });
+    apiOf().reset();
+    // a view at step 1 with the plan already running: record from the plan's own start
+    r.view({ timeline: timelineOf([frame0, next], [[], walk]), step: 1, plan: planOf(frame0, next, walk), reducedMotion: false });
+    r.page.frames(Math.ceil((plan.durationMs + 100) / FRAME), FRAME);
+    const rec = apiOf().read();
+    const report = analyseMotion(rec);
+    expect(report.glide.beats).toHaveLength(1);
+    const beat = report.glide.beats[0];
+    expect(beat.problems).toEqual([]);
+    expect(beat.speed).toBe(1); // read off the beat: 240 ms a tile
+    expect(beat.measuredMsPerTile).toBeGreaterThan(230);
+    expect(beat.measuredMsPerTile).toBeLessThan(250);
+    expect(report.failed).toEqual([]);
+  });
+});
+
+
+// ---------------------------------------------------------------- P1: the playback clock does not wait for frames
+
+describe('a plan ends on the clock, and a slow machine gives the thread back at a step boundary', () => {
+  const next = moved(frame0, LANCER, 4, 0);
+  const walk: GameEvent[] = [{ kind: 'moved', unitId: LANCER, path: [pt(2, 1), pt(2, 0), pt(3, 0), pt(4, 0)] }]; // 3 tiles: 720 ms at 1x
+  const timeline = timelineOf([frame0, next], [[], walk]);
+  const idle = timelineOf([frame0, frame0], [[], []]);
+  const calm = planOf(frame0, frame0, []); // nothing to animate
+
+  /** A stage with fake timers whose clock is the page's: `idle(ms)` lets time pass with NO frame, running whatever timer comes due. */
+  function clocked(modules: Partial<StageModules> = {}): Rig & { idle(ms: number): void; draws(): number } {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const r = make({ signals: STRONG, ...modules });
+    const composer = (r.rt as unknown as { composer: { render(dt: number): void } }).composer;
+    let n = 0;
+    const real = composer.render.bind(composer);
+    composer.render = (dt: number) => { n++; real(dt); };
+    // time passes: the page's clock moves, the timers that came due in it run, and only then does the animation frame (if one is wanted) run
+    const idle = (ms: number): void => {
+      r.page.idle(ms);
+      vi.advanceTimersByTime(ms);
+    };
+    const advance = (ms: number): void => {
+      idle(ms);
+      r.page.advance(0);
+    };
+    const page: Page = { ...r.page, advance, idle, frames: (count, ms = 1000 / 60) => { for (let i = 0; i < count; i++) advance(ms); } };
+    return { ...r, page, draws: () => n, idle };
+  }
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('the end of a plan is told by a timer at its time, not by the next frame: with 250 ms between frames, onDone comes at 720 ms, not at the frame after it (750)', () => {
+    const r = clocked();
+    const plan = planOf(frame0, next, walk);
+    expect(plan.durationMs).toBe(720);
+    r.view({ timeline, step: 1, reducedMotion: false });
+    r.page.frames(2, 16);
+    r.view({ timeline, step: 1, plan, reducedMotion: false });
+    r.idle(719);
+    expect(r.hooks.done).toBe(0); // not yet: the plan is still running
+    r.idle(3);
+    expect(r.hooks.done).toBe(1); // over, and no frame has come in the meantime
+    r.page.advance(250);
+    expect(r.hooks.done).toBe(1); // and the frame that comes later does not tell it again
+  });
+
+  it('known-bad: with frames alone (the timer swallowed), onDone waits for the first frame past the end', () => {
+    const r = clocked();
+    const plan = planOf(frame0, next, walk);
+    r.view({ timeline, step: 1, reducedMotion: false });
+    r.page.frames(2, 16);
+    r.view({ timeline, step: 1, plan, reducedMotion: false });
+    vi.clearAllTimers(); // the planted fault: no timer
+    const before = r.page.now();
+    r.page.frames(2, 250);
+    expect(r.hooks.done).toBe(0); // 500 ms: the plan is still running
+    r.page.frames(1, 250);
+    expect(r.page.now() - before).toBe(750);
+    expect(r.hooks.done).toBe(1); // told by the third frame, at 750 ms
+  });
+
+  it('a hidden tab does not play on: the timer does not end the plan, and the first frame once it is visible does', () => {
+    const r = clocked();
+    const plan = planOf(frame0, next, walk);
+    r.view({ timeline, step: 1, reducedMotion: false });
+    r.page.frames(2, 16);
+    r.view({ timeline, step: 1, plan, reducedMotion: false });
+    (document as unknown as { hidden: boolean }).hidden = true;
+    r.idle(2000);
+    expect(r.hooks.done).toBe(0);
+    (document as unknown as { hidden: boolean }).hidden = false;
+    r.page.frames(1, 16);
+    expect(r.hooks.done).toBe(1);
+  });
+
+  it('a new plan cancels the old one\'s timer, and dispose cancels the pending one: no late onDone for a plan that is gone', () => {
+    const r = clocked();
+    const plan = planOf(frame0, next, walk);
+    r.view({ timeline, step: 1, reducedMotion: false });
+    r.page.frames(2, 16);
+    r.view({ timeline, step: 1, plan, reducedMotion: false });
+    r.idle(100);
+    r.view({ timeline, step: 1, reducedMotion: false }); // the viewer scrubbed: no plan any more
+    r.idle(1000);
+    expect(r.hooks.done).toBe(0);
+    r.view({ timeline, step: 1, plan: planOf(frame0, next, walk), reducedMotion: false });
+    r.rt.dispose();
+    r.idle(1000);
+    expect(r.hooks.done).toBe(0);
+  });
+
+  it('the recorder hears the end once, from whichever came first', () => {
+    const probe = countingProbe();
+    const r = clocked({ search: '?probe=motion', createProbe: probe.create });
+    const plan = planOf(frame0, next, walk);
+    r.view({ timeline, step: 1, reducedMotion: false });
+    r.page.frames(2, 16);
+    r.view({ timeline, step: 1, plan, reducedMotion: false });
+    r.idle(730);
+    r.page.frames(3, 16);
+    expect(probe.calls.done).toBe(1);
+  });
+
+  it('on a slow machine the stage stops drawing after the end of a step, for at most YIELD_MS, then draws again; the state still updates', () => {
+    const r = clocked();
+    const plan = planOf(frame0, next, walk);
+    r.view({ timeline, step: 1, reducedMotion: false });
+    r.page.frames(10, 120); // 8 fps: slow
+    r.view({ timeline, step: 1, plan, reducedMotion: false });
+    r.page.frames(5, 120); // 600 ms into the 720 ms plan
+    const before = r.draws();
+    r.idle(130); // the timer ends the plan at 720 ms
+    expect(r.hooks.done).toBe(1);
+    r.page.frames(1, 16); // the next frame draws the rest state once and opens the window
+    expect(r.draws()).toBe(before + 1);
+    const inside = Math.floor((YIELD_MS - 1) / 30); // frames 30 ms apart that all fall inside the window
+    r.page.frames(inside, 30);
+    expect(r.draws()).toBe(before + 1); // none is drawn
+    r.page.frames(Math.ceil(YIELD_MS / 30), 30); // the window is over: drawing is back
+    expect(r.draws()).toBeGreaterThan(before + 1);
+    expect(r.hooks.failed).toEqual([]);
+    expect(YIELD_MS).toBeLessThanOrEqual(150); // measured (docs/delivery/MOTION.md, "The yield"): 250 and 400 ms break the longest-still budget on the desktop board
+  });
+
+  it('a phone-sized canvas never yields, even on a slow machine: every frame after the end of a step is drawn (known-bad twin: the same at 1000 px skips)', () => {
+    const run = (width: number): number => {
+      const r = clocked();
+      (r.rt as unknown as { canvas: { clientWidth: number } }).canvas.clientWidth = width;
+      const plan = planOf(frame0, next, walk);
+      r.view({ timeline, step: 1, reducedMotion: false });
+      r.page.frames(10, 120); // 8 fps: slow
+      r.view({ timeline, step: 1, plan, reducedMotion: false });
+      r.page.frames(5, 120);
+      r.idle(130); // the timer ends the plan
+      const before = r.draws();
+      r.page.frames(1 + Math.floor((YIELD_MS - 1) / 30), 30); // the frame that opens the window, then frames inside it
+      return r.draws() - before;
+    };
+    const frames = 1 + Math.floor((YIELD_MS - 1) / 30);
+    expect(run(390)).toBe(frames); // a phone: all drawn
+    expect(run(1000)).toBe(1); // a wide canvas: only the frame that opens the window
+  });
+
+  it('a machine that draws at 60 fps never skips a frame, at a boundary or anywhere', () => {
+    const r = clocked();
+    const plan = planOf(frame0, next, walk);
+    r.view({ timeline, step: 1, reducedMotion: false });
+    r.page.frames(10, 16);
+    r.view({ timeline, step: 1, plan, reducedMotion: false });
+    const before = r.draws();
+    r.page.frames(60, 16); // a second of play: the plan ends and a boundary passes
+    expect(r.hooks.done).toBe(1);
+    expect(r.draws() - before).toBe(60);
+  });
+
+  it('a step with nothing to animate is a boundary at once: the first frame draws the new step, the next ones are skipped while frames are slow', () => {
+    const r = clocked();
+    r.view({ timeline: idle, step: 0, reducedMotion: false });
+    r.page.frames(10, 120);
+    r.view({ timeline: idle, step: 1, plan: calm, reducedMotion: false });
+    const before = r.draws();
+    r.page.frames(1, 120);
+    expect(r.draws()).toBe(before + 1);
+    r.page.frames(Math.ceil(YIELD_MS / 120) - 1, 120); // the frames that fall inside the window
+    expect(r.draws()).toBe(before + 1); // skipped
+    r.page.frames(1, 120); // and the first one past it draws
+    expect(r.draws()).toBe(before + 2);
+  });
+
+  it('anything that must be seen wakes it: a new view, a zoom step, a resize', () => {
+    for (const wake of [
+      (r: Rig) => r.view({ timeline, step: 1, reducedMotion: false }),
+      (r: Rig) => r.rt.zoomStep(1),
+      (r: Rig) => (r.rt as unknown as { resize(): void }).resize(),
+    ]) {
+      const r = clocked();
+      r.view({ timeline: idle, step: 0, reducedMotion: false });
+      r.page.frames(10, 120);
+      r.view({ timeline: idle, step: 1, plan: calm, reducedMotion: false });
+      r.page.frames(1, 120);
+      const before = r.draws();
+      r.page.frames(1, 120);
+      expect(r.draws()).toBe(before); // inside the window
+      wake(r);
+      r.page.frames(1, 120);
+      expect(r.draws()).toBe(before + 1);
+      r.rt.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it('the frame that finds the plan over (the timer being late) tells the page but does not draw on a slow machine; the next one draws the rest state', () => {
+    const r = clocked();
+    const plan = planOf(frame0, next, walk);
+    r.view({ timeline, step: 1, reducedMotion: false });
+    r.page.frames(10, 120);
+    r.view({ timeline, step: 1, plan, reducedMotion: false });
+    vi.clearAllTimers(); // the planted case: the frame gets there first
+    r.page.frames(5, 120); // 600 ms
+    const before = r.draws();
+    r.page.frames(1, 120); // 720 ms: the plan is over
+    expect(r.hooks.done).toBe(1);
+    expect(r.draws()).toBe(before); // told, not drawn
+    r.page.frames(1, 16);
+    expect(r.draws()).toBe(before + 1); // the rest state
+    // and on a fast machine the same frame DOES draw
+    const f = clocked();
+    f.view({ timeline, step: 1, reducedMotion: false });
+    f.page.frames(10, 16);
+    f.view({ timeline, step: 1, plan, reducedMotion: false });
+    vi.clearAllTimers();
+    f.page.frames(40, 16); // 640 ms into the 720 ms plan
+    const b2 = f.draws();
+    f.page.frames(10, 16); // the plan ends in the fifth of these
+    expect(f.hooks.done).toBe(1);
+    expect(f.draws() - b2).toBe(10);
+    f.rt.dispose();
+  });
+
+  it('frames skipped at a boundary are not frame times: the adaptive step is fed only real frame intervals, never a skip gap', () => {
+    const r = clocked({ signals: { renderer: 'llvmpipe' } }); // low: the render scale is the next step down
+    const adaptive = (r.rt as unknown as { adaptive: { push(ms: number, now: number): unknown } }).adaptive;
+    const fed: number[] = [];
+    const real = adaptive.push.bind(adaptive);
+    adaptive.push = (ms, now) => { fed.push(ms); return real(ms, now); };
+    r.view({ timeline: idle, step: 0, reducedMotion: false });
+    r.page.frames(10, 120);
+    for (let i = 0; i < 6; i++) {
+      r.view({ timeline: idle, step: (i + 1) % 2, plan: planOf(frame0, frame0, []), reducedMotion: false }); // a new plan each time: a new boundary
+      r.page.frames(8, 120); // one drawn, the ones inside the window skipped, the rest drawn again
+    }
+    // per boundary: the frame that opens the window, those inside it skipped (120 ms apart), then a drawn one that follows the gap (its interval spans the skips: not fed)
+    const skipped = Math.ceil(YIELD_MS / 120) - 1;
+    expect(skipped).toBeGreaterThan(0);
+    expect(r.draws()).toBe(10 + 6 * (8 - skipped));
+    expect(fed.length).toBe(r.draws() - 6); // one frame per boundary was left out of the adaptive step
+    expect(new Set(fed.map((v) => Math.round(v)))).toEqual(new Set([120]));
+  });
+});
+
+
+// ---------------------------------------------------------------- P1: a phone stops at 0.7
+
+describe('the render scale on a narrow canvas and a wide one', () => {
+  const timeline = timelineOf([frame0]);
+  const until = (r: Rig, ms: number, from: number, cap = 400): number => {
+    let n = 0;
+    while (r.rt.debug().quality.scale === from && n < cap) {
+      r.page.frames(1, ms);
+      n++;
+    }
+    return n;
+  };
+  /** Every slow stretch it can find: steps until the scale stops moving. */
+  const settleSlow = (r: Rig): number => {
+    let scale = r.rt.debug().quality.scale;
+    for (let i = 0; i < 6; i++) {
+      until(r, 40, scale, 120);
+      if (r.rt.debug().quality.scale === scale) break;
+      scale = r.rt.debug().quality.scale;
+    }
+    return scale;
+  };
+
+  it('a 1000 px canvas goes on to 0.5; a 390 px one (a phone) stops at 0.7 and the buffer is 0.7 of its CSS size, however slow the frames stay', () => {
+    const wide = sizedRenderer();
+    const w = make({ signals: SOFT, createRenderer: wide.create }, 1000);
+    w.view({ timeline });
+    w.page.frames(30, 16);
+    expect(settleSlow(w)).toBe(0.5);
+
+    const narrow = sizedRenderer();
+    const n = make({ signals: SOFT, createRenderer: narrow.create }, 390);
+    n.view({ timeline });
+    n.page.frames(30, 16);
+    expect(settleSlow(n)).toBe(0.7);
+    n.page.frames(400, 40); // and slow for a long time more
+    expect(n.rt.debug().quality.scale).toBe(0.7);
+    expect(narrow.ratios[narrow.ratios.length - 1]).toBeCloseTo(0.7, 12);
+    expect(n.hooks.scales).toEqual([1, 0.85, 0.7]);
+  });
+
+  it('the line is 960: a 960 px canvas reaches 0.5 and a 959 px one stops at 0.7', () => {
+    for (const [px, want] of [[960, 0.5], [959, 0.7]] as const) {
+      const r = make({ signals: SOFT }, px);
+      r.view({ timeline });
+      r.page.frames(30, 16);
+      expect(settleSlow(r), `${px} px`).toBe(want);
+      r.rt.dispose();
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('an explicit ?scale=0.5 is the viewer\'s own word and is kept even on a narrow canvas (it is only the adaptive step that stops at 0.7)', () => {
+    const r = make({ signals: SOFT, search: '?scale=0.5' }, 390);
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    expect(r.rt.debug().quality).toMatchObject({ scale: 0.5, scalePinned: true });
+  });
+});
+
+// ---------------------------------------------------------------- P1: the device remembers where it settled
+
+describe('what a device settled on is remembered, and the next battle starts there', () => {
+  const timeline = timelineOf([frame0]);
+  const DAY = 24 * 60 * 60 * 1000;
+  const until = (r: Rig, ms: number, from: number, cap = 400): void => {
+    let n = 0;
+    while (r.rt.debug().quality.scale === from && n < cap) {
+      r.page.frames(1, ms);
+      n++;
+    }
+  };
+
+  /** A Storage stand-in that keeps what it is given and counts the writes. */
+  function memory(initial?: string): { storage: () => StorageLike; get: () => string | null; writes: () => number } {
+    let value: string | null = initial ?? null;
+    let writes = 0;
+    return {
+      storage: () => ({ getItem: (k) => (k === REMEMBER_KEY ? value : null), setItem: (k, v) => { if (k === REMEMBER_KEY) { value = v; writes++; } } }),
+      get: () => value,
+      writes: () => writes,
+    };
+  }
+  const saved = (o: { tier?: string; scale?: number; at?: number }): string => JSON.stringify({ tier: 'low', scale: 0.7, at: Date.now(), ...o });
+
+  it('an adaptive drop is written as it happens: the tier, the scale and the time (high -> medium -> low -> 0.85 each leave the state it reached)', () => {
+    const mem = memory();
+    const r = make({ signals: STRONG, storage: mem.storage });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    expect(mem.writes()).toBe(0); // nothing has dropped yet: nothing to remember
+    r.page.frames(60, 40);
+    expect(JSON.parse(mem.get() as string)).toMatchObject({ tier: 'medium', scale: 1 });
+    r.page.frames(60, 40);
+    expect(JSON.parse(mem.get() as string)).toMatchObject({ tier: 'low', scale: 1 });
+    until(r, 40, 1);
+    const last = JSON.parse(mem.get() as string);
+    expect(last).toMatchObject({ tier: 'low', scale: 0.85 });
+    expect(Math.abs(last.at - Date.now())).toBeLessThan(60_000);
+    expect(mem.writes()).toBe(3);
+  });
+
+  it('a stored state starts the next battle there: no drop is needed, the passes are the stored tier\'s and the buffer the stored scale\'s', () => {
+    const sized = sizedRenderer();
+    const r = make({ signals: STRONG, storage: memory(saved({ tier: 'low', scale: 0.7 })).storage, createRenderer: sized.create });
+    r.view({ timeline });
+    r.page.frames(3, 16);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'low', scale: 0.7, passes: passNames('low'), remembered: { tier: 'low', scale: 0.7 } });
+    expect(r.hooks.quality[0]).toBe('low'); // the very first thing the page is told
+    expect(r.hooks.scales[0]).toBe(0.7);
+    expect(sized.ratios[sized.ratios.length - 1]).toBeCloseTo(0.7, 12);
+  });
+
+  it('it never starts BETTER than the machine guesses: a remembered high on a software renderer is still low', () => {
+    const r = make({ signals: SOFT, storage: memory(saved({ tier: 'high', scale: 1 })).storage });
+    r.view({ timeline });
+    r.page.frames(3, 16);
+    expect(r.rt.qualityTier).toBe('low');
+  });
+
+  it('and the adaptive step goes on from there, one way: a stored 0.7 steps to 0.5 on a wide canvas and is written again', () => {
+    const mem = memory(saved({ tier: 'low', scale: 0.7 }));
+    const r = make({ signals: SOFT, storage: mem.storage }, 1000);
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    until(r, 40, 0.7);
+    expect(r.rt.debug().quality.scale).toBe(0.5);
+    expect(JSON.parse(mem.get() as string)).toMatchObject({ tier: 'low', scale: 0.5 });
+  });
+
+  it('an expired one (7 days) is ignored: the battle starts where the machine guesses, at scale 1', () => {
+    for (const age of [REMEMBER_MS, 8 * DAY, 400 * DAY]) {
+      const r = make({ signals: STRONG, storage: memory(saved({ at: Date.now() - age })).storage });
+      r.view({ timeline });
+      r.page.frames(3, 16);
+      expect(r.rt.debug().quality, `${age / DAY} days`).toMatchObject({ tier: 'high', scale: 1, remembered: null });
+      r.rt.dispose();
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+    // known-bad: one day short of it is still believed
+    const fresh = make({ signals: STRONG, storage: memory(saved({ at: Date.now() - (REMEMBER_MS - DAY) })).storage });
+    fresh.view({ timeline });
+    fresh.page.frames(3, 16);
+    expect(fresh.rt.debug().quality).toMatchObject({ tier: 'low', scale: 0.7 });
+  });
+
+  it('nothing stored: the battle starts as it always did', () => {
+    const r = make({ signals: STRONG, storage: memory().storage });
+    r.view({ timeline });
+    r.page.frames(3, 16);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'high', scale: 1, remembered: null });
+    // and so does a page with no storage at all (the default in node: no window.localStorage)
+    r.rt.dispose();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    const none = make({ signals: STRONG, storage: () => null });
+    none.view({ timeline });
+    none.page.frames(30, 16);
+    none.page.frames(60, 40);
+    expect(none.rt.qualityTier).toBe('medium'); // adapting works, and there was nowhere to write
+    expect(none.hooks.failed).toEqual([]);
+  });
+
+  it('storage that throws, on the lookup, the read or the write, changes nothing: the stage starts, adapts and does not fail', () => {
+    const lookup = (): StorageLike => { throw new Error('SecurityError: access to localStorage is denied'); };
+    const reads: StorageLike = { getItem: () => { throw new Error('boom'); }, setItem: () => { throw new Error('QuotaExceededError'); } };
+    for (const storage of [lookup, () => reads]) {
+      const r = make({ signals: STRONG, storage });
+      r.view({ timeline });
+      r.page.frames(30, 16);
+      expect(r.rt.debug().quality).toMatchObject({ tier: 'high', scale: 1, remembered: null });
+      r.page.frames(60, 40); // a drop whose write throws
+      expect(r.rt.qualityTier).toBe('medium');
+      expect(r.hooks.failed).toEqual([]);
+      r.rt.dispose();
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('?quality= and ?scale= win: a forced tier ignores the memory and writes nothing; a forced scale keeps the remembered tier but not the remembered scale and writes nothing', () => {
+    const forcedTier = memory(saved({ tier: 'low', scale: 0.5 }));
+    const a = make({ signals: STRONG, search: '?quality=high', storage: forcedTier.storage });
+    a.view({ timeline });
+    a.page.frames(30, 16);
+    a.page.frames(200, 60);
+    expect(a.rt.debug().quality).toMatchObject({ tier: 'high', scale: 1, remembered: null, pinned: true });
+    expect(forcedTier.writes()).toBe(0);
+    a.rt.dispose();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+
+    const forcedScale = memory(saved({ tier: 'low', scale: 0.5 }));
+    const b = make({ signals: STRONG, search: '?scale=1', storage: forcedScale.storage });
+    b.view({ timeline });
+    b.page.frames(3, 16);
+    expect(b.rt.debug().quality).toMatchObject({ tier: 'low', scale: 1, scalePinned: true });
+    until(b, 40, 1, 150); // slow frames: the scale is pinned and the tier is already the floor
+    expect(b.rt.debug().quality.scale).toBe(1);
+    expect(forcedScale.writes()).toBe(0);
+    b.rt.dispose();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+
+    // known-bad for the "writes nothing" half: a pinned scale with a tier that DOES drop is not the device's own settling, so it is not remembered either
+    const pinnedWhileDropping = memory();
+    const c = make({ signals: STRONG, search: '?scale=0.85', storage: pinnedWhileDropping.storage });
+    c.view({ timeline });
+    c.page.frames(30, 16);
+    c.page.frames(60, 40);
+    expect(c.rt.debug().quality).toMatchObject({ tier: 'medium', scale: 0.85, scalePinned: true });
+    expect(pinnedWhileDropping.writes()).toBe(0);
+  });
+
+  it('a remembered 0.5 on a canvas that is now narrow (a smaller window of the same browser) is held to 0.7', () => {
+    const r = make({ signals: STRONG, storage: memory(saved({ tier: 'low', scale: 0.5 })).storage }, 390);
+    r.view({ timeline });
+    r.page.frames(3, 16);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'low', scale: 0.7 });
+    // and on a wide one it is kept
+    const w = make({ signals: STRONG, storage: memory(saved({ tier: 'low', scale: 0.5 })).storage }, 1000);
+    w.view({ timeline });
+    w.page.frames(3, 16);
+    expect(w.rt.debug().quality).toMatchObject({ tier: 'low', scale: 0.5 });
+  });
+
+  it('malformed storage text starts clean, and the first drop overwrites it', () => {
+    const mem = memory('{{ not json');
+    const r = make({ signals: STRONG, storage: mem.storage });
+    r.view({ timeline });
+    r.page.frames(30, 16);
+    expect(r.rt.debug().quality).toMatchObject({ tier: 'high', remembered: null });
+    r.page.frames(60, 40);
+    expect(JSON.parse(mem.get() as string)).toMatchObject({ tier: 'medium', scale: 1 });
   });
 });

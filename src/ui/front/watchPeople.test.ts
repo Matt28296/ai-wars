@@ -133,18 +133,22 @@ describe('the demo watch view, given no people', () => {
   });
   afterAll(() => vi.restoreAllMocks());
 
-  // sha256 (first 16 hex digits) : length of renderToString(WatchView) for the demo match, taken from the code BEFORE G15 touched it.
+  // sha256 (first 16 hex digits) : length of renderToString(WatchView) for the demo match, with the drawer shut and no `lead` (the bare view).
   // A change that adds an attribute, a class, an element or one more comment node to the demo changes one of these.
+  // RETAKEN FOR G18 (D-023): these nine were first taken from the code as it was on main BEFORE G15, and they held through G15, G14 and G17. G18
+  // changed the demo's page on purpose (the banner row, the toolbar and the side column became one slim bar, a shut drawer and one row of playback),
+  // so they are taken again from the code as G18 leaves it, and are a guard from here on, not a proof of anything older. The page is much shorter
+  // (the log is in the drawer, which is not drawn until it is opened); what the new page holds is tested in src/ui/watch/clean.test.ts.
   const GOLDEN: Record<string, string> = {
-    '0@0': '8bd7f1fc651b169c:118810',
-    '0@40': '14e39dc567e0264a:148625',
-    '0@last': '8205e6f28a2bdea8:197546',
-    '1@0': '01cd2d83bb10fc7f:118850',
-    '1@40': '61c53b4b5cd223e2:144914',
-    '1@last': '846fe9e64a944260:187270',
-    'all@0': '949df3665ac8b6e5:114987',
-    'all@40': '31d24056970f914d:148558',
-    'all@last': '27ba84b83d9ed66d:194194',
+    '0@0': 'efc3771189505985:87690',
+    '0@40': '4ff91f22757d4282:97517',
+    '0@last': '768332d8ad287be2:92788',
+    '1@0': '03b4ea35070c3900:87732',
+    '1@40': '1c801dda93f6814b:95668',
+    '1@last': '5317cdeebbb617b6:86333',
+    'all@0': '15d4a0ad2b735ff0:83608',
+    'all@40': '85f816a942c3d742:95177',
+    'all@last': '073fd698df6964ff:89647',
   };
   const match = buildDemoMatch();
   const stamp = (viewer: Viewer, step: number | 'last', extra: Record<string, unknown> = {}): string => {
@@ -156,6 +160,11 @@ describe('the demo watch view, given no people', () => {
   it.each(Object.entries(GOLDEN))('renders exactly what it rendered before: viewer@step %s', (key, expected) => {
     const [viewer, step] = key.split('@');
     expect(stamp(viewer === 'all' ? 'all' : (Number(viewer) as Viewer), step === 'last' ? 'last' : Number(step))).toBe(expected);
+  });
+
+  it('is changed by the drawer being open (known-bad twin: the golden pages are the shut ones, so a drawer that was open by default would be seen)', () => {
+    expect(stamp(0, 40, { initialDrawer: 'players' })).not.toBe(GOLDEN['0@40']);
+    expect(stamp(0, 40, { initialDrawer: undefined })).toBe(GOLDEN['0@40']);
   });
 
   it('is changed by `people` (known-bad twin: the check cannot pass for a view that ignores what it was given)', () => {
@@ -180,7 +189,9 @@ describe('the deployed battle screen of every mission names nothing its act has 
   afterAll(() => vi.restoreAllMocks());
 
   const render = (mission: Mission, result: DeployResult, viewer: Viewer, step: number): string =>
-    renderToString(createElement(MissionWatch, { mission, result, initialViewer: viewer, initialStep: step }));
+    // G18: the drawer is open (on its first tab; all three panels are in the page, two of them hidden), so the scan reads the players, the intel
+    // card and the log as well as the bar and the board
+    renderToString(createElement(MissionWatch, { mission, result, initialViewer: viewer, initialStep: step, drawerOpen: 'players' }));
 
   it.each(MISSIONS.map((m) => [m.id, m] as const))('%s', (_id, mission) => {
     const result = runDeploy(mission);
@@ -249,7 +260,7 @@ describe('the deployed battle screen of every mission names nothing its act has 
     const mission = MISSIONS[0];
     const result = runDeploy(mission);
     const mid = Math.floor(result.actions.length / 2);
-    const html = renderToString(createElement(WatchView, { setup: result.setup, actions: result.actions, viewer: 0, initialStep: mid, onViewerChange: () => {} }));
+    const html = renderToString(createElement(WatchView, { setup: result.setup, actions: result.actions, viewer: 0, initialStep: mid, onViewerChange: () => {}, initialDrawer: 'players' }));
     const strings = readable(html);
     expect(spoilersIn(strings, ACT_I_BANS).length, 'the old screen names the Choir').toBeGreaterThan(0);
     const buttons = [...html.matchAll(/role="radio"[^>]*>(.*?)<\/button>/g)].map((x) => x[1].replace(/<[^>]*>/g, ''));

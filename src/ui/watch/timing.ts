@@ -7,8 +7,13 @@ export const SPEEDS: readonly Speed[] = [1, 2, 4];
 export const DEFAULT_SPEED: Speed = 1;
 
 export const TIMINGS = {
-  /** A unit glides one tile in this long at 1x. quality-bar 5.1 says ~80 ms; a watcher has to follow it, so a little slower. */
-  moveTileMs: 140,
+  /**
+   * A unit glides one tile in this long at 1x: 240 ms, 120 at 2x. A steady, deliberate march the player can follow, the pace of the classic tactics
+   * games, where the old ~140 ms read as a dash and quality-bar 5.1's ~80 ms was a blink: a four-tile move takes just under a second. The glide is
+   * steady (glideEase): one speed from tile to tile with a short settle at the end, and its total time is tiles x this. At 4x and under reduced
+   * motion there is no glide at all.
+   */
+  moveTileMs: 240,
   /** Hit flash on the unit that was struck (quality-bar 6.3 impact beat is ~400 ms). */
   hitMs: 380,
   /** The floating damage number rises and fades over this long. */
@@ -96,8 +101,27 @@ export function typedText(text: string, elapsedMs: number, startMs: number, durM
   return text.slice(0, Math.floor(text.length * k));
 }
 
-/** Ease for a unit gliding along its whole path: eased at the start and the stop only, not per tile. */
+/**
+ * The share of a glide's time that is its settle: before it the unit moves at one steady speed, tile after tile, and in the last tenth it eases out to
+ * a stop on the destination. glideEase takes only the progress through the glide's time, so it cannot know how long the path is: a tenth of the time is
+ * the last 5.3% of the path: a quarter of a tile on a path of four and three quarter tiles (a typical move), a little less on a longer path and a little
+ * more on a shorter one.
+ */
+export const GLIDE_SETTLE = 0.1;
+/**
+ * The steady speed of a glide, in whole paths per whole glide time: a little over 1, because the settle covers its share of the path at a falling speed
+ * and the steady part makes up for it so that the unit arrives exactly when the glide's time is up (total time = tiles x moveTileMs).
+ */
+export const GLIDE_CRUISE = 1 / (1 - GLIDE_SETTLE / 2);
+
+/**
+ * How far along its whole path a gliding unit is (0..1) after progress `p` (0..1) through the glide's time: a constant speed from the first moment
+ * (no ease-in, no acceleration, no peak) and an ease out over the last GLIDE_SETTLE of the time, which meets the steady speed without a jump and ends
+ * at rest exactly on 1. Per path, not per tile: the speed is the same on every tile.
+ */
 export function glideEase(p: number): number {
   const q = clamp01(p);
-  return q * q * (3 - 2 * q);
+  if (q <= 1 - GLIDE_SETTLE) return GLIDE_CRUISE * q;
+  const left = (1 - q) / GLIDE_SETTLE; // 1 at the start of the settle, 0 at the end
+  return 1 - (GLIDE_CRUISE * GLIDE_SETTLE * left * left) / 2;
 }

@@ -1,4 +1,6 @@
 // Playback controls and nothing else: play or pause, step back and forward, speed, a scrubber. There are no unit controls of any kind.
+// G18: one row under the board, and nothing but those controls: the old "Step" caption is gone (the count beside the scrubber says it) and the
+// key caps are a hover hint now (title), not three more things on the bar.
 import { useMemo, useState } from 'react';
 import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import { Button, Sigil, cx, markOf } from './kit';
@@ -51,7 +53,7 @@ export function Controls({ state, dispatch, timeline, thinking = false }: Contro
   return (
     <div className="aww-controls" role="group" aria-label="Playback controls">
       <div className="aww-transport">
-        <Button size="sm" onClick={() => dispatch({ type: 'back' })} disabled={step <= 0} aria-label="Step back" hotkey="Left">
+        <Button size="sm" onClick={() => dispatch({ type: 'back' })} disabled={step <= 0} aria-label="Step back" title="Step back (Left)">
           <Glyph name="back" />
         </Button>
         <Button
@@ -60,12 +62,12 @@ export function Controls({ state, dispatch, timeline, thinking = false }: Contro
           className="aww-playpause"
           onClick={() => dispatch({ type: 'toggle' })}
           aria-label={playing ? 'Pause' : step >= last ? 'Replay' : 'Play'}
-          hotkey="Space"
+          title={`${playing ? 'Pause' : step >= last ? 'Replay' : 'Play'} (Space)`}
         >
           <Glyph name={playing ? 'pause' : 'play'} />
-          <span>{playing ? 'Pause' : step >= last ? 'Replay' : 'Play'}</span>
+          <span className="aww-playword">{playing ? 'Pause' : step >= last ? 'Replay' : 'Play'}</span>
         </Button>
-        <Button size="sm" onClick={() => dispatch({ type: 'forward' })} disabled={step >= last} aria-label="Step forward" hotkey="Right">
+        <Button size="sm" onClick={() => dispatch({ type: 'forward' })} disabled={step >= last} aria-label="Step forward" title="Step forward (Right)">
           <Glyph name="forward" />
         </Button>
       </div>
@@ -83,7 +85,6 @@ export function Controls({ state, dispatch, timeline, thinking = false }: Contro
         ))}
       </div>
       <div className="aww-scrub">
-        <span className="label aww-muted aww-scrub-label">Step</span>
         <div className="aww-track" onPointerMove={onMove} onPointerLeave={() => setHover(null)} onPointerCancel={() => setHover(null)}>
           {marks && (
             <div className="aww-marks" aria-hidden>

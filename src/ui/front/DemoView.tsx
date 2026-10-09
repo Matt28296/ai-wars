@@ -5,6 +5,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { WatchView, buildDemoMatch, formatHash, parseHash } from '../watch';
 import type { Speed, Viewer } from '../watch';
+import { hrefs } from './router';
 
 export default function DemoView({ hash }: { hash: string }): ReactElement {
   const match = useMemo(() => buildDemoMatch(), []);
@@ -39,6 +40,12 @@ export default function DemoView({ hash }: { hash: string }): ReactElement {
       initialSpeed={initial.speed}
       autoPlay={initial.play ?? initial.step === undefined}
       onPositionChange={onPosition}
+      lead={
+        <>
+          <a className="awf-back label" href={hrefs.title}>Title</a>
+          <span className="awf-watchbar-id label">Watch a battle</span>
+        </>
+      }
     />
   );
 }

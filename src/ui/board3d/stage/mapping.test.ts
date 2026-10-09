@@ -284,11 +284,18 @@ describe('walking', () => {
   const dur = plan.moves[0].durMs;
 
   it('places the unit along its path, as the plan\'s own sample does (fractional tile coordinates)', () => {
-    const s = stateAt(plan, events, dur / 2, end, start);
+    // The glide is a steady march (glideEase): until the last tenth of its time the unit is 1/0.95 of the way per whole glide time, so it is half way
+    // along the path (1.5 of the three tiles) at 0.475 of the time, not at 0.5.
+    const q = 0.5 * 0.95;
+    const s = stateAt(plan, events, q * dur, end, start);
     const u = unit(s, L);
-    expect([u.x, u.y]).toEqual([1, 0.5]); // half way (eased half is half) along three tiles: a third into the middle one
+    expect(u.x).toBeCloseTo(1, 12);
+    expect(u.y).toBeCloseTo(0.5, 12); // half way along three tiles: a third into the middle one
     expect(u.pose).toBe('move');
-    expect(u.poseT).toBeCloseTo(0.5, 12);
+    expect(u.poseT).toBeCloseTo(0.5, 12); // the pose's progress is the glide's progress along the path
+    // known-bad: the old smoothstep was half way at half the time; the march is not (half the time has gone 1/0.95 x 0.5 = 52.6% of the path)
+    const mid = unit(stateAt(plan, events, dur / 2, end, start), L);
+    expect(mid.y).toBeGreaterThan(0.5 + 0.05);
   });
 
   it('heads along the segment it is on: east, then south, then south again, and keeps that heading when it stops', () => {
@@ -609,24 +616,27 @@ describe('what a mover leaves behind is decided by how it moves and what it move
   });
 });
 
+/** The time at which a 7-tile glide (1680 ms) has gone half its path: the steady march is 1/0.95 of the path per glide time, so 0.475 of the time. */
+const HALF_WAY_MS = 0.475 * 7 * TIMINGS.moveTileMs;
+
 describe('the trail a gliding unit leaves', () => {
   const frame = frameOn(LAND, [{ type: 'bastion', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 9, y: 0 }]);
   const id = idOf(frame, 'bastion', 0);
 
   it('is where the unit is now and a point behind it on its own path, as far back as it has gone, up to its reach', () => {
-    // 7 tiles in 980 ms, eased: at 490 ms the unit has gone half the way (3.5 tiles), so it is at x = 4.5
-    const f = trailsOf(glide(frame, id, 490).state)[0];
+    // 7 tiles in 1680 ms (240 ms a tile), a steady march: it has gone half the way (3.5 tiles) at 0.475 of the time (798 ms), so it is at x = 4.5
+    const f = trailsOf(glide(frame, id, HALF_WAY_MS).state)[0];
     expect(f.kind).toBe('dust');
     expect(f.at.x).toBeCloseTo(4.5, 12);
     expect(f.at.y).toBe(1);
     expect(reachOf(f)).toBeCloseTo(TRAIL_REACH.tread, 12); // it has gone 3.5, more than a tread's 1.5, so the full reach
     expect(f.to!.x).toBeCloseTo(4.5 - 1.5, 12); // straight back along row 1
     expect(f.to!.y).toBe(1);
-    expect(f.progress).toBeCloseTo(0.5, 12); // half way through the glide's time
-    // early on it has barely left its tile: the trail is only as long as the path it has made. At 98 ms (a tenth of the time) the eased
-    // progress is 0.028 of 7 tiles = 0.196 tile
-    const early = trailsOf(glide(frame, id, 98).state)[0];
-    expect(reachOf(early)).toBeCloseTo(0.1 * 0.1 * (3 - 2 * 0.1) * 7, 12);
+    expect(f.progress).toBeCloseTo(0.475, 12); // 47.5% through the glide's time
+    // early on it has barely left its tile: the trail is only as long as the path it has made. At 168 ms (a tenth of the time) the march has gone
+    // 0.1 / 0.95 of the 7 tiles = 0.737 tile
+    const early = trailsOf(glide(frame, id, 168).state)[0];
+    expect(reachOf(early)).toBeCloseTo((0.1 / 0.95) * 7, 12);
     expect(early.to!.x).toBeCloseTo(1, 12); // it reaches back exactly to where the unit started
   });
 
@@ -639,11 +649,11 @@ describe('the trail a gliding unit leaves', () => {
     expect(TRAIL_REACH.sea).toBeGreaterThan(1.8);
     expect(TRAIL_REACH.hover).toBeLessThan(TRAIL_REACH.tread);
     const foot = frameOn(LAND, [{ type: 'trooper', owner: 0, x: 1, y: 1 }, { type: 'breacher', owner: 1, x: 9, y: 0 }]);
-    expect(reachOf(trailsOf(glide(foot, idOf(foot, 'trooper', 0), 700).state)[0])).toBeCloseTo(1.0, 12);
+    expect(reachOf(trailsOf(glide(foot, idOf(foot, 'trooper', 0), 1200).state)[0])).toBeCloseTo(1.0, 12);
     const river = frameOn(['rrrrrrrrrr', 'rrrrrrrrrr', 'rrrrrrrrrr'], [{ type: 'lancer', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 9, y: 0 }]);
-    expect(reachOf(trailsOf(glide(river, idOf(river, 'lancer'), 700).state)[0])).toBeCloseTo(0.9, 12);
+    expect(reachOf(trailsOf(glide(river, idOf(river, 'lancer'), 1200).state)[0])).toBeCloseTo(0.9, 12);
     const air = frameOn(LAND, [{ type: 'wasp', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 9, y: 0 }]);
-    expect(reachOf(trailsOf(glide(air, idOf(air, 'wasp'), 700).state)[0])).toBeCloseTo(4.5, 12);
+    expect(reachOf(trailsOf(glide(air, idOf(air, 'wasp'), 1200).state)[0])).toBeCloseTo(4.5, 12);
   });
 
   it('exists only while the unit glides: not before its glide, not after, and not at all when glides are off (4x, reduced motion)', () => {
@@ -686,17 +696,17 @@ describe('the trail a gliding unit leaves', () => {
   });
 
   it('puts the effect where the kit expects it: dust at the feet in the terrain\'s tint, a wake on the water, a contrail at flying height', () => {
-    const dust = trailsOf(glide(frame, id, 490).state)[0];
+    const dust = trailsOf(glide(frame, id, HALF_WAY_MS).state)[0];
     expect(dust.lift).toBe(DUST_LIFT);
     expect(dust.color).toBe(dustTint('flats'));
     expect(dust.level).toBeUndefined();
     const sea = frameOn(SEA, [{ type: 'picket', owner: 0, x: 1, y: 1 }, { type: 'picket', owner: 1, x: 9, y: 0 }]);
-    const wake = trailsOf(glide(sea, idOf(sea, 'picket', 0), 490).state)[0];
+    const wake = trailsOf(glide(sea, idOf(sea, 'picket', 0), HALF_WAY_MS).state)[0];
     expect(wake.level).toBe(WAKE_LEVEL);
     expect(WAKE_LEVEL).toBeCloseTo(-0.08 + 0.012, 12); // a hair over the water surface at -0.08, whatever the sea bed is
     expect(wake.color).toBeUndefined();
     const air = frameOn(LAND, [{ type: 'wasp', owner: 0, x: 1, y: 1 }, { type: 'trooper', owner: 1, x: 9, y: 0 }]);
-    const con = trailsOf(glide(air, idOf(air, 'wasp'), 490).state)[0];
+    const con = trailsOf(glide(air, idOf(air, 'wasp'), HALF_WAY_MS).state)[0];
     expect(con.lift).toBe(CONTRAIL_LIFT);
     expect(con.color).toBeUndefined();
     // in the world: dust over the tilted ground, the wake at the water level whatever the ground is, the contrail up where aircraft fly
@@ -802,12 +812,12 @@ describe('the attack camera, from the plan', () => {
   const info = analyseStep(base, frame0, walkAndShoot, plan);
 
   it('eases in before the first strike, holds through it, and is gone as the attack ends', () => {
-    // the glide is 280 ms, the strike 280..660, the counter 660..1040; the window is 80..1280
-    expect(hitAt.startMs).toBe(280);
-    expect(attackAt(plan, info, 80)).toBeNull(); // exactly 0 at the start of the window
-    const mid = attackAt(plan, info, 500)!;
+    // the glide is 480 ms (two tiles at 240), the strike 480..860, the counter 860..1240; the window is 280..1480
+    expect(hitAt.startMs).toBe(480);
+    expect(attackAt(plan, info, 280)).toBeNull(); // exactly 0 at the start of the window
+    const mid = attackAt(plan, info, 700)!;
     expect(mid.strength).toBe(1);
-    const early = attackAt(plan, info, 200)!;
+    const early = attackAt(plan, info, 380)!;
     expect(early.strength).toBeGreaterThan(0);
     expect(early.strength).toBeLessThan(1);
     expect(attackAt(plan, info, plan.durationMs + 5)).toBeNull();
@@ -817,10 +827,10 @@ describe('the attack camera, from the plan', () => {
     expect(attackAt(plan, info, last.startMs + last.durMs + 100)!.strength).toBeLessThan(1);
   });
   it('looks at the two units of the strike under way: the attacker\'s tile and the defender\'s, then the counter\'s the other way round', () => {
-    const first = attackAt(plan, info, 400)!;
+    const first = attackAt(plan, info, 600)!;
     expect(first.from).toEqual(pt(2));
     expect(first.to).toEqual(pt(3));
-    const counter = attackAt(plan, info, 800)!;
+    const counter = attackAt(plan, info, 1000)!;
     expect(counter.from).toEqual(pt(3));
     expect(counter.to).toEqual(pt(2));
   });
@@ -848,7 +858,7 @@ describe('the attack camera, from the plan', () => {
     for (let t = 0; t < p.durationMs; t += 20) expect(attackAt(p, analyseStep(frame0, frame0, [], p), t)).toBeNull();
   });
   it('mapStage carries it', () => {
-    const s = mapStage({ frame: frame0, prev: base, plan, sample: sampleTransition(plan, 500), t: 500, info, step: 1 });
+    const s = mapStage({ frame: frame0, prev: base, plan, sample: sampleTransition(plan, 700), t: 700, info, step: 1 });
     expect(s.attack).toMatchObject({ strength: 1, from: pt(2), to: pt(3) });
     const rest = mapStage({ frame: frame0, prev: base, plan, sample: null, t: 0, info, step: 1 });
     expect(rest.attack).toBeNull();

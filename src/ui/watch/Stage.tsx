@@ -1,8 +1,10 @@
 // The stage: the board with its units and effects, the turn-banner sweep and the power cut-in. It draws one timeline step, and while a
 // step's transition plan is running it samples the plan every animation frame (transition.ts) and draws the in-between picture.
+// G18: it draws nothing above the board any more. The cycle and whose turn it is are the slim bar's chip (Bar.tsx), the switches are the View
+// menu's, and what is left over the board's corner is the victory chip and the ion storm.
 // Only the viewer's own frame and filtered events reach this file, so a fogged viewer's board can only show what it was told.
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactElement, ReactNode } from 'react';
+import type { CSSProperties, ReactElement } from 'react';
 import { displayHp } from '../../game/aw';
 import type { Coord, Unit } from '../../game/aw';
 import { CutIn } from './CutIn';
@@ -25,8 +27,6 @@ export interface StageProps {
   /** Called once when a plan has run to its end. */
   onDone: (plan: TransitionPlan) => void;
   reducedMotion: boolean;
-  /** Shown at the right of the chips row under the turn banner (the viewer toggle). */
-  toolbar?: ReactNode;
   /** How the view names its seats (WatchView's `people`). Absent: the banner, the victory chip and the labels name nations, as ever. */
   seats?: Seats;
 }
@@ -227,7 +227,7 @@ function NumberItem({ n, tile }: { n: NumberSample; tile: number }): ReactElemen
 
 // ---------------------------------------------------------------- the stage
 
-export function Stage({ timeline, step, plan, onDone, reducedMotion, toolbar, seats }: StageProps): ReactElement {
+export function Stage({ timeline, step, plan, onDone, reducedMotion, seats }: StageProps): ReactElement {
   const cur = timeline.steps[step];
   const frame = cur.frame;
   const homes = useMemo(() => homeFacings(timeline.steps[0].frame), [timeline]);
@@ -260,9 +260,9 @@ export function Stage({ timeline, step, plan, onDone, reducedMotion, toolbar, se
   const sample = useMemo(() => (plan && running ? sampleTransition(plan, t) : null), [plan, running, t]);
 
   // Board size: the largest tile that fits the space, else the smallest with the board scrolling inside its frame.
-  // Where the page fits the screen (watch.css sets --aww-fit to 1 in the two-column layout) the board's cell is exactly as tall as the
-  // page leaves it, so the tile is chosen to fill that cell. Stacked (--aww-fit 0) there is no height to fill: a screenful less the
-  // banner row and the controls stands in.
+  // The page fits the screen (watch.css sets --aww-fit to 1): the board's cell is exactly as tall as the bar and the playback row leave it, so
+  // the tile is chosen to fill that cell. Without the stylesheet (--aww-fit unset) there is no height to fill: a screenful less the bar and the
+  // controls stands in.
   const wrapRef = useRef<HTMLDivElement>(null);
   const boardWrapRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -273,7 +273,7 @@ export function Stage({ timeline, step, plan, onDone, reducedMotion, toolbar, se
     const measure = (): void => {
       const cell = boardWrapRef.current;
       const fits = cell !== null && getComputedStyle(el).getPropertyValue('--aww-fit').trim() === '1';
-      setAvail({ w: el.clientWidth, h: Math.max(280, fits ? cell.clientHeight - 2 : window.innerHeight - 210) });
+      setAvail({ w: el.clientWidth, h: Math.max(280, fits ? cell.clientHeight - 2 : window.innerHeight - 140) });
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -305,25 +305,18 @@ export function Stage({ timeline, step, plan, onDone, reducedMotion, toolbar, se
     }
   }, [step, tile, focus]);
 
+  // The seats the view names (G15): who won, and which sides draw the unmarked mark on the board.
   const bannerFaction = frame.players[frame.current]?.faction ?? 'helion';
-  const bannerCommander = commanderNameOf(frame.players[frame.current]?.commander ?? '');
-  // The seats the view names (G15): who a banner is for, who won, and which sides draw the unmarked mark on the board.
-  const bannerSeat = bannerSeatOf(seats, frame.current, bannerFaction);
   const maskedSeats = useMemo(() => frame.players.map((p) => isMasked(seats, p.index)), [frame.players, seats]);
   const turnWord = ownerOf(seats, frame.current, bannerFaction);
 
   return (
     <div className="aww-stage" ref={wrapRef}>
-      <div className="aww-banner-row">
-        <TurnBanner key={`${frame.cycle}-${frame.current}`} className="aww-turn-banner" cycle={frame.cycle} faction={bannerFaction} commander={bannerCommander} seat={bannerSeat} />
-        <div className="aww-chips">
-          <VictoryChip frame={frame} seats={seats} />
-          <span className="aww-chip caption">{frame.viewer === 'all' ? 'Omniscient view' : frame.fogActive ? 'Fog of war' : 'No fog'}</span>
-          {frame.weather === 'ionstorm' && <span className="aww-chip caption aww-chip--warn">Ion storm</span>}
-          {toolbar && <div className="aww-toolbar">{toolbar}</div>}
-        </div>
-      </div>
       <div className="aww-board-wrap" ref={boardWrapRef}>
+        <div className="aww-boardchips">
+          <VictoryChip frame={frame} seats={seats} />
+          {frame.weather === 'ionstorm' && <span className="aww-chip caption aww-chip--warn">Ion storm</span>}
+        </div>
         <div className="aww-frame" ref={frameRef} role="group" aria-label={`Battlefield, cycle ${frame.cycle}, ${turnWord} turn`}>
           <div className="aww-board" style={{ width: board.width, height: board.height }} data-tile={tile} data-step={step}>
             <TerrainLayer frame={frame} tile={tile} cursor={running ? undefined : focus} />

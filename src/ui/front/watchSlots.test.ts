@@ -42,12 +42,12 @@ describe('the watch view\'s overlay, onStep and hold slots', () => {
     expect(render({ hold: true, onStep: () => {}, autoPlay: true })).toBe(render({ autoPlay: true }));
   });
 
-  it('puts the overlay inside the stage area, after the board and before the side column', () => {
+  it('puts the overlay inside the stage area, after the board and before the playback row', () => {
     const h = render({ overlay: probe });
     expect(h).toContain('<div class="aww-main"><div class="aww-stagebox"><div class="aww-stage"');
     expect(h).toContain(`<div class="aww-overlay">${PROBE}</div></div>`);
     expect(h.indexOf('class="aww-stage"')).toBeLessThan(h.indexOf('class="aww-overlay"'));
-    expect(h.indexOf('class="aww-overlay"')).toBeLessThan(h.indexOf('class="aww-side"'));
+    expect(h.indexOf('class="aww-overlay"')).toBeLessThan(h.indexOf('class="aww-bottom"'));
     expect(h.indexOf('class="aww-board-wrap"')).toBeLessThan(h.indexOf('class="aww-overlay"'));
     // known-bad twin: without it there is no probe anywhere
     expect(base).not.toContain('story-probe');
@@ -65,8 +65,12 @@ describe('the watch view\'s overlay, onStep and hold slots', () => {
     expect(h).toContain('<div class="aww-overlay"></div>');
   });
 
-  it('keeps the viewer toggle, the controls, the intel card and the log when an overlay is given', () => {
-    const h = render({ overlay: probe, onViewerChange: () => {} });
+  it('keeps the viewer toggle, the controls, the intel card and the log when an overlay is given (G18: the last three are in the drawer, once it is open)', () => {
+    const h = render({ overlay: probe, onViewerChange: () => {}, initialDrawer: 'players' });
     for (const part of ['aww-viewer', 'aww-controls', 'aww-intel', 'aww-log', 'aww-huds']) expect(h, part).toContain(part);
+    // shut, the drawer's three are not drawn and the other two are
+    const shut = render({ overlay: probe, onViewerChange: () => {} });
+    for (const part of ['aww-viewer', 'aww-controls']) expect(shut, part).toContain(part);
+    for (const part of ['aww-intel', 'aww-log', 'aww-huds']) expect(shut, part).not.toContain(part);
   });
 });

@@ -1,6 +1,6 @@
 // The front door as a whole: the title without WebGL2, each route's screen, and the legacy demo link opening exactly the view it opened
 // before the front door existed. Rendered on the server with every lazy chunk resolved.
-import { createElement } from 'react';
+import { Fragment, createElement } from 'react';
 import type { ReactElement } from 'react';
 import { renderToStaticMarkup, renderToPipeableStream, renderToString } from 'react-dom/server';
 import { Writable } from 'node:stream';
@@ -118,9 +118,11 @@ describe('the demo links that existed before the front door', () => {
     // what the old main.tsx rendered for this hash: the demo match, the hash read once, the viewer toggle on
     const match = buildDemoMatch();
     const initial = parseHash(hash, match.setup.players.length);
+    // G18: the demo's slim bar says where it is and the way back (its `lead`), and nothing else about it is different from the bare watch view
+    const lead = createElement(Fragment, null, createElement('a', { className: 'awf-back label', href: '#/' }, 'Title'), createElement('span', { className: 'awf-watchbar-id label' }, 'Watch a battle'));
     return renderToString(createElement(WatchView, {
       setup: match.setup, actions: match.actions, viewer: initial.viewer ?? 0, onViewerChange: () => {},
-      initialStep: initial.step, initialSpeed: initial.speed, autoPlay: initial.play ?? initial.step === undefined, onPositionChange: () => {},
+      initialStep: initial.step, initialSpeed: initial.speed, autoPlay: initial.play ?? initial.step === undefined, onPositionChange: () => {}, lead,
     }));
   };
 
@@ -130,7 +132,10 @@ describe('the demo links that existed before the front door', () => {
       const want = bare(expectedFor(hash));
       expect(want).toContain('aww-root');
       expect(got).toBe(want);
-      expect(got).not.toContain('awf-');
+      // the demo is the watch view and nothing of the front door but the way back that its slim bar carries (G18)
+      const way = '<a class="awf-back label" href="#/">Title</a><span class="awf-watchbar-id label">Watch a battle</span>';
+      expect(got).toContain(way);
+      expect(got.replace(way, '')).not.toContain('awf-');
     });
   }
 

@@ -8,48 +8,89 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 #root { min-height: 100vh; }
 
 .aww-root, .aww-root * { box-sizing: border-box; }
-.aww-root { max-width: 1480px; margin: 0 auto; padding: var(--space-4); }
 .aww-root button { font: inherit; }
 
-/* ---- page layout: board column + side column; stacked on a phone ---- */
-.aww-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  grid-template-areas: "stage side" "bottom side";
-  gap: var(--space-4) var(--space-6);
-  align-items: start;
-}
-.aww-stage { grid-area: stage; min-width: 0; position: relative; }
-.aww-side { grid-area: side; display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
-.aww-bottom { grid-area: bottom; display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-@media (max-width: 900px) {
-  .aww-root { padding: var(--space-3) var(--space-4) var(--space-6); }
-  .aww-main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "stage" "bottom" "side"; gap: var(--space-4); }
-}
+/* ---- page layout (G18, D-023): the board first. ONE slim bar above it, ONE row of playback below it, and a drawer over the board's edge that
+   the viewer opens. The page is exactly one screen tall: the window less the chrome above it (--aww-chrome-h, which the page that hosts the view
+   sets once: 0 now that the bar is the view's own). The board takes every pixel the bar and the playback row leave. A window too short for the
+   board scrolls, as it always did. ---- */
+.aww-root { --aww-fit: 1; display: flex; flex-direction: column; height: calc(100vh - var(--aww-chrome-h, 0px)); height: calc(100dvh - var(--aww-chrome-h, 0px)); min-height: 360px; }
+.aww-main { flex: 1 1 0; min-height: 0; position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "stage" "bottom"; }
+.aww-stage, .aww-stagebox { grid-area: stage; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.aww-stagebox > .aww-stage { flex: 1 1 0; }
+.aww-bottom { grid-area: bottom; min-width: 0; display: flex; flex-direction: column; padding: var(--space-2) var(--space-4) var(--space-3); border-top: 1px solid var(--line); background: var(--panel); }
 
-/* ---- turn banner row ---- */
-.aww-banner-row { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); }
-.aww-turn-banner { width: 100%; }
-.aww-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: 22px; }
+/* ---- the slim bar: lead (the screen's back link and title) | the cycle, whose turn, your funds | Orders, Details, View ---- */
+.aww-bar {
+  position: relative; z-index: 7; flex: none; height: 48px; padding: 0 var(--space-4);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--space-3);
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.aww-bar-lead { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.aww-bar-lead > .awf-watchbar-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aww-bar-mid { display: flex; align-items: center; justify-content: center; gap: var(--space-4); min-width: 0; }
+.aww-turn { display: inline-flex; align-items: center; gap: var(--space-3); }
+.aww-turn-cycle { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.aww-turn-who {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 var(--space-3) 0 var(--space-2); white-space: nowrap;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+.aww-funds { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; padding-left: var(--space-4); border-left: 1px solid var(--line); }
+.aww-funds-num { color: var(--ink); }
+.aww-toolbar-row { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
+.aww-toolbar-row > * { flex: none; }
+.aww-details { gap: var(--space-2); }
+.aww-count {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--signal); color: var(--on-signal); font-weight: 700; line-height: 1; text-transform: none;
+}
+.aww-viewmenu { position: relative; display: inline-flex; }
+.aww-viewbtn { gap: var(--space-1); }
+.aww-chevron { transition: transform 120ms ease-out; }
+.aww-viewmenu[data-open='yes'] .aww-chevron { transform: rotate(180deg); }
+.aww-viewpop {
+  position: absolute; top: calc(100% + var(--space-2)); right: 0; z-index: 30; width: max-content; max-width: min(440px, calc(100vw - 32px));
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); padding: var(--space-3) var(--space-4);
+  background: var(--panel); border: 1px solid var(--line-strong); box-shadow: var(--shadow-panel);
+}
+.aww-viewpop[hidden] { display: none; }
 .aww-chip {
   display: inline-flex; align-items: center; height: 22px; padding: 0 var(--space-2);
   border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink-muted); white-space: nowrap;
 }
 .aww-chip--warn { border-color: var(--warn); color: var(--warn); }
-.aww-toolbar { margin-left: auto; }
-@media (min-width: 901px) {
-  /* The toolbar takes what the chips leave of the row instead of wrapping under them, and wraps its own two groups when that is short:
-     in a narrow stage (1024 px wide) that saves the board a row's height. */
-  .aww-toolbar { flex: 1 1 0; min-width: 0; }
-}
 .aww-victory {
   display: inline-flex; align-items: center; gap: var(--space-2); height: 26px; padding: 0 var(--space-3);
   border: 1px solid var(--signal); background: var(--signal-soft); color: var(--signal); text-transform: uppercase;
 }
+/* what is left over the board's corner: the victory chip and the ion storm */
+.aww-boardchips { position: absolute; top: var(--space-3); left: var(--space-3); z-index: 4; display: flex; flex-wrap: wrap; gap: var(--space-2); pointer-events: none; }
+.aww-boardchips:empty { display: none; }
+@media (max-width: 1180px) {
+  /* the middle and the buttons keep their own width and the back link and title take what is left, so the title is cut short before anything else is */
+  .aww-bar { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .aww-bar-mid { justify-content: flex-start; }
+}
+@media (max-width: 1000px) {
+  /* two short rows: back link and the three buttons, then the cycle, whose turn and the funds */
+  .aww-bar { height: auto; padding: var(--space-2) var(--space-3); grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "lead tools" "mid mid"; row-gap: var(--space-2); }
+  .aww-bar-lead { grid-area: lead; }
+  .aww-toolbar-row { grid-area: tools; }
+  .aww-bar-mid { grid-area: mid; justify-content: flex-start; }
+}
+@media (max-width: 520px) {
+  .aw-key { display: none; }
+  /* a phone: the three buttons are packed tighter so the back link keeps its word */
+  .aww-toolbar-row { gap: var(--space-1); }
+  .aww-toolbar-row .aw-btn--sm { padding: 0 var(--space-2); }
+  .aww-bar-mid { gap: var(--space-3); }
+  .aww-funds { padding-left: var(--space-3); }
+}
 
 /* ---- the board: bright map in its own scrolling frame ---- */
-.aww-board-wrap { position: relative; display: flex; justify-content: center; min-width: 0; }
+.aww-board-wrap { position: relative; flex: 1 1 0; min-height: 0; display: flex; justify-content: center; align-items: center; min-width: 0; }
 .aww-frame {
+  align-self: center;
   max-width: 100%; overflow: auto; width: fit-content; max-height: 100%;
   border: 1px solid var(--line-strong); background: var(--map-shade);
   scrollbar-width: thin; scrollbar-color: var(--line-strong) var(--panel);
@@ -68,13 +109,8 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aww-capture { position: absolute; height: 5px; margin: 0 3px; width: calc(100% - 6px); background: var(--map-shade); pointer-events: none; }
 .aww-capture > span { display: block; height: 100%; background: var(--warn); }
 
-/* ---- the 3D stage (board3d/Stage3D): one canvas in a frame the size of the stage ---- */
-.aww-toolbar-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2) var(--space-4); }
-.aww-stage3d {
-  position: relative; width: 100%; aspect-ratio: var(--aww-3d-ratio, 1.6);
-  min-height: 280px; max-height: max(280px, calc(100vh - 234px - var(--aww-chrome-h, 0px)));
-  border: 1px solid var(--line-strong); background: var(--map-shade); overflow: hidden;
-}
+/* ---- the 3D stage (board3d/Stage3D): one canvas filling the board's cell, edge to edge between the bar and the playback row ---- */
+.aww-stage3d { position: relative; width: 100%; height: 100%; min-height: 240px; background: var(--map-shade); overflow: hidden; }
 .aww-stage3d-canvas { display: block; width: 100%; height: 100%; outline: none; }
 .aww-stage3d--loading, .aww-stage3d-fail { display: grid; place-items: center; color: var(--ink-muted); text-align: center; padding: var(--space-4); }
 .aww-stage3d-fail { position: absolute; inset: 0; background: var(--map-shade); }
@@ -176,7 +212,7 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aww-intel-empty { flex: 1; display: grid; place-items: center; padding: var(--space-4); text-align: center; border: 1px dashed var(--line); }
 
 /* ---- event log ---- */
-.aww-log { display: block; width: 100%; height: var(--aww-log-h, clamp(200px, calc(100vh - 562px - var(--aww-chrome-h, 0px)), 420px)); }
+.aww-log { display: block; width: 100%; height: var(--aww-log-h, 100%); }
 .aww-log > .aw-frame-in { display: flex; flex-direction: column; }
 .aww-log-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4) var(--space-2); border-bottom: 1px solid var(--line); }
 .aww-log-toggle { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink-muted); cursor: pointer; }
@@ -224,12 +260,9 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aww-log-jump:hover { background: var(--signal); color: var(--on-signal); }
 .aww-log-jump:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
 
-/* ---- playback controls and the viewer toggle ---- */
-.aww-controls {
-  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4);
-  padding: var(--space-3); border: 1px solid var(--line-strong); background: var(--panel);
-}
-.aww-transport, .aww-speeds { display: flex; gap: var(--space-2); }
+/* ---- playback controls (one row under the board) and the viewer toggle (in the View menu) ---- */
+.aww-controls { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-3) var(--space-4); padding: 0; border: 0; background: transparent; }
+.aww-transport, .aww-speeds { flex: none; display: flex; gap: var(--space-2); }
 .aww-glyph { flex: none; }
 .aw-btn[aria-pressed='true'] { box-shadow: inset 0 0 0 1px var(--on-signal); }
 .aww-scrub { flex: 1 1 220px; display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
@@ -276,14 +309,11 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
 .aww-viewer-opt:hover { background: var(--signal-soft); }
 .aww-viewer-opt:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
 .aww-viewer-opt--on, .aww-viewer-opt--on:hover { background: var(--signal); border-color: var(--signal); color: var(--on-signal); }
-@media (max-width: 900px) {
-  /* The side column stacks under the controls: the intel card comes first, then the players, then the log. */
-  .aww-intel { order: -1; }
-  .aww-log { height: clamp(240px, 36vh, 400px); }
-}
-@media (max-width: 520px) {
-  .aw-key { display: none; }
-  .aww-scrub { flex-basis: 100%; }
+@media (max-width: 640px) {
+  /* a phone: the playback row keeps its three groups on two lines, the scrubber taking the second whole */
+  .aww-controls { flex-wrap: wrap; }
+  .aww-playword { display: none; }
+  .aww-scrub { flex-basis: 100%; order: 3; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -291,44 +321,66 @@ body { min-height: 100vh; overflow-x: hidden; font-family: var(--font-sans); -we
   .aww-log-line, .aww-track-tip { transition: none; }
 }
 
+
+/* ---- the details drawer (G18): Players, Unit intel and the Event log in one panel the viewer opens. A desktop gets 360 px over the board's right
+   edge, in the board's own grid cell (the board is not resized); a phone gets a bottom sheet over the playback row. It sits under the bar (so the
+   Orders panel and the View menu draw over it) and under the story overlay (so the debrief covers it, as it covers everything). ---- */
+.aww-drawer {
+  grid-area: stage; justify-self: end; align-self: stretch; z-index: 6; width: 360px; max-width: 100%; min-height: 0;
+  display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line-strong); box-shadow: -10px 0 28px #000000a6;
+  animation: aww-drawer-in 160ms ease-out backwards;
+}
+/* The drawer wipes in from its own edge. It does not move, so it never reaches past the page, and with no fill after the end the clip is gone
+   when it has finished (a clip would cut the drawer's shadow off). */
+@keyframes aww-drawer-in { from { opacity: 0; clip-path: inset(0 0 0 45%); } to { opacity: 1; clip-path: inset(0); } }
+@keyframes aww-sheet-in { from { opacity: 0; clip-path: inset(45% 0 0 0); } to { opacity: 1; clip-path: inset(0); } }
+.aww-drawer-head { flex: none; height: 44px; display: flex; align-items: stretch; padding: 0 var(--space-2) 0 var(--space-2); border-bottom: 1px solid var(--line); }
+.aww-tabs { flex: 1; display: flex; align-items: stretch; gap: var(--space-1); min-width: 0; }
+.aww-tab {
+  padding: 0 var(--space-3); border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-muted); cursor: pointer; text-transform: uppercase;
+}
+.aww-tab:hover { color: var(--ink); }
+.aww-tab[aria-selected='true'] { color: var(--ink); border-bottom-color: var(--signal); }
+.aww-tab:focus-visible { outline: 2px solid transparent; box-shadow: inset 0 0 0 2px var(--signal); }
+.aww-drawer-close { align-self: center; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; background: transparent; color: var(--ink-muted); cursor: pointer; }
+.aww-drawer-close:hover { color: var(--ink); background: var(--signal-soft); }
+.aww-drawer-close:focus-visible { outline: 2px solid transparent; box-shadow: var(--focus-ring); }
+.aww-drawer-body { flex: 1 1 0; min-height: 0; display: flex; }
+.aww-drawer-panel { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) var(--panel); }
+.aww-drawer-panel[hidden] { display: none; }
+.aww-drawer-panel[data-panel='log'] { padding: 0; overflow: hidden; }
+.aww-drawer-panel[data-panel='log'] > .aww-log { flex: 1 1 0; height: auto; min-height: 0; }
+.aww-drawer-panel[data-panel='log'] > .aww-log > .aw-frame-in { height: 100%; }
+.aww-drawer .aww-intel, .aww-drawer .aww-log { clip-path: none; background: transparent; padding: 0; }
+.aww-drawer .aww-log > .aw-frame-in, .aww-drawer .aww-intel > .aw-frame-in { clip-path: none; background: transparent; }
+.aww-drawer-panel[data-panel='players'] > .aww-huds { flex: none; }
+/* the tab already says "Unit intel" and "Event log": the cards' own captions go, and what is left of their heads (the reason; the moves switch) stays */
+.aww-drawer .aww-intel-head > .aw-kicker, .aww-drawer .aww-log-head > .label { display: none; }
+.aww-drawer .aww-intel-head { justify-content: flex-start; }
+.aww-drawer .aww-log-head { justify-content: flex-end; }
+.aww-drawer-panel[data-panel='intel'] > .aww-intel { flex: none; }
+/* the zoom buttons of the 3D board step aside for the drawer */
+@media (min-width: 701px) {
+  .aww-root:not([data-drawer='closed']) .aww-zoom { right: calc(360px + var(--space-3)); }
+}
+@media (max-width: 700px) {
+  .aww-drawer {
+    position: fixed; grid-area: auto; justify-self: stretch; left: 0; right: 0; bottom: 0; top: auto; width: 100%; height: min(64vh, 560px); height: min(64dvh, 560px);
+    border-left: 0; border-top: 1px solid var(--line-strong); box-shadow: 0 -10px 28px #000000a6; animation-name: aww-sheet-in;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aww-drawer { animation: none; }
+  .aww-chevron { transition: none; }
+}
+
 /* ---- the overlay slot (G13): a mission's dialogue over the bottom of the board. Only drawn when a view is given an `overlay`; without
-   one the stage sits straight in the page grid, as it always did. The box takes the stage's grid cell and anchors the overlay to the
-   board's bottom edge; the overlay itself lets pointer events through, and what it holds takes them back. ---- */
-.aww-stagebox { grid-area: stage; min-width: 0; position: relative; }
+   one the stage sits straight in the page grid. The box takes the stage's grid cell and anchors the overlay to the board's bottom edge; the
+   overlay itself lets pointer events through, and what it holds takes them back. ---- */
 .aww-overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; pointer-events: none; }
 .aww-overlay > * { pointer-events: auto; }
 
-/* ---- the page fits the window (G15) ----
-   In the two-column layout the page is exactly one screen tall: the window less the chrome above it (--aww-chrome-h, which the page that
-   hosts the view sets once: 0 when the view stands alone, the "Back to briefing" strip's height on the deployed screen). The stage takes
-   the height the controls leave, the board fills the stage, and in the side column the log takes what the player panels and the intel card
-   leave, never less than --aww-log-min. A window too short for all of that scrolls, as it always did. Stacked (900px and under) it is the
-   long single column it was, and --aww-fit says which of the two applies, so Stage.tsx sizes its board for the layout in force. */
-.aww-root { --aww-fit: 0; --aww-log-min: 120px; --aww-stage-min: 400px; }
-@media (min-width: 901px) {
-  .aww-root {
-    --aww-fit: 1;
-    height: calc(100vh - var(--aww-chrome-h, 0px));
-    height: calc(100dvh - var(--aww-chrome-h, 0px));
-  }
-  .aww-main { height: 100%; grid-template-rows: minmax(var(--aww-stage-min), 1fr) auto; }
-  .aww-stage, .aww-stagebox { align-self: stretch; min-height: 0; }
-  .aww-stage, .aww-stagebox > .aww-stage { display: flex; flex-direction: column; }
-  .aww-stagebox { display: flex; flex-direction: column; }
-  .aww-stagebox > .aww-stage { flex: 1 1 0; }
-  .aww-banner-row { flex: none; }
-  .aww-board-wrap { flex: 1 1 0; min-height: 0; align-items: center; }
-  .aww-frame { align-self: center; }
-  .aww-board-wrap > .aww-stage3d { align-self: stretch; aspect-ratio: auto; height: 100%; max-height: none; }
-  .aww-side { align-self: stretch; min-height: 0; }
-  .aww-intel { flex: none; }
-  .aww-log { flex: 1 1 0; height: var(--aww-log-h, auto); min-height: var(--aww-log-min); max-height: 420px; }
-  /* Four or five player panels cannot share a short window with the intel card and a log: the column scrolls in itself, so the page never
-     does and the playback bar stays where it is. */
-  .aww-side:has(.aww-huds--many) { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) var(--panel); }
-}
-
-/* Three or more panels share the side column with the intel card and the log, so each panel is drawn tighter (Hud.tsx TIGHT_AT). */
+/* Three or more panels share the drawer's Players tab, so each panel is drawn tighter (Hud.tsx TIGHT_AT). */
 .aww-huds--tight { gap: var(--space-2); }
 .aww-huds--tight .aw-hud > .aw-frame-in { gap: var(--space-2); padding: 5px var(--space-3) 5px 5px; }
 .aww-huds--tight .aw-hud-body { gap: 1px; }

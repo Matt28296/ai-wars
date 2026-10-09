@@ -1,6 +1,7 @@
 // <Stage3D {...StageProps} /> is the 3D diorama stage, a drop-in for the SVG Stage (D-018). Same props, same DOM around the board
-// (turn banner, chips row, toolbar slot, banner sweep, power cut-in); the board itself is one WebGL canvas drawn by StageRuntime, which
-// samples the same transition plan every animation frame. The HUD, log and controls stay React/DOM, outside this component.
+// (board chips, banner sweep, power cut-in); the board itself is one WebGL canvas drawn by StageRuntime, which samples the same transition
+// plan every animation frame. The bar, the drawer and the playback controls stay React/DOM, outside this component (G18: the cycle and whose
+// turn it is are the slim bar's chip, so this stage draws no banner row and no toolbar of its own).
 //
 // This is a viewer's camera and nothing more: wheel and +/- zoom, drag pans, and nothing selects or commands a unit (D-004, D-007).
 // Only the viewer's own frame and filtered events reach the runtime, so a fogged viewer's board can only show what it was told (D-016).
@@ -23,7 +24,7 @@ export interface Stage3DProps extends StageProps {
   onFail?: (reason: string) => void;
 }
 
-export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, seats, onFail }: Stage3DProps): ReactElement {
+export function Stage3D({ timeline, step, plan, onDone, reducedMotion, seats, onFail }: Stage3DProps): ReactElement {
   const cur = timeline.steps[Math.min(step, timeline.last)];
   const frame = cur.frame;
   const hostRef = useRef<HTMLDivElement>(null);
@@ -34,6 +35,9 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
   // The quality tier in force (high, medium, low): the runtime picks it from the machine, `?quality=` forces it, and a slow stretch lowers it.
   // It is shown as data-quality for the viewer's report and the tests; nothing in the page reads it back.
   const [quality, setQuality] = useState<QualityTier | null>(null);
+  // The internal render scale in force (1, 0.85, 0.7, 0.5): the drawing buffer shrinks and the canvas keeps its CSS size. Shown as data-scale for the
+  // motion recorder's driver (scripts/motion.mjs) and the tests, like the tier above; nothing in the page reads it back.
+  const [scale, setScale] = useState<number | null>(null);
 
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
@@ -51,7 +55,10 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
         onDone: (p) => onDoneRef.current(p),
         onOverlay: setOverlay,
         onZoom: setZoom,
-        onQuality: setQuality,
+        onQuality: (tier, _pinned, s) => {
+          setQuality(tier);
+          setScale(s ?? 1);
+        },
         onFail: (reason) => {
           setFailed(reason);
           onFailRef.current?.(reason);
@@ -82,22 +89,16 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
   }, [timeline, step, plan, reducedMotion, maskedOwners]);
 
   const bannerFaction = frame.players[frame.current]?.faction ?? 'helion';
-  const bannerCommander = commanderNameOf(frame.players[frame.current]?.commander ?? '');
   const sweep = overlay?.banner ?? null;
   const cutIn = overlay?.cutIn ?? null;
 
   return (
     <div className="aww-stage" data-renderer="3d">
-      <div className="aww-banner-row">
-        <TurnBanner key={`${frame.cycle}-${frame.current}`} className="aww-turn-banner" cycle={frame.cycle} faction={bannerFaction} commander={bannerCommander} />
-        <div className="aww-chips">
-          <VictoryChip frame={frame} seats={seats} />
-          <span className="aww-chip caption">{frame.viewer === 'all' ? 'Omniscient view' : frame.fogActive ? 'Fog of war' : 'No fog'}</span>
-          {frame.weather === 'ionstorm' && <span className="aww-chip caption aww-chip--warn">Ion storm</span>}
-          {toolbar && <div className="aww-toolbar">{toolbar}</div>}
-        </div>
-      </div>
       <div className="aww-board-wrap">
+        <div className="aww-boardchips">
+          <VictoryChip frame={frame} seats={seats} />
+          {frame.weather === 'ionstorm' && <span className="aww-chip caption aww-chip--warn">Ion storm</span>}
+        </div>
         <div
           className="aww-stage3d"
           ref={hostRef}
@@ -105,6 +106,7 @@ export function Stage3D({ timeline, step, plan, onDone, reducedMotion, toolbar, 
           aria-label={`Battlefield in 3D, cycle ${frame.cycle}, ${ownerOf(seats, frame.current, bannerFaction)} turn`}
           data-step={step}
           data-quality={quality ?? undefined}
+          data-scale={scale ?? undefined}
           style={{ ['--aww-3d-ratio' as string]: stageAspect({ width: frame.width, height: frame.height }).toFixed(3) }}
         >
           {failed !== null && <div className="aww-stage3d-fail label">The 3D view is unavailable here. Switch to the flat board.</div>}

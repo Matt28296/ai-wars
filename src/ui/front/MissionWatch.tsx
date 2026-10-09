@@ -6,19 +6,25 @@
 // G14: the battle can be LIVE. Then `result.actions` grows while it plays and `live` says whether more may still come: the watch view waits
 // at the edge of what is computed, the Orders button sits in its toolbar, the log gets a line where the player's orders changed, and the
 // debrief says which orders were used. Nothing of that is there without `live`, and a battle without it is drawn as it always was.
+//
+// G18 (D-023): the battle screen's one slim bar is the watch view's own, and this is where its left end comes from: the way back to the briefing and
+// the mission's name. Deploy's old strip above the view says the same and is hidden (front.css), because DeployView sits outside this order's files.
 import { useCallback, useMemo, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import type { Mission } from '../../content/types';
 import type { OrderChange } from '../../agent/match';
 import type { StandingOrders } from '../../game/doctrine';
 import { WatchView } from '../watch';
+import type { DrawerTab } from '../watch/drawer';
 import { extendRecord } from '../watch/timeline';
 import type { MatchRecord, Viewer } from '../watch/timeline';
+import { pad2 } from './campaign';
 import { nextMissionOf, resultCardOf } from './debrief';
 import type { DeployResult } from './deploy';
 import { scriptFor } from './missionScript';
 import { notesOf, summariseOrders } from './ordersModel';
 import { OrdersControl } from './OrdersControl';
+import { hrefs } from './router';
 import { seatsOfMission } from './seats';
 import { StoryOverlay } from './StoryOverlay';
 import { holdsPlayback, initialStory, storyReducer, viewOf } from './storyState';
@@ -47,16 +53,18 @@ export interface MissionWatchProps {
   live?: LiveControl;
   /** Opens the Orders panel when the view opens (tests and screenshots). */
   ordersOpen?: boolean;
+  /** Opens the details drawer on this tab when the view opens (tests and screenshots). */
+  drawerOpen?: DrawerTab;
 }
 
 /** The battle with its story. "Watch again" starts the whole viewing over: a new watch view and a new story, so every line is heard again. */
-export function MissionWatch({ mission, result, initialStep, initialViewer, live, ordersOpen }: MissionWatchProps): ReactElement {
+export function MissionWatch({ mission, result, initialStep, initialViewer, live, ordersOpen, drawerOpen }: MissionWatchProps): ReactElement {
   const [viewing, setViewing] = useState(0);
   const again = useCallback(() => setViewing((n) => n + 1), []);
-  return <Viewing key={viewing} mission={mission} result={result} initialStep={initialStep} initialViewer={initialViewer} live={live} ordersOpen={ordersOpen} onWatchAgain={again} />;
+  return <Viewing key={viewing} mission={mission} result={result} initialStep={initialStep} initialViewer={initialViewer} live={live} ordersOpen={ordersOpen} drawerOpen={drawerOpen} onWatchAgain={again} />;
 }
 
-function Viewing({ mission, result, initialStep, initialViewer, live, ordersOpen, onWatchAgain }: MissionWatchProps & { onWatchAgain: () => void }): ReactElement {
+function Viewing({ mission, result, initialStep, initialViewer, live, ordersOpen, drawerOpen, onWatchAgain }: MissionWatchProps & { onWatchAgain: () => void }): ReactElement {
   const [viewer, setViewer] = useState<Viewer>(initialViewer ?? 0);
   // The battle screen names the sides as the mission's own briefing does (people.ts sidePerson), so it cannot name a nation the story has
   // not: mission 1's drones are "Unmarked drones" here too, and the player's agent is "You", not a second "Helion".
@@ -103,6 +111,13 @@ function Viewing({ mission, result, initialStep, initialViewer, live, ordersOpen
       live={live ? { open } : undefined}
       logNotes={notes}
       ordersSlot={open && live ? <OrdersControl orders={live.orders} pending={live.pending} onChange={live.onOrders} initialOpen={ordersOpen} /> : undefined}
+      lead={
+        <>
+          <a className="awf-back label" href={hrefs.briefing(mission.id)}>Back<span className="awf-back-more"> to briefing</span></a>
+          <span className="awf-watchbar-id label">Mission {pad2(mission.order)} · {mission.title}</span>
+        </>
+      }
+      initialDrawer={drawerOpen}
       overlay={
         <StoryOverlay
           mission={mission}

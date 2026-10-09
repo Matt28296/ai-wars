@@ -3,9 +3,10 @@
 // stretch, the tier never climbs), never read back from the implementation.
 import { describe, expect, it } from 'vitest';
 import {
-  ADAPT, AdaptiveQuality, TIERS, TIER_ORDER, chooseStartTier, isSoftwareRenderer, passNames, qualityFromSearch, readSignals, tierBelow,
+  ADAPT, AdaptiveQuality, REMEMBER_KEY, REMEMBER_MS, RENDER_SCALES, TIERS, TIER_ORDER, WIDE_CANVAS_PX, chooseStartTier, isRenderScale, isSoftwareRenderer, passNames,
+  qualityFromSearch, readRemembered, readSignals, scaleBelow, scaleFloorFor, scaleFromSearch, tierBelow, writeRemembered,
 } from './quality';
-import type { GlLike, QualitySignals, QualityTier } from './quality';
+import type { GlLike, QualitySignals, QualityTier, StorageLike } from './quality';
 
 const SWIFTSHADER = 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)';
 const LLVMPIPE = 'ANGLE (Mesa, llvmpipe (LLVM 15.0.7, 256 bits), OpenGL 4.5)';
@@ -292,5 +293,265 @@ describe('it never climbs back on its own', () => {
     expect(neverClimbs(bad.tiers)).toBe(false); // the check refuses it
     // and the check is not vacuous: it accepts the real step on the very same trace
     expect(neverClimbs(drive(new AdaptiveQuality('high'), oscillating).tiers)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------- the render scale below the lowest tier (P1)
+
+/** Feeds a trace and returns every (tier, scale) change in order, so a drop of either kind is seen. */
+function driveScale(a: AdaptiveQuality, trace: Run[], from = 1000): { states: string[]; end: number } {
+  let now = from;
+  const states: string[] = [];
+  let last = `${a.tier}@${a.scale}`;
+  for (const [ms, count] of trace) {
+    for (let i = 0; i < count; i++) {
+      now += ms;
+      a.push(ms, now);
+      const cur = `${a.tier}@${a.scale}`;
+      if (cur !== last) {
+        states.push(cur);
+        last = cur;
+      }
+    }
+  }
+  return { states, end: now };
+}
+
+describe('the render scale is a short ladder, written out here', () => {
+  it('is 1, 0.85, 0.7, 0.5, and each step down is the next number on it', () => {
+    expect([...RENDER_SCALES]).toEqual([1, 0.85, 0.7, 0.5]);
+    expect(scaleBelow(1)).toBe(0.85);
+    expect(scaleBelow(0.85)).toBe(0.7);
+    expect(scaleBelow(0.7)).toBe(0.5);
+    expect(scaleBelow(0.5)).toBeNull();
+    expect(scaleBelow(0.6)).toBeNull(); // not on the ladder: no step from it
+    for (const v of [1, 0.85, 0.7, 0.5]) expect(isRenderScale(v), String(v)).toBe(true);
+    for (const v of [0, 0.6, 2, -1, Number.NaN, '1', null]) expect(isRenderScale(v), String(v)).toBe(false);
+  });
+});
+
+describe('?scale= pins the render scale', () => {
+  it('reads the four scales anywhere in the query', () => {
+    expect(scaleFromSearch('?scale=1')).toBe(1);
+    expect(scaleFromSearch('?scale=0.85')).toBe(0.85);
+    expect(scaleFromSearch('scale=0.7')).toBe(0.7);
+    expect(scaleFromSearch('?quality=low&scale=0.5&probe=motion')).toBe(0.5);
+    expect(scaleFromSearch('?scale=0%2E5')).toBe(0.5); // percent-encoded
+  });
+
+  it('asks for nothing when it is absent, unknown, empty or malformed (known-bad: none of these is a scale)', () => {
+    for (const s of ['', '?', '?scale=', '?scale=0', '?scale=0.6', '?scale=2', '?scale=.5', '?scale=1.0', '?scale=0.50', '?scale=%201', '?scale=abc', '?scale=0.5,1', '?scal=0.5', '?xscale=0.5', '?scale=%E0%A4%A', '?scale=-1', '?scale=1e0']) {
+      expect(scaleFromSearch(s), s).toBeNull();
+    }
+  });
+});
+
+describe('the render scale steps down only from the lowest tier, only down, and only on a full slow window', () => {
+  it('a tier above low drops the TIER first: the scale stays 1 all the way down to low', () => {
+    const a = new AdaptiveQuality('high');
+    const r = driveScale(a, [WARM, SLOW(400)]);
+    expect(r.states.slice(0, 2)).toEqual(['medium@1', 'low@1']); // tiers first, scale untouched
+    expect(r.states[2]).toBe('low@0.85'); // and only then the scale
+  });
+
+  it('at low it goes 1 -> 0.85 -> 0.7 -> 0.5, each after its own full window with its own warm-up, and then stops', () => {
+    const a = new AdaptiveQuality('low');
+    const r = driveScale(a, [WARM, SLOW(600)]);
+    expect(r.states).toEqual(['low@0.85', 'low@0.7', 'low@0.5']);
+    expect(a.tier).toBe('low');
+    expect(a.scale).toBe(0.5);
+    expect(a.push(500, r.end + 500)).toBeNull(); // nothing is below 0.5
+    expect(a.scale).toBe(0.5);
+  });
+
+  it('each scale step needs a fresh window: two slow stretches of 1 s do not add up to one of 2 s', () => {
+    // a window is windowMs (2 s) long; one second of slow frames, a pause of fast ones that cuts the window, then another second
+    const a = new AdaptiveQuality('low');
+    driveScale(a, [WARM, SLOW(25), FAST(200), SLOW(25), FAST(200)]);
+    expect(a.scale).toBe(1);
+    // known-bad: the same device with a full 2 s slow stretch does step
+    const b = new AdaptiveQuality('low');
+    driveScale(b, [WARM, SLOW(100)]);
+    expect(b.scale).toBe(0.85);
+  });
+
+  it('the first window after a step is cut off by the warm-up: a slow start after the step does not step again at once', () => {
+    const a = new AdaptiveQuality('low');
+    const r = driveScale(a, [WARM, SLOW(100)]);
+    expect(r.states).toEqual(['low@0.85']);
+    // just the warm-up frames of slow, then nothing: no second step
+    driveScale(a, [[200, ADAPT.warmupFrames]]);
+    expect(a.scale).toBe(0.85);
+  });
+
+  it('a single spike, a few long frames, fast frames, and nonsense frames never step it', () => {
+    for (const spike of [[600, 1], [300, 3], [1500, 1], [5000, 1]] as Run[]) {
+      const a = new AdaptiveQuality('low');
+      driveScale(a, [WARM, FAST(60), spike, FAST(200)]);
+      expect(a.scale, JSON.stringify(spike)).toBe(1);
+    }
+    const f = new AdaptiveQuality('low');
+    driveScale(f, [WARM, FAST(2000)]);
+    expect(f.scale).toBe(1);
+    for (const ms of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) f.push(ms, 99_999);
+    expect(f.scale).toBe(1);
+  });
+
+  it('it never climbs: a long fast stretch after the steps leaves the scale where it is', () => {
+    const a = new AdaptiveQuality('low');
+    driveScale(a, [WARM, SLOW(200)]);
+    const at = a.scale;
+    expect(at).toBeLessThan(1);
+    driveScale(a, [FAST(5000)]);
+    expect(a.scale).toBe(at);
+    expect(a.tier).toBe('low');
+  });
+
+  it('a pinned scale is never stepped, at any tier, and the tier still drops on its own', () => {
+    const low = new AdaptiveQuality('low', {}, { scale: 0.7, pinned: true });
+    driveScale(low, [WARM, SLOW(600)]);
+    expect(low.scale).toBe(0.7);
+    const high = new AdaptiveQuality('high', {}, { scale: 1, pinned: true });
+    const r = driveScale(high, [WARM, SLOW(600)]);
+    expect(r.states).toEqual(['medium@1', 'low@1']);
+    expect(high.scale).toBe(1);
+  });
+
+  it('an unpinned scale may start below 1 and goes on from there; one that is not on the ladder starts at 1', () => {
+    const a = new AdaptiveQuality('low', {}, { scale: 0.7 });
+    expect(a.scale).toBe(0.7);
+    driveScale(a, [WARM, SLOW(200)]);
+    expect(a.scale).toBe(0.5);
+    expect(new AdaptiveQuality('low', {}, { scale: 0.6 }).scale).toBe(1);
+  });
+
+  it('answers null for a scale step (it is not a tier drop), so a caller that only reads the answer never rebuilds the passes for it', () => {
+    const a = new AdaptiveQuality('low');
+    const answered: (QualityTier | null)[] = [];
+    let now = 1000;
+    for (let i = 0; i < ADAPT.warmupFrames + 100; i++) {
+      now += i < ADAPT.warmupFrames ? 16 : 40;
+      answered.push(a.push(i < ADAPT.warmupFrames ? 16 : 40, now));
+    }
+    expect(a.scale).toBe(0.85);
+    expect(answered.every((v) => v === null)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------- a phone stops at 0.7
+
+describe('the render scale stops at 0.7 on a narrow canvas and goes on to 0.5 on a wide one', () => {
+  it('the floor is 0.5 from 960 CSS px up and 0.7 below it, and an unknown width counts as wide', () => {
+    expect(WIDE_CANVAS_PX).toBe(960);
+    expect(scaleFloorFor(960)).toBe(0.5);
+    expect(scaleFloorFor(1280)).toBe(0.5);
+    expect(scaleFloorFor(959)).toBe(0.7);
+    expect(scaleFloorFor(959.9)).toBe(0.7);
+    expect(scaleFloorFor(390)).toBe(0.7);
+    expect(scaleFloorFor(1)).toBe(0.7);
+    expect(scaleFloorFor(Number.POSITIVE_INFINITY)).toBe(0.5);
+    expect(scaleFloorFor(Number.NaN)).toBe(0.5);
+  });
+
+  it('a 390 px canvas (a phone) steps 1 -> 0.85 -> 0.7 and stops, however slow it stays', () => {
+    const a = new AdaptiveQuality('low');
+    a.setCanvasWidth(390);
+    const r = driveScale(a, [WARM, SLOW(1200)]);
+    expect(r.states).toEqual(['low@0.85', 'low@0.7']);
+    expect(a.scale).toBe(0.7);
+    expect(a.push(500, r.end + 500)).toBeNull();
+    expect(a.scale).toBe(0.7);
+  });
+
+  it('a 1280 px canvas (a desktop) goes on to 0.5, and a 960 px one too; 959 does not (known-bad: the narrow rule is not a vague "small")', () => {
+    for (const [px, want] of [[1280, 0.5], [960, 0.5], [959, 0.7], [600, 0.7]] as const) {
+      const a = new AdaptiveQuality('low');
+      a.setCanvasWidth(px);
+      driveScale(a, [WARM, SLOW(1200)]);
+      expect(a.scale, `${px} px`).toBe(want);
+    }
+  });
+
+  it('never raises a scale already in force: a canvas that narrows after 0.5 keeps it, and one that widens after 0.7 goes on from there', () => {
+    const a = new AdaptiveQuality('low');
+    a.setCanvasWidth(1280);
+    const first = driveScale(a, [WARM, SLOW(1200)]);
+    expect(a.scale).toBe(0.5);
+    a.setCanvasWidth(390);
+    driveScale(a, [FAST(100), SLOW(300)], first.end);
+    expect(a.scale).toBe(0.5); // one-way: not put back up to 0.7
+    const b = new AdaptiveQuality('low');
+    b.setCanvasWidth(390);
+    const second = driveScale(b, [WARM, SLOW(1200)]);
+    expect(b.scale).toBe(0.7);
+    b.setCanvasWidth(1280);
+    driveScale(b, [SLOW(300)], second.end);
+    expect(b.scale).toBe(0.5);
+  });
+});
+
+// ---------------------------------------------------------------- what the device settled on, remembered
+
+describe('the remembered tier and scale', () => {
+  const NOW = 1_800_000_000_000;
+  const DAY = 24 * 60 * 60 * 1000;
+  const store = (text: string | null): StorageLike => ({ getItem: (k) => (k === REMEMBER_KEY ? text : null), setItem: () => undefined });
+  const at = (ms: number, extra: Record<string, unknown> = {}): string => JSON.stringify({ tier: 'low', scale: 0.7, at: ms, ...extra });
+
+  it('the key is versioned and the memory lasts 7 days', () => {
+    expect(REMEMBER_KEY).toBe('aw.quality.v1');
+    expect(REMEMBER_MS).toBe(7 * DAY);
+  });
+
+  it('a stored state that is fresh is read back: the tier and scale, not the time', () => {
+    expect(readRemembered(store(at(NOW - 1000)), NOW)).toEqual({ tier: 'low', scale: 0.7 });
+    expect(readRemembered(store(at(NOW - 6 * DAY - 23 * 3600_000)), NOW)).toEqual({ tier: 'low', scale: 0.7 });
+    expect(readRemembered(store(at(NOW - REMEMBER_MS + 1)), NOW)).toEqual({ tier: 'low', scale: 0.7 }); // 1 ms before it expires
+    expect(readRemembered(store(JSON.stringify({ tier: 'medium', scale: 1, at: NOW })), NOW)).toEqual({ tier: 'medium', scale: 1 });
+  });
+
+  it('an expired one is not: at exactly 7 days, and after', () => {
+    expect(readRemembered(store(at(NOW - REMEMBER_MS)), NOW)).toBeNull();
+    expect(readRemembered(store(at(NOW - 8 * DAY)), NOW)).toBeNull();
+    expect(readRemembered(store(at(NOW - 400 * DAY)), NOW)).toBeNull();
+  });
+
+  it('a time from the future (a clock that was set back) is not believed beyond a few minutes of skew', () => {
+    expect(readRemembered(store(at(NOW + 60_000)), NOW)).toEqual({ tier: 'low', scale: 0.7 });
+    expect(readRemembered(store(at(NOW + 6 * 60_000)), NOW)).toBeNull();
+    expect(readRemembered(store(at(NOW + 30 * DAY)), NOW)).toBeNull();
+  });
+
+  it('nothing stored, no storage, and anything that is not a state read as nothing (known-bad: each of these must not become a tier)', () => {
+    expect(readRemembered(store(null), NOW)).toBeNull();
+    expect(readRemembered(null, NOW)).toBeNull();
+    expect(readRemembered(undefined, NOW)).toBeNull();
+    for (const text of [
+      '', 'nope', '{', 'null', '7', '[]', '"low"', '{}',
+      JSON.stringify({ tier: 'ultra', scale: 0.7, at: NOW }), JSON.stringify({ tier: 'low', scale: 0.6, at: NOW }), JSON.stringify({ tier: 'low', scale: '0.7', at: NOW }),
+      JSON.stringify({ tier: 'low', scale: 0.7 }), JSON.stringify({ tier: 'low', scale: 0.7, at: 'now' }), JSON.stringify({ tier: 'low', scale: 0.7, at: null }),
+      JSON.stringify({ tier: 'LOW', scale: 0.7, at: NOW }), JSON.stringify({ scale: 0.7, at: NOW }), JSON.stringify({ tier: 'low', at: NOW }),
+    ]) {
+      expect(readRemembered(store(text), NOW), text).toBeNull();
+    }
+  });
+
+  it('storage that throws, on the read or on the lookup, reads as nothing and never throws', () => {
+    const boom: StorageLike = { getItem: () => { throw new Error('SecurityError'); }, setItem: () => { throw new Error('QuotaExceededError'); } };
+    expect(readRemembered(boom, NOW)).toBeNull();
+    const lying = { getItem: () => 42 } as unknown as StorageLike;
+    expect(readRemembered(lying, NOW)).toBeNull();
+  });
+
+  it('writing stores the tier, the scale and the time under the key, and says whether it did; a storage that throws, or none, says false and never throws', () => {
+    const kept = new Map<string, string>();
+    const ok: StorageLike = { getItem: (k) => kept.get(k) ?? null, setItem: (k, v) => { kept.set(k, v); } };
+    expect(writeRemembered(ok, { tier: 'low', scale: 0.5 }, NOW)).toBe(true);
+    expect(JSON.parse(kept.get(REMEMBER_KEY) as string)).toEqual({ tier: 'low', scale: 0.5, at: NOW });
+    expect(readRemembered(ok, NOW + DAY)).toEqual({ tier: 'low', scale: 0.5 }); // what was written is what is read
+    const boom: StorageLike = { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError'); } };
+    expect(writeRemembered(boom, { tier: 'low', scale: 0.5 }, NOW)).toBe(false);
+    expect(writeRemembered(null, { tier: 'low', scale: 0.5 }, NOW)).toBe(false);
+    expect(writeRemembered(undefined, { tier: 'low', scale: 0.5 }, NOW)).toBe(false);
   });
 });
